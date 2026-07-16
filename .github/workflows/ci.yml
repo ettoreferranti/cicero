@@ -63,13 +63,24 @@ jobs:
   dependency-scan:
     name: Dependency (SCA) scan
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
-      - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          scan-type: fs
-          scan-ref: .
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-          ignore-unfixed: true
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install project + audit tool
+        run: |
+          uv pip install --system -e ".[dev]"
+          uv pip install --system pip-audit
+
+      - name: pip-audit (fail on known vulnerabilities)
+        run: pip-audit --strict --desc

@@ -19,13 +19,15 @@ evidence, hold or change positions, and cooperate.
 
 ## Status
 
-🚧 **Milestone 0 — Foundation & Security baseline (in progress).**
-Architecture approved. The walking skeleton is in place: domain model, SQLite
-persistence, provider abstraction with a deterministic mock provider, chamber
-lifecycle state machine, env-based secret handling, and the full quality gate
-(ruff, mypy strict, pytest, and mutation testing at **100%** on core logic). No
-live LLM calls yet — everything is deterministic and testable. See
-[`docs/backlog.md`](./docs/backlog.md) for milestone progress.
+🚧 **Milestone 1 — First Real Debate (in progress).**
+Architecture approved; Milestone 0 (foundation & security baseline) merged.
+Now landed: **Ollama** and **Anthropic** provider adapters, a **turn-based debate
+engine** (round-robin turns, injection-delimited prompts, hard round/token
+budgets, per-turn resilience), a **hybrid consensus engine** (deterministic
+stance signal + moderator synthesis, with a disagreement fallback), and a
+**FastAPI** API to create chambers, add participants, and run a debate. Fully
+runnable end-to-end with the deterministic mock provider — no keys required.
+See [`docs/backlog.md`](./docs/backlog.md) for milestone progress.
 
 ### Quickstart (backend)
 
@@ -34,7 +36,28 @@ cd backend
 uv venv --python 3.11 .venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 make check      # lint + type-check + tests(+coverage) + mutation gate
+
+# Run the API (localhost only by default)
+uvicorn cicero.api.app:app --reload
 ```
+
+Then, using the mock provider (no external services needed):
+
+```bash
+# Create a chamber
+CID=$(curl -s localhost:8000/chambers -H 'content-type: application/json' \
+  -d '{"topic":"Should we colonise Mars?"}' | python -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+# Add two participants with stances
+curl -s localhost:8000/chambers/$CID/participants -H 'content-type: application/json' \
+  -d '{"display_name":"Ada","provider":"mock","model":"mock-small","stance":"pro"}' >/dev/null
+curl -s localhost:8000/chambers/$CID/participants -H 'content-type: application/json' \
+  -d '{"display_name":"Zeno","provider":"mock","model":"mock-small","stance":"con"}' >/dev/null
+# Run the debate to a consensus / disagreement result
+curl -s localhost:8000/chambers/$CID/run | python -m json.tool
+```
+
+Set `provider` to `ollama` (with a running Ollama server) or `anthropic` (with
+`ANTHROPIC_API_KEY` in your environment) to debate with real models.
 
 ## Documentation
 

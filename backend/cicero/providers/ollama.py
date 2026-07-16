@@ -1,0 +1,83 @@
+"""Ollama provider — talks to a local Ollama server over HTTP (FR-8).
+
+The HTTP client is injectable so tests can run hermetically against a
+``httpx.MockTransport`` with no real network access.
+"""
+
+from __future__ import annotations
+
+from typing import Any, cast
+
+import httpx
+
+from cicero.domain.enums import ProviderType
+from cicero.providers.base import (
+    GenerateOptions,
+    GenerateResult,
+    Message,
+    Provider,
+    ProviderError,
+)
+
+
+class OllamaProvider(Provider):
+    """Generate turns using a local Ollama server (default ``localhost:11434``)."""
+
+    provider_type = ProviderType.OLLAMA
+
+    def __init__(
+        self,
+        host: str = "http://localhost:11434",
+        client: httpx.AsyncClient | None = None,
+        timeout: float = 120.0,
+    ) -> None:
+        self._host = host.rstrip("/")
+        self._client = client or httpx.AsyncClient(timeout=timeout)
+
+    async def generate(
+        self, messages: list[Message], options: GenerateOptions
+    ) -> GenerateResult:
+        payload = {
+            "model": options.model,
+            "messages": [{"role": m.role.value, "content": m.content} for m in messages],
+            "stream": False,
+            "options": {
+                "temperature": options.temperature,
+                "num_predict": options.max_tokens,
+            },
+        }
+        data = await self._post_json("/api/chat", payload)
+        try:
+            content = data["message"]["content"]
+        except (KeyError, TypeError) as exc:
+            raise ProviderError("unexpected Ollama response shape") from exc
+        return GenerateResult(
+            content=content,
+            prompt_tokens=int(data.get("prompt_eval_count", 0)),
+            completion_tokens=int(data.get("eval_count", 0)),
+            metadata={"provider": self.provider_type.value, "model": options.model},
+        )
+
+    async def list_models(self) -> list[str]:
+        data = await self._get_json("/api/tags")
+        return [m["name"] for m in data.get("models", [])]
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def _post_json(self, path: str, payload: dict[str, object]) -> dict[str, Any]:
+        try:
+            response = await self._client.post(f"{self._host}{path}", json=payload)
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+        except httpx.HTTPError as exc:
+            # Do not include headers/payload — avoid leaking anything sensitive.
+            raise ProviderError(f"Ollama request failed: {type(exc).__name__}") from exc
+
+    async def _get_json(self, path: str) -> dict[str, Any]:
+        try:
+            response = await self._client.get(f"{self._host}{path}")
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"Ollama request failed: {type(exc).__name__}") from exc

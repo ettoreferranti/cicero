@@ -5,6 +5,7 @@ adapters (Ollama, Anthropic, Mock) implement it. New providers are added here
 without touching the engine (NFR-M-1).
 """
 
+from cicero.providers.anthropic import AnthropicProvider
 from cicero.providers.base import (
     GenerateOptions,
     GenerateResult,
@@ -13,14 +14,20 @@ from cicero.providers.base import (
     ProviderError,
     Role,
 )
+from cicero.providers.factory import ProviderFactory, SettingsProviderFactory
 from cicero.providers.mock import MockProvider
+from cicero.providers.ollama import OllamaProvider
 
 __all__ = [
+    "AnthropicProvider",
     "GenerateOptions",
     "GenerateResult",
     "Message",
     "MockProvider",
+    "OllamaProvider",
     "Provider",
     "ProviderError",
+    "ProviderFactory",
     "Role",
+    "SettingsProviderFactory",
 ]

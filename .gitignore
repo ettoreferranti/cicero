@@ -1,0 +1,43 @@
+# Secrets & local config — NEVER commit these
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+*.key
+*.pem
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mutmut-cache
+mutants/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+.stryker-tmp/
+
+# Databases (local)
+*.db
+*.sqlite
+*.sqlite3
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

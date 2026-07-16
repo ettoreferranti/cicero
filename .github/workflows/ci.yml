@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Least-privilege token by default.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend — lint, type, test, mutation
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Ruff (lint)
+        run: ruff check .
+
+      - name: Mypy (type check)
+        run: mypy cicero
+
+      - name: Pytest (unit + integration, providers mocked)
+        run: pytest --cov=cicero --cov-report=term-missing
+
+      - name: Mutation testing (quality gate)
+        run: |
+          mutmut run || true
+          python scripts/check_mutation_score.py --min 80
+
+  secret-scan:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependency-scan:
+    name: Dependency (SCA) scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install project + audit tool
+        run: |
+          uv pip install --system -e ".[dev]"
+          # Keep build-time tooling on non-vulnerable versions (PYSEC-2026-3447).
+          uv pip install --system pip-audit "setuptools>=83.0.0"
+
+      - name: pip-audit (fail on known vulnerabilities)
+        run: pip-audit --strict --desc

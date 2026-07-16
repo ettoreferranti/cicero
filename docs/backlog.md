@@ -17,33 +17,33 @@
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| A1 | As an operator, I have a repo scaffold (backend/frontend layout, package config, formatting/lint/type-check) so contributions are consistent. | NFR-M-3, NFR-Q-4 | M | 3 | todo |
-| A2 | As a security-conscious owner, all secrets load from env/untracked config and `.env`/secrets are git-ignored, so nothing sensitive is committed. | NFR-SEC-1/2/3 | M | 2 | todo |
-| A3 | As an operator, CI runs lint, type-check, tests, secret scanning, and dependency (SCA) scanning on every push. | NFR-Q-1/4, NFR-SEC-1/7 | M | 5 | todo |
-| A4 | As a developer, mutation testing is wired up with a configured threshold on core modules and runs in CI. | NFR-Q-2 | M | 5 | todo |
-| A5 | As a maintainer, `SECURITY.md`, threat model, and a CONTRIBUTING guide exist. | NFR-SEC-10, NFR-M-2 | M | 2 | todo |
-| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | todo |
+| A1 | As an operator, I have a repo scaffold (backend/frontend layout, package config, formatting/lint/type-check) so contributions are consistent. | NFR-M-3, NFR-Q-4 | M | 3 | ✅ done |
+| A2 | As a security-conscious owner, all secrets load from env/untracked config and `.env`/secrets are git-ignored, so nothing sensitive is committed. | NFR-SEC-1/2/3 | M | 2 | ✅ done |
+| A3 | As an operator, CI runs lint, type-check, tests, secret scanning, and dependency (SCA) scanning on every push. | NFR-Q-1/4, NFR-SEC-1/7 | M | 5 | ✅ done |
+| A4 | As a developer, mutation testing is wired up with a configured threshold on core modules and runs in CI. | NFR-Q-2 | M | 5 | ✅ done |
+| A5 | As a maintainer, `SECURITY.md`, threat model, and a CONTRIBUTING guide exist. | NFR-SEC-10, NFR-M-2 | M | 2 | ✅ done |
+| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | 🟡 partial |
 
 ## Epic B — Domain Model & Persistence
 *Goal: the core entities and their storage.*
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| B1 | As a developer, the domain model (Chamber, Topic, Participant, Turn, Round, ConsensusResult) is defined with validation. | FR-1/6/7/17/23 | M | 5 | todo |
-| B2 | As a developer, entities persist to a store (SQLite default) via a repository layer, with migrations. | FR-2/17, NFR-O-3 | M | 5 | todo |
-| B3 | As a developer, the chamber lifecycle state machine (`draft→running→paused→concluded→archived`) is enforced. | FR-4 | S | 3 | todo |
+| B1 | As a developer, the domain model (Chamber, Topic, Participant, Turn, Round, ConsensusResult) is defined with validation. | FR-1/6/7/17/23 | M | 5 | ✅ done |
+| B2 | As a developer, entities persist to a store (SQLite default) via a repository layer, with migrations. | FR-2/17, NFR-O-3 | M | 5 | ✅ done |
+| B3 | As a developer, the chamber lifecycle state machine (`draft→running→paused→concluded→archived`) is enforced. | FR-4 | S | 3 | ✅ done |
 
 ## Epic C — Provider Abstraction
 *Goal: pluggable LLM providers behind one interface.*
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| C1 | As a developer, a `Provider` interface defines `generate()`/streaming, model listing, and capability flags. | FR-10, NFR-M-1 | M | 5 | todo |
+| C1 | As a developer, a `Provider` interface defines `generate()`/streaming, model listing, and capability flags. | FR-10, NFR-M-1 | M | 5 | ✅ done |
 | C2 | As a user, an **Ollama** provider connects to a local Ollama server and generates turns. | FR-8 | M | 5 | todo |
 | C3 | As a user, an **Anthropic** provider generates turns using an env-supplied API key. | FR-9, NFR-SEC-1/3 | M | 5 | todo |
 | C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | todo |
 | C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | todo |
-| C6 | As a developer, a `Mock`/`Stub` provider enables deterministic tests with no live calls. | NFR-Q-1/3 | M | 2 | todo |
+| C6 | As a developer, a `Mock`/`Stub` provider enables deterministic tests with no live calls. | NFR-Q-1/3 | M | 2 | ✅ done |
 
 ## Epic D — Chamber & Participant Management (API)
 *Goal: manage chambers and participants over the API.*
@@ -79,17 +79,15 @@
 | F3 | As a user, if no consensus within budget, I get a Summary of Disagreement (positions, cruxes, open points). | FR-24 | S | 5 | todo |
 | F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | todo |
 
-## Epic G — Evidence / Web Access (opt-in, sandboxed)
-*Goal: participants can cite web evidence — safely. Fenced behind security controls.*
+## Epic G — Evidence / Web Access (opt-in, sandboxed) — **v1 scope (approved D-3)**
+*Goal: participants can cite web evidence — safely. Built behind security controls from the start.*
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| G1 | As a developer, a controlled web-search+fetch tool exists (off by default, per-chamber opt-in). | FR-26/27 | S | 5 | todo |
-| G2 | As a security owner, the tool enforces SSRF protection, allow/deny lists, timeouts, and size/MIME caps. | FR-29, NFR-SEC-4 | M* | 5 | todo |
-| G3 | As a developer, fetched content is sanitised and injection-delimited before entering a prompt. | NFR-SEC-5 | M* | 3 | todo |
-| G4 | As a user, sources used in a turn are recorded as citations and shown in the transcript. | FR-28 | S | 3 | todo |
-
-*\* M when Epic G is in scope; the whole epic may be deferred (see OQ-3).*
+| G1 | As a developer, a controlled web-search+fetch tool exists (off by default, per-chamber opt-in). | FR-26/27 | M | 5 | todo |
+| G2 | As a security owner, the tool enforces SSRF protection, allow/deny lists, timeouts, and size/MIME caps. | FR-29, NFR-SEC-4 | M | 5 | todo |
+| G3 | As a developer, fetched content is sanitised and injection-delimited before entering a prompt. | NFR-SEC-5 | M | 3 | todo |
+| G4 | As a user, sources used in a turn are recorded as citations and shown in the transcript. | FR-28 | M | 3 | todo |
 
 ## Epic H — Review, Export & Observability
 *Goal: make debates reviewable and comparable.*
@@ -124,19 +122,20 @@
 
 ---
 
-## Suggested Milestones
+## Milestones (approved 2026-07-16)
+*Reflects approved decisions: Python+React stack, lightweight web UI, web evidence in v1, hybrid consensus, SQLite.*
 
-### Milestone 0 — Walking Skeleton (Foundation + Security)
+### Milestone 0 — Walking Skeleton (Foundation + Security) ← **in progress**
 Epics **A**, **B1/B2**, **C1/C6**. Deliverable: scaffold, CI (lint/type/test/secret/SCA), mutation testing wired, domain model + persistence, mock provider. *No live LLMs yet — everything testable.*
 
 ### Milestone 1 — First Real Debate (MVP core)
-**C2/C3**, **D1/D2/D5**, **E1/E2/E3/E4**, **F1/F2**. Deliverable: create a chamber, add Ollama + Anthropic participants with stances, run a turn-based debate to a consensus statement — via API/CLI.
+**C2/C3**, **D1/D2/D5**, **E1/E2/E3/E4**, **F1/F2**. Deliverable: create a chamber, add Ollama + Anthropic participants with stances, run a turn-based debate to a consensus statement — via API.
 
 ### Milestone 2 — Usable & Observable
-**E5/E6**, **F3/F4**, **H1/H2/H3**, **I1/I2/I3/I4**, **C4/C5**, **B3**, **D3/D4**. Deliverable: live-streaming UI, controls, disagreement summaries, exports, metrics.
+**E5/E6**, **F3/F4**, **H1/H2/H3**, **I1/I2/I3/I4**, **C4/C5**, **B3**, **D3/D4**. Deliverable: lightweight live-streaming web UI, controls, disagreement summaries, exports, metrics.
 
-### Milestone 3 — Evidence & Hardening
-Epic **G** (if approved), **J1/J2**, **H4**, **E7**, **I5**, **J3**, **J4**. Deliverable: safe web evidence with citations, security hardening, release.
+### Milestone 3 — Web Evidence (v1 feature) & Hardening
+Epic **G** (SSRF-sandboxed web search + fetch + citations), **J1/J2**, **H4**, **E7**, **I5**, **J3**, **J4**. Deliverable: safe web evidence with citations wired into the debate loop, security hardening, release.
 
 ---
 

@@ -19,9 +19,22 @@ evidence, hold or change positions, and cooperate.
 
 ## Status
 
-🚧 **Early stage — requirements & architecture.** The project is currently in
-its planning phase. See the docs below. Application code begins after the
-architecture is approved.
+🚧 **Milestone 0 — Foundation & Security baseline (in progress).**
+Architecture approved. The walking skeleton is in place: domain model, SQLite
+persistence, provider abstraction with a deterministic mock provider, chamber
+lifecycle state machine, env-based secret handling, and the full quality gate
+(ruff, mypy strict, pytest, and mutation testing at **100%** on core logic). No
+live LLM calls yet — everything is deterministic and testable. See
+[`docs/backlog.md`](./docs/backlog.md) for milestone progress.
+
+### Quickstart (backend)
+
+```bash
+cd backend
+uv venv --python 3.11 .venv && source .venv/bin/activate
+uv pip install -e ".[dev]"
+make check      # lint + type-check + tests(+coverage) + mutation gate
+```
 
 ## Documentation
 

@@ -27,20 +27,42 @@
 
 ## 3. Mutation testing (the quality gate)
 - **Backend tool:** `mutmut` (fast, simple). `cosmic-ray` is a fallback if we
-  need finer operator control.
-- **Targeted modules (must meet threshold):**
-  `core/orchestrator`, `core/prompt_builder`, `core/consensus`,
-  `core/state_machine`, `tools/ssrf_guard`, `persistence/repository` logic.
-- **Threshold:** start at **≥ 80%** killed mutants on targeted modules;
-  ratchet upward as the suite matures. The threshold is enforced in CI.
+  need finer operator control. Config lives in `backend/setup.cfg`.
+- **Threshold:** **≥ 80%** killed mutants on the in-scope modules, enforced in CI
+  by `backend/scripts/check_mutation_score.py` (parses `mutmut junitxml`). Ratchet
+  upward as the suite matures.
+- **Current status (Milestone 0):** **100% (52/52 killed)** on the in-scope
+  modules.
 - **Workflow:**
-  1. `mutmut run` over targeted paths.
-  2. CI fails if the killed-ratio on targeted modules drops below threshold.
+  1. `mutmut run` over the in-scope paths.
+  2. `python scripts/check_mutation_score.py --min 80` fails the build if the
+     killed ratio is below threshold.
   3. Surviving mutants are triaged: **kill** (add/strengthen a test) or
-     **justify** (documented equivalent mutant / out-of-scope, recorded in the
-     mutmut config with a reason).
-- **Scope control:** mutation runs are scoped to core paths to keep CI time
-  bounded; a nightly/full run may cover more.
+     **justify** (documented equivalent mutant, recorded here).
+
+### 3.1 Scope: what we mutate, and why
+Mutation testing is only meaningful on **behavioural logic** — code where a
+mutated operator or value produces observably wrong behaviour. Applied to purely
+**declarative** code it generates mostly *equivalent* or trivial mutants (e.g.
+changing a `max_length=512` bound the tests never probe, or a string constant),
+which add CI time and noise without improving real coverage.
+
+We therefore scope the gate to genuine logic and cover the rest with ordinary
+validation unit tests:
+
+| In the mutation gate (behavioural) | Excluded from the gate (declarative) — covered by unit tests |
+|---|---|
+| `core/` (state machine; later: orchestrator, prompt builder, consensus) | `domain/enums.py`, `domain/models.py` — enum values & Pydantic field declarations |
+| `providers/mock.py` | `providers/base.py` — provider interface + request/response DTOs |
+| `persistence/memory.py` | `persistence/repository.py` — abstract interface (all methods overridden → decorator mutants are equivalent) |
+| _(new logic modules as they land)_ | `persistence/sqlalchemy_repo.py` — ORM table/column declarations (bounds/index flags are equivalent under SQLite) |
+| | `config.py`, `**/__init__.py` — settings & re-exports |
+
+As behavioural modules are added (Milestone 1+: orchestrator, consensus engine,
+prompt builder, SSRF guard) they are added to `paths_to_mutate` in `setup.cfg`.
+The excluded declarative modules are still validated: `tests/test_domain_models.py`
+pins the constraints that matter (min-lengths, ranges, defaults, `extra=forbid`),
+and `tests/test_config.py` pins secret hygiene.
 
 ## 4. Determinism
 - Time, randomness, IDs, and provider responses are injected/fakeable.

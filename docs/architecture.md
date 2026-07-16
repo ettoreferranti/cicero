@@ -1,9 +1,8 @@
-# Cicero — Architecture Proposal
+# Cicero — Architecture
 
-> **Status:** Proposed v0.1 — **awaiting approval.**
-> This document proposes *how* Cicero is built to satisfy
-> [`requirements.md`](./requirements.md). Nothing here is final until approved;
-> open decisions are called out in §10.
+> **Status:** **Approved v1.0** (2026-07-16).
+> This document describes *how* Cicero is built to satisfy
+> [`requirements.md`](./requirements.md). Approved decisions are recorded in §10.
 
 ---
 
@@ -274,15 +273,19 @@ cicero/
 └── docker-compose.yml     # optional
 ```
 
-## 10. Decisions needing your approval
-- **D-1 Stack:** Python/FastAPI backend + React/TS frontend (recommended) vs.
-  an all-TypeScript stack (Node/Nest + React) vs. API+CLI first (defer UI).
-- **D-2 Consensus:** hybrid (recommended) vs. pure moderator-LLM vs. pure
-  rule-based.
-- **D-3 Web evidence (Epic G):** include in v1 behind the sandbox vs. defer to
-  Milestone 3 (recommended: build the safe skeleton early, enable later).
-- **D-4 Persistence:** SQLite default (recommended) vs. Postgres from day one.
-- **D-5 UI depth for v1:** full SPA vs. lightweight UI vs. API/CLI-first.
+## 10. Approved decisions (2026-07-16)
+- **D-1 Stack:** ✅ **Python 3.12 / FastAPI backend + React/TypeScript frontend.**
+- **D-2 Consensus:** ✅ **Hybrid** — deterministic stance-stability signal + LLM
+  moderator synthesis + participant ratification, with a Disagreement Summary
+  fallback (see §6).
+- **D-3 Web evidence (Epic G):** ✅ **Full feature in v1.** Working web
+  search + fetch with citations is in scope for the first release, built behind
+  the SSRF-sandbox from the start (§7). Off by default, per-chamber opt-in.
+- **D-4 Persistence:** ✅ **SQLite default** via SQLAlchemy; Postgres via config
+  later.
+- **D-5 UI depth:** ✅ **Lightweight web UI** — compose a chamber, add
+  participants, watch the debate stream live, view/export the result.
 
-Once these are approved (or amended), Milestone 0 (Foundation & Security
-baseline) begins.
+Implementation proceeds per the (revised) milestones in
+[`backlog.md`](./backlog.md), starting with Milestone 0 — Foundation & Security
+baseline.

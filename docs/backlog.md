@@ -1,0 +1,149 @@
+# Cicero — Product Backlog
+
+> **Status:** Draft v0.1. Derived from [`requirements.md`](./requirements.md).
+> Priority uses MoSCoW. Estimates are relative story points (Fibonacci).
+> Stories are grouped into epics and sequenced into milestones. Traceability
+> (`FR-*` / `NFR-*`) links each story back to a requirement.
+
+## Legend
+- **Priority:** M = Must, S = Should, C = Could, W = Won't (this release)
+- **Est:** relative story points (1, 2, 3, 5, 8, 13)
+- **Status:** `todo` (default). Updated as work progresses.
+
+---
+
+## Epic A — Project Foundation & Security Baseline
+*Goal: a safe, testable skeleton before any feature code. Security-first because the repo is public.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| A1 | As an operator, I have a repo scaffold (backend/frontend layout, package config, formatting/lint/type-check) so contributions are consistent. | NFR-M-3, NFR-Q-4 | M | 3 | todo |
+| A2 | As a security-conscious owner, all secrets load from env/untracked config and `.env`/secrets are git-ignored, so nothing sensitive is committed. | NFR-SEC-1/2/3 | M | 2 | todo |
+| A3 | As an operator, CI runs lint, type-check, tests, secret scanning, and dependency (SCA) scanning on every push. | NFR-Q-1/4, NFR-SEC-1/7 | M | 5 | todo |
+| A4 | As a developer, mutation testing is wired up with a configured threshold on core modules and runs in CI. | NFR-Q-2 | M | 5 | todo |
+| A5 | As a maintainer, `SECURITY.md`, threat model, and a CONTRIBUTING guide exist. | NFR-SEC-10, NFR-M-2 | M | 2 | todo |
+| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | todo |
+
+## Epic B — Domain Model & Persistence
+*Goal: the core entities and their storage.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| B1 | As a developer, the domain model (Chamber, Topic, Participant, Turn, Round, ConsensusResult) is defined with validation. | FR-1/6/7/17/23 | M | 5 | todo |
+| B2 | As a developer, entities persist to a store (SQLite default) via a repository layer, with migrations. | FR-2/17, NFR-O-3 | M | 5 | todo |
+| B3 | As a developer, the chamber lifecycle state machine (`draft→running→paused→concluded→archived`) is enforced. | FR-4 | S | 3 | todo |
+
+## Epic C — Provider Abstraction
+*Goal: pluggable LLM providers behind one interface.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| C1 | As a developer, a `Provider` interface defines `generate()`/streaming, model listing, and capability flags. | FR-10, NFR-M-1 | M | 5 | todo |
+| C2 | As a user, an **Ollama** provider connects to a local Ollama server and generates turns. | FR-8 | M | 5 | todo |
+| C3 | As a user, an **Anthropic** provider generates turns using an env-supplied API key. | FR-9, NFR-SEC-1/3 | M | 5 | todo |
+| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | todo |
+| C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | todo |
+| C6 | As a developer, a `Mock`/`Stub` provider enables deterministic tests with no live calls. | NFR-Q-1/3 | M | 2 | todo |
+
+## Epic D — Chamber & Participant Management (API)
+*Goal: manage chambers and participants over the API.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| D1 | As a user, I can create/list/view/delete chambers with topic, category, and description. | FR-1/2 | M | 3 | todo |
+| D2 | As a user, I can add participants with provider, model, name, and stance (default `neutral`). | FR-6/7 | M | 3 | todo |
+| D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | todo |
+| D4 | As a user, I can edit a chamber while `draft` and remove/mute participants. | FR-3/13 | S | 3 | todo |
+| D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | todo |
+
+## Epic E — Debate Engine (turn-based group chat)
+*Goal: the core orchestration loop.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| E1 | As a user, participants debate in turns (round-robin), each seeing the shared transcript and arguing per stance. | FR-14/15/20 | M | 8 | todo |
+| E2 | As a developer, prompt construction injects topic, stance, persona, transcript window, and rules, with clear delimiting of untrusted content. | FR-15, NFR-SEC-5 | M | 5 | todo |
+| E3 | As a user, stop conditions (max rounds / token / time budget) end the debate safely. | FR-16, NFR-SEC-8 | M | 3 | todo |
+| E4 | As a user, every turn is persisted with metadata (participant, timestamp, tokens, tools). | FR-17 | M | 3 | todo |
+| E5 | As a user, I can start, pause, resume, step, and stop a debate. | FR-19 | S | 5 | todo |
+| E6 | As a user, turns stream live as they generate. | FR-18, NFR-R-2 | S | 5 | todo |
+| E7 | As an observer, I can inject a moderator note between turns. | FR-21 | C | 3 | todo |
+
+## Epic F — Consensus
+*Goal: converge and produce the final artifact.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| F1 | As a developer, a consensus detector decides convergence (hybrid: stance-stability signal + moderator-LLM check). | FR-22, OQ-1 | M | 8 | todo |
+| F2 | As a user, on convergence the chamber produces a Consensus Statement plus each participant's final stance/agreement. | FR-23 | M | 5 | todo |
+| F3 | As a user, if no consensus within budget, I get a Summary of Disagreement (positions, cruxes, open points). | FR-24 | S | 5 | todo |
+| F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | todo |
+
+## Epic G — Evidence / Web Access (opt-in, sandboxed)
+*Goal: participants can cite web evidence — safely. Fenced behind security controls.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| G1 | As a developer, a controlled web-search+fetch tool exists (off by default, per-chamber opt-in). | FR-26/27 | S | 5 | todo |
+| G2 | As a security owner, the tool enforces SSRF protection, allow/deny lists, timeouts, and size/MIME caps. | FR-29, NFR-SEC-4 | M* | 5 | todo |
+| G3 | As a developer, fetched content is sanitised and injection-delimited before entering a prompt. | NFR-SEC-5 | M* | 3 | todo |
+| G4 | As a user, sources used in a turn are recorded as citations and shown in the transcript. | FR-28 | S | 3 | todo |
+
+*\* M when Epic G is in scope; the whole epic may be deferred (see OQ-3).*
+
+## Epic H — Review, Export & Observability
+*Goal: make debates reviewable and comparable.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| H1 | As a user, I can read a full transcript with per-turn metadata and citations. | FR-30 | S | 3 | todo |
+| H2 | As a user, I can export a chamber to JSON and Markdown. | FR-31 | S | 3 | todo |
+| H3 | As an evaluator, I can see token/cost/latency metrics per participant and chamber. | FR-33 | S | 3 | todo |
+| H4 | As an evaluator, I can compare two runs of the same topic. | FR-32 | C | 5 | todo |
+
+## Epic I — User Interface
+*Goal: a usable UI to compose and watch debates.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| I1 | As a user, I can create chambers and add participants from a UI. | FR-1/6/7, NFR-U-1 | S | 5 | todo |
+| I2 | As a user, I can watch a debate stream live and use start/pause/step/stop controls. | FR-18/19 | S | 5 | todo |
+| I3 | As a user, I can view the consensus/disagreement result and export it. | FR-23/24/31 | S | 3 | todo |
+| I4 | As a developer, all model/web-derived content is rendered safely (no XSS). | NFR-SEC-6 | M | 3 | todo |
+| I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | todo |
+
+## Epic J — Hardening & Release
+*Goal: production-readiness for self-hosting.*
+
+| ID | Story | FR/NFR | Pri | Est | Status |
+|----|-------|--------|-----|-----|--------|
+| J1 | As an operator, security headers, CORS, and (optional) authn/authz are in place before non-localhost use. | NFR-SEC-9 | S | 5 | todo |
+| J2 | As an operator, rate limiting and resource budgets prevent runaway cost/loops. | NFR-SEC-8 | S | 3 | todo |
+| J3 | As an operator, debates can resume after a restart. | NFR-R-3 | C | 5 | todo |
+| J4 | As a maintainer, all docs are verified in sync at release; end-to-end demo passes. | NFR-M-2, §9 | M | 3 | todo |
+
+---
+
+## Suggested Milestones
+
+### Milestone 0 — Walking Skeleton (Foundation + Security)
+Epics **A**, **B1/B2**, **C1/C6**. Deliverable: scaffold, CI (lint/type/test/secret/SCA), mutation testing wired, domain model + persistence, mock provider. *No live LLMs yet — everything testable.*
+
+### Milestone 1 — First Real Debate (MVP core)
+**C2/C3**, **D1/D2/D5**, **E1/E2/E3/E4**, **F1/F2**. Deliverable: create a chamber, add Ollama + Anthropic participants with stances, run a turn-based debate to a consensus statement — via API/CLI.
+
+### Milestone 2 — Usable & Observable
+**E5/E6**, **F3/F4**, **H1/H2/H3**, **I1/I2/I3/I4**, **C4/C5**, **B3**, **D3/D4**. Deliverable: live-streaming UI, controls, disagreement summaries, exports, metrics.
+
+### Milestone 3 — Evidence & Hardening
+Epic **G** (if approved), **J1/J2**, **H4**, **E7**, **I5**, **J3**, **J4**. Deliverable: safe web evidence with citations, security hardening, release.
+
+---
+
+## Cross-cutting "Definition of Done" (every story)
+1. Code + tests (unit/integration) with providers mocked.
+2. Mutation score on touched core logic meets threshold (or justified exclusion).
+3. Lint/type-check/format clean; secret & dependency scans pass.
+4. No secrets/PII added; untrusted content handled safely.
+5. Relevant docs (requirements/architecture/testing/security/README) updated.
+6. Traceability link (`FR-*`/`NFR-*`) recorded.

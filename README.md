@@ -52,8 +52,8 @@ curl -s localhost:8000/chambers/$CID/participants -H 'content-type: application/
   -d '{"display_name":"Ada","provider":"mock","model":"mock-small","stance":"pro"}' >/dev/null
 curl -s localhost:8000/chambers/$CID/participants -H 'content-type: application/json' \
   -d '{"display_name":"Zeno","provider":"mock","model":"mock-small","stance":"con"}' >/dev/null
-# Run the debate to a consensus / disagreement result
-curl -s localhost:8000/chambers/$CID/run | python -m json.tool
+# Run the debate to a consensus / disagreement result (note: POST)
+curl -s -X POST localhost:8000/chambers/$CID/run | python -m json.tool
 ```
 
 Set `provider` to `ollama` (with a running Ollama server) or `anthropic` (with

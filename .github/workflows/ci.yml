@@ -80,7 +80,8 @@ jobs:
       - name: Install project + audit tool
         run: |
           uv pip install --system -e ".[dev]"
-          uv pip install --system pip-audit
+          # Keep build-time tooling on non-vulnerable versions (PYSEC-2026-3447).
+          uv pip install --system pip-audit "setuptools>=83.0.0"
 
       - name: pip-audit (fail on known vulnerabilities)
         run: pip-audit --strict --desc

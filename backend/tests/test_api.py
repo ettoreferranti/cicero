@@ -47,7 +47,21 @@ def test_security_headers_present(client: TestClient) -> None:
     headers = client.get("/health").headers
     assert headers["X-Content-Type-Options"] == "nosniff"
     assert headers["X-Frame-Options"] == "DENY"
-    assert "default-src 'none'" in headers["Content-Security-Policy"]
+    # Data endpoints keep the strict, locked-down policy.
+    assert headers["Content-Security-Policy"] == "default-src 'none'; frame-ancestors 'none'"
+
+
+def test_docs_ui_served_with_scoped_csp(client: TestClient) -> None:
+    # The blank-docs bug: a strict CSP on /docs blocks Swagger UI's assets.
+    resp = client.get("/docs")
+    assert resp.status_code == 200
+    csp = resp.headers["Content-Security-Policy"]
+    assert "cdn.jsdelivr.net" in csp  # Swagger UI assets are permitted here
+    assert "default-src 'none'" not in csp
+
+
+def test_openapi_schema_available(client: TestClient) -> None:
+    assert client.get("/openapi.json").status_code == 200
 
 
 def test_create_list_get_delete_chamber(client: TestClient) -> None:

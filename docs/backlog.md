@@ -39,10 +39,10 @@
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
 | C1 | As a developer, a `Provider` interface defines `generate()`/streaming, model listing, and capability flags. | FR-10, NFR-M-1 | M | 5 | ✅ done |
-| C2 | As a user, an **Ollama** provider connects to a local Ollama server and generates turns. | FR-8 | M | 5 | todo |
-| C3 | As a user, an **Anthropic** provider generates turns using an env-supplied API key. | FR-9, NFR-SEC-1/3 | M | 5 | todo |
-| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | todo |
-| C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | todo |
+| C2 | As a user, an **Ollama** provider connects to a local Ollama server and generates turns. | FR-8 | M | 5 | ✅ done |
+| C3 | As a user, an **Anthropic** provider generates turns using an env-supplied API key. | FR-9, NFR-SEC-1/3 | M | 5 | ✅ done |
+| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | 🟡 partial — UI model selector lists the provider's live models (`GET /providers/{p}/models`); server-side validation on add still todo |
+| C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | 🟡 partial |
 | C6 | As a developer, a `Mock`/`Stub` provider enables deterministic tests with no live calls. | NFR-Q-1/3 | M | 2 | ✅ done |
 
 ## Epic D — Chamber & Participant Management (API)
@@ -50,23 +50,23 @@
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| D1 | As a user, I can create/list/view/delete chambers with topic, category, and description. | FR-1/2 | M | 3 | todo |
-| D2 | As a user, I can add participants with provider, model, name, and stance (default `neutral`). | FR-6/7 | M | 3 | todo |
+| D1 | As a user, I can create/list/view/delete chambers with topic, category, and description. | FR-1/2 | M | 3 | ✅ done |
+| D2 | As a user, I can add participants with provider, model, name, and stance (default `neutral`). | FR-6/7 | M | 3 | ✅ done |
 | D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | todo |
 | D4 | As a user, I can edit a chamber while `draft` and remove/mute participants. | FR-3/13 | S | 3 | todo |
-| D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | todo |
+| D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
 
 ## Epic E — Debate Engine (turn-based group chat)
 *Goal: the core orchestration loop.*
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| E1 | As a user, participants debate in turns (round-robin), each seeing the shared transcript and arguing per stance. | FR-14/15/20 | M | 8 | todo |
-| E2 | As a developer, prompt construction injects topic, stance, persona, transcript window, and rules, with clear delimiting of untrusted content. | FR-15, NFR-SEC-5 | M | 5 | todo |
-| E3 | As a user, stop conditions (max rounds / token / time budget) end the debate safely. | FR-16, NFR-SEC-8 | M | 3 | todo |
-| E4 | As a user, every turn is persisted with metadata (participant, timestamp, tokens, tools). | FR-17 | M | 3 | todo |
-| E5 | As a user, I can start, pause, resume, step, and stop a debate. | FR-19 | S | 5 | todo |
-| E6 | As a user, turns stream live as they generate. | FR-18, NFR-R-2 | S | 5 | todo |
+| E1 | As a user, participants debate in turns (round-robin), each seeing the shared transcript and arguing per stance. | FR-14/15/20 | M | 8 | ✅ done |
+| E2 | As a developer, prompt construction injects topic, stance, persona, transcript window, and rules, with clear delimiting of untrusted content. | FR-15, NFR-SEC-5 | M | 5 | ✅ done |
+| E3 | As a user, stop conditions (max rounds / token / time budget) end the debate safely. | FR-16, NFR-SEC-8 | M | 3 | ✅ done |
+| E4 | As a user, every turn is persisted with metadata (participant, timestamp, tokens, tools). | FR-17 | M | 3 | ✅ done |
+| E5 | As a user, I can start, pause, resume, step, and stop a debate. | FR-19 | S | 5 | 🟡 partial |
+| E6 | As a user, turns stream live as they generate. | FR-18, NFR-R-2 | S | 5 | ✅ done |
 | E7 | As an observer, I can inject a moderator note between turns. | FR-21 | C | 3 | todo |
 
 ## Epic F — Consensus
@@ -74,9 +74,9 @@
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| F1 | As a developer, a consensus detector decides convergence (hybrid: stance-stability signal + moderator-LLM check). | FR-22, OQ-1 | M | 8 | todo |
-| F2 | As a user, on convergence the chamber produces a Consensus Statement plus each participant's final stance/agreement. | FR-23 | M | 5 | todo |
-| F3 | As a user, if no consensus within budget, I get a Summary of Disagreement (positions, cruxes, open points). | FR-24 | S | 5 | todo |
+| F1 | As a developer, a consensus detector decides convergence (hybrid: stance-stability signal + moderator-LLM check). | FR-22, OQ-1 | M | 8 | ✅ done |
+| F2 | As a user, on convergence the chamber produces a Consensus Statement plus each participant's final stance/agreement. | FR-23 | M | 5 | ✅ done |
+| F3 | As a user, if no consensus within budget, I get a Summary of Disagreement (positions, cruxes, open points). | FR-24 | S | 5 | ✅ done |
 | F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | todo |
 
 ## Epic G — Evidence / Web Access (opt-in, sandboxed) — **v1 scope (approved D-3)**
@@ -94,9 +94,9 @@
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| H1 | As a user, I can read a full transcript with per-turn metadata and citations. | FR-30 | S | 3 | todo |
-| H2 | As a user, I can export a chamber to JSON and Markdown. | FR-31 | S | 3 | todo |
-| H3 | As an evaluator, I can see token/cost/latency metrics per participant and chamber. | FR-33 | S | 3 | todo |
+| H1 | As a user, I can read a full transcript with per-turn metadata and citations. | FR-30 | S | 3 | ✅ done |
+| H2 | As a user, I can export a chamber to JSON and Markdown. | FR-31 | S | 3 | ✅ done |
+| H3 | As an evaluator, I can see token/cost/latency metrics per participant and chamber. | FR-33 | S | 3 | ✅ done |
 | H4 | As an evaluator, I can compare two runs of the same topic. | FR-32 | C | 5 | todo |
 
 ## Epic I — User Interface
@@ -104,10 +104,10 @@
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| I1 | As a user, I can create chambers and add participants from a UI. | FR-1/6/7, NFR-U-1 | S | 5 | todo |
-| I2 | As a user, I can watch a debate stream live and use start/pause/step/stop controls. | FR-18/19 | S | 5 | todo |
-| I3 | As a user, I can view the consensus/disagreement result and export it. | FR-23/24/31 | S | 3 | todo |
-| I4 | As a developer, all model/web-derived content is rendered safely (no XSS). | NFR-SEC-6 | M | 3 | todo |
+| I1 | As a user, I can create chambers and add participants from a UI. | FR-1/6/7, NFR-U-1 | S | 5 | ✅ done |
+| I2 | As a user, I can watch a debate stream live and use start/pause/step/stop controls. | FR-18/19 | S | 5 | 🟡 partial |
+| I3 | As a user, I can view the consensus/disagreement result and export it. | FR-23/24/31 | S | 3 | ✅ done |
+| I4 | As a developer, all model/web-derived content is rendered safely (no XSS). | NFR-SEC-6 | M | 3 | ✅ done |
 | I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | todo |
 
 ## Epic J — Hardening & Release

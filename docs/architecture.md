@@ -25,7 +25,7 @@
 | **API framework** | **FastAPI** + Uvicorn | Async, typed (Pydantic) request/response, built-in OpenAPI, native WebSocket/SSE for live streaming. |
 | **Data validation** | **Pydantic v2** | Shared models across API, engine, persistence; strong input validation (NFR-SEC-6). |
 | **Persistence** | **SQLite** (default) via **SQLAlchemy 2.0** + **Alembic** migrations | Zero-setup local default; swap to Postgres via config with no code change. |
-| **Async LLM calls** | `httpx` (Ollama), official **anthropic** SDK | Timeouts, retries, streaming. |
+| **Async LLM calls** | **`httpx`** for both Ollama and Anthropic (Messages API) | One async HTTP dependency; injectable client makes providers hermetically testable via `httpx.MockTransport` (no network in CI). The Anthropic SDK can replace the adapter later without touching the engine. |
 | **Frontend** | **React + TypeScript + Vite** | Live transcript streaming, componentised UI; strong mutation testing via **StrykerJS**. |
 | **Mutation testing** | **`mutmut`** (Python core) + **StrykerJS** (frontend) | Enforced quality gate on core logic (NFR-Q-2). |
 | **Unit/integration tests** | **pytest** (+ `pytest-asyncio`), **Vitest** (frontend) | Deterministic, provider-mocked. |
@@ -289,3 +289,29 @@ cicero/
 Implementation proceeds per the (revised) milestones in
 [`backlog.md`](./backlog.md), starting with Milestone 0 — Foundation & Security
 baseline.
+
+## 11. Live streaming & the web UI (Milestone 2)
+
+The synchronous `run` of Milestone 1 is complemented by a background execution +
+streaming path:
+
+- **`api/debate_manager.py`** runs a debate as an asyncio task. The engine's
+  injected `TurnListener` hook publishes each turn — plus status, consensus,
+  error, and done events — to a per-chamber pub/sub. Events are retained so a
+  client that connects mid-debate replays what it missed.
+- **`api/events.py`** defines the event model and its **Server-Sent Events**
+  (SSE) wire format.
+- The API exposes: `POST /chambers/{id}/run` (async by default → 202; `?wait=true`
+  runs synchronously), `GET /chambers/{id}/events` (SSE stream, FR-18),
+  `POST /chambers/{id}/stop` (FR-19), `GET /chambers/{id}/export?format=…` (FR-31),
+  and `GET /chambers/{id}/metrics` (FR-33).
+- **Frontend** (`frontend/`, React + TypeScript + Vite): a lightweight SPA whose
+  `EventSource` consumes the SSE stream. Model/transcript text is rendered as
+  React text nodes (auto-escaped) — no `innerHTML` of untrusted content, so
+  model/web output cannot inject scripts (NFR-SEC-6, I4). Pure presentation logic
+  (`src/format.ts`) and the API client (`src/api.ts`) are unit-tested (Vitest)
+  and are the frontend mutation-testing targets.
+
+SSE (one-directional server→client) is chosen over WebSockets because debate
+streaming is a pure fan-out of events; there is no client→server channel to
+justify a bidirectional socket.

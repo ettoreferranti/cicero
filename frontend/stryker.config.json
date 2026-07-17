@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Frontend mutation testing (NFR-Q-2). Scoped to pure logic; run with `npm run mutation`. Requires @stryker-mutator/core + @stryker-mutator/vitest-runner (installed separately when running the frontend mutation gate).",
+  "testRunner": "vitest",
+  "reporters": ["progress", "clear-text"],
+  "coverageAnalysis": "perTest",
+  "mutate": ["src/format.ts", "src/api.ts"],
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": 80
+  }
+}

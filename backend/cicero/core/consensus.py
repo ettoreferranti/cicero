@@ -1,0 +1,92 @@
+"""Hybrid consensus: deterministic stance signal + moderator synthesis (§6, FR-22/23/24).
+
+- A cheap, deterministic **stance parse** turns each participant's self-report
+  into a :class:`Stance`.
+- ``is_consensus`` is a pure rule over those stances.
+- The **moderator** (an injected provider) drafts the final Consensus Statement
+  or Summary of Disagreement.
+
+The pure parts (``parse_stance``, ``is_consensus``) are in the mutation-testing
+gate; the provider-driven parts are covered by tests with mock providers.
+"""
+
+from __future__ import annotations
+
+from cicero.core.prompt_builder import (
+    build_moderator_messages,
+    build_stance_poll_messages,
+)
+from cicero.core.prompts import EMPTY_MODERATOR_STATEMENT
+from cicero.domain.enums import ConsensusOutcome, Stance
+from cicero.domain.models import Chamber, ConsensusResult
+from cicero.providers.base import GenerateOptions, Provider, ProviderError
+from cicero.providers.factory import ProviderFactory
+
+# Longest-first so "neutral" is matched before a substring could shadow it.
+_STANCE_KEYWORDS: tuple[tuple[str, Stance], ...] = (
+    ("neutral", Stance.NEUTRAL),
+    ("con", Stance.CON),
+    ("pro", Stance.PRO),
+)
+
+
+def parse_stance(text: str) -> Stance | None:
+    """Extract a stance from a free-text self-report, or ``None`` if unclear."""
+    lowered = text.lower()
+    found: tuple[int, Stance] | None = None
+    for keyword, stance in _STANCE_KEYWORDS:
+        index = lowered.find(keyword)
+        if index != -1 and (found is None or index < found[0]):
+            found = (index, stance)
+    return found[1] if found is not None else None
+
+
+def is_consensus(stances: dict[str, Stance]) -> bool:
+    """True when every participant reports the same stance (and there is at least one)."""
+    if not stances:
+        return False
+    return len(set(stances.values())) == 1
+
+
+class ConsensusEngine:
+    """Polls stances and produces the terminal consensus artifact."""
+
+    def __init__(
+        self,
+        provider_factory: ProviderFactory,
+        moderator: Provider,
+        moderator_options: GenerateOptions,
+    ) -> None:
+        self._factory = provider_factory
+        self._moderator = moderator
+        self._moderator_options = moderator_options
+
+    async def poll_stances(self, chamber: Chamber) -> dict[str, Stance]:
+        """Ask each participant for its current stance; fall back to the last known."""
+        stances: dict[str, Stance] = {}
+        for participant in chamber.participants:
+            provider = self._factory.get(participant)
+            messages = build_stance_poll_messages(chamber, participant)
+            options = GenerateOptions(model=participant.model, max_tokens=8, temperature=0.0)
+            try:
+                result = await provider.generate(messages, options)
+                parsed = parse_stance(result.content)
+            except ProviderError:
+                parsed = None
+            stances[str(participant.id)] = parsed if parsed is not None else participant.stance
+        return stances
+
+    async def finalize(
+        self, chamber: Chamber, stances: dict[str, Stance]
+    ) -> ConsensusResult:
+        """Draft the Consensus Statement or Summary of Disagreement."""
+        consensus = is_consensus(stances)
+        messages = build_moderator_messages(chamber, stances, consensus)
+        result = await self._moderator.generate(messages, self._moderator_options)
+        statement = result.content.strip() or EMPTY_MODERATOR_STATEMENT
+        outcome = ConsensusOutcome.CONSENSUS if consensus else ConsensusOutcome.DISAGREEMENT
+        return ConsensusResult(
+            outcome=outcome,
+            statement=statement,
+            final_stances=dict(stances),
+        )

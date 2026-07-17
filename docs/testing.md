@@ -63,8 +63,13 @@ validation unit tests:
 | `core/orchestrator.py` — the debate loop | `providers/factory.py` — provider construction/wiring |
 | `providers/mock.py` | `persistence/repository.py` — abstract interface (overridden → decorator mutants equivalent) |
 | `persistence/memory.py` | `persistence/sqlalchemy_repo.py` — ORM table/column declarations (equivalent under SQLite) |
-| _(new logic modules as they land)_ | `api/*` — HTTP layer (tested via FastAPI `TestClient`) |
-| | `config.py`, `**/__init__.py` — settings & re-exports |
+| `core/metrics.py` — per-participant aggregation | `api/*` — HTTP layer + SSE transport (tested via FastAPI `TestClient` and the async `DebateManager` tests) |
+| `core/export.py` — Markdown/JSON rendering | `config.py`, `**/__init__.py` — settings & re-exports |
+| _(new logic modules as they land)_ | |
+
+> **Note:** mutmut only mutates **git-tracked** files, so new modules must be
+> committed (or staged) before they enter the gate. CI runs on committed code, so
+> it always includes them.
 
 **Why `prompt_builder` is split from `prompts`.** Prompt wording is prose:
 mutating it produces mostly equivalent/low-value mutants. So the *text* lives in
@@ -81,6 +86,17 @@ provider adapters have hermetic HTTP tests, and the API has `TestClient` tests.
 - Time, randomness, IDs, and provider responses are injected/fakeable.
 - `MockProvider` returns scripted, deterministic turns so consensus and
   stop-condition logic are tested exactly.
+
+## 4a. Frontend testing (Milestone 2+)
+The React/TypeScript UI (`frontend/`) has its own gates:
+- **Type-check** (`tsc --noEmit`, strict) and **lint** (`eslint`).
+- **Unit tests** (`vitest`, jsdom): pure presentation logic (`src/format.ts`) and
+  the API client (`src/api.ts`, with `fetch` mocked). No network; `EventSource`
+  is guarded so it never runs under tests.
+- **Mutation testing**: a **StrykerJS** config (`frontend/stryker.config.json`)
+  targets the pure logic (`src/format.ts`, `src/api.ts`), run with
+  `npm run mutation`. It is kept out of the default CI job for now to bound CI
+  time; the type-check + lint + vitest gates run in CI.
 
 ## 5. What "done" means for a story (testing view)
 1. New/changed core logic has unit tests.

@@ -289,3 +289,29 @@ cicero/
 Implementation proceeds per the (revised) milestones in
 [`backlog.md`](./backlog.md), starting with Milestone 0 — Foundation & Security
 baseline.
+
+## 11. Live streaming & the web UI (Milestone 2)
+
+The synchronous `run` of Milestone 1 is complemented by a background execution +
+streaming path:
+
+- **`api/debate_manager.py`** runs a debate as an asyncio task. The engine's
+  injected `TurnListener` hook publishes each turn — plus status, consensus,
+  error, and done events — to a per-chamber pub/sub. Events are retained so a
+  client that connects mid-debate replays what it missed.
+- **`api/events.py`** defines the event model and its **Server-Sent Events**
+  (SSE) wire format.
+- The API exposes: `POST /chambers/{id}/run` (async by default → 202; `?wait=true`
+  runs synchronously), `GET /chambers/{id}/events` (SSE stream, FR-18),
+  `POST /chambers/{id}/stop` (FR-19), `GET /chambers/{id}/export?format=…` (FR-31),
+  and `GET /chambers/{id}/metrics` (FR-33).
+- **Frontend** (`frontend/`, React + TypeScript + Vite): a lightweight SPA whose
+  `EventSource` consumes the SSE stream. Model/transcript text is rendered as
+  React text nodes (auto-escaped) — no `innerHTML` of untrusted content, so
+  model/web output cannot inject scripts (NFR-SEC-6, I4). Pure presentation logic
+  (`src/format.ts`) and the API client (`src/api.ts`) are unit-tested (Vitest)
+  and are the frontend mutation-testing targets.
+
+SSE (one-directional server→client) is chosen over WebSockets because debate
+streaming is a pure fan-out of events; there is no client→server channel to
+justify a bidirectional socket.

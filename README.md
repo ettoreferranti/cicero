@@ -19,15 +19,21 @@ evidence, hold or change positions, and cooperate.
 
 ## Status
 
-🚧 **Milestone 1 — First Real Debate (in progress).**
-Architecture approved; Milestone 0 (foundation & security baseline) merged.
-Now landed: **Ollama** and **Anthropic** provider adapters, a **turn-based debate
-engine** (round-robin turns, injection-delimited prompts, hard round/token
-budgets, per-turn resilience), a **hybrid consensus engine** (deterministic
-stance signal + moderator synthesis, with a disagreement fallback), and a
-**FastAPI** API to create chambers, add participants, and run a debate. Fully
-runnable end-to-end with the deterministic mock provider — no keys required.
+🚧 **Milestone 2 — Usable & Observable (in progress).**
+Architecture approved; Milestone 0 (foundation) merged; Milestone 1 (first real
+debate) complete. **Backend:** Ollama + Anthropic adapters, a turn-based debate
+engine (injection-delimited prompts, hard round/token budgets, per-turn
+resilience), a hybrid consensus engine (with disagreement fallback), and a
+FastAPI API that now **runs debates in the background, streams every turn live
+over Server-Sent Events**, supports a **stop** control, and offers **export**
+(JSON/Markdown) and per-participant **metrics**. **Frontend:** a lightweight
+**React + TypeScript** web UI to create chambers, add participants with stances,
+start a debate, watch turns stream in live, and view/export the outcome.
+Fully runnable end-to-end with the deterministic mock provider — no keys required.
 See [`docs/backlog.md`](./docs/backlog.md) for milestone progress.
+
+> Controls note: **start** and **stop** are implemented; pause/resume/step are a
+> planned follow-up. Provider connectivity validation is not yet added.
 
 ### Quickstart (backend)
 
@@ -58,6 +64,22 @@ curl -s -X POST localhost:8000/chambers/$CID/run | python -m json.tool
 
 Set `provider` to `ollama` (with a running Ollama server) or `anthropic` (with
 `ANTHROPIC_API_KEY` in your environment) to debate with real models.
+
+### Quickstart (web UI)
+
+With the backend running on port 8000:
+
+```bash
+cd frontend
+npm install
+npm run dev        # opens http://localhost:5173 (proxies the API to :8000)
+```
+
+Then in the browser: create a chamber, add at least two participants (choose a
+provider + model + stance), and click **Start** — turns stream in live, followed
+by the consensus/disagreement statement, metrics, and JSON/Markdown export links.
+
+Frontend checks: `npm run typecheck`, `npm run lint`, `npm test` (Vitest).
 
 ## Documentation
 

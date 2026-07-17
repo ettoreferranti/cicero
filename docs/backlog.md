@@ -41,7 +41,7 @@
 | C1 | As a developer, a `Provider` interface defines `generate()`/streaming, model listing, and capability flags. | FR-10, NFR-M-1 | M | 5 | ✅ done |
 | C2 | As a user, an **Ollama** provider connects to a local Ollama server and generates turns. | FR-8 | M | 5 | ✅ done |
 | C3 | As a user, an **Anthropic** provider generates turns using an env-supplied API key. | FR-9, NFR-SEC-1/3 | M | 5 | ✅ done |
-| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | todo |
+| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | 🟡 partial — UI model selector lists the provider's live models (`GET /providers/{p}/models`); server-side validation on add still todo |
 | C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | 🟡 partial |
 | C6 | As a developer, a `Mock`/`Stub` provider enables deterministic tests with no live calls. | NFR-Q-1/3 | M | 2 | ✅ done |
 

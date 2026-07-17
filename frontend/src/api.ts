@@ -74,6 +74,13 @@ export function getMetrics(id: string): Promise<ParticipantMetrics[]> {
   return request<ParticipantMetrics[]>(`/chambers/${id}/metrics`);
 }
 
+export async function listModels(provider: Provider): Promise<string[]> {
+  const body = await request<{ provider: string; models: string[] }>(
+    `/providers/${provider}/models`,
+  );
+  return body.models;
+}
+
 export function eventsUrl(id: string): string {
   return `/chambers/${id}/events`;
 }

@@ -10,6 +10,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/chambers": "http://127.0.0.1:8000",
+      "/providers": "http://127.0.0.1:8000",
       "/health": "http://127.0.0.1:8000",
     },
   },

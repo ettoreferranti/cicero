@@ -24,8 +24,31 @@ export function ChamberDetail({
   const [provider, setProvider] = useState<Provider>("mock");
   const [model, setModel] = useState("mock-small");
   const [stance, setStance] = useState<Stance>("neutral");
+  // Models available from the selected provider (e.g. loaded in Ollama).
+  // null = lookup failed/unavailable -> fall back to a free-text field.
+  const [availableModels, setAvailableModels] = useState<string[] | null>(null);
 
   const stream = useDebateStream(chamberId, streaming);
+
+  // Refresh the model choices whenever the provider changes.
+  useEffect(() => {
+    let cancelled = false;
+    setAvailableModels(null);
+    api
+      .listModels(provider)
+      .then((models) => {
+        if (cancelled || models.length === 0) return;
+        setAvailableModels(models);
+        setModel((current) => (models.includes(current) ? current : models[0]));
+      })
+      .catch(() => {
+        // Provider unreachable (e.g. Ollama not running, no API key):
+        // keep the free-text input so the user can still type a model.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [provider]);
 
   const load = useCallback(async () => {
     try {
@@ -140,13 +163,27 @@ export function ChamberDetail({
                 </option>
               ))}
             </select>
-            <input
-              aria-label="model"
-              placeholder="Model"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              required
-            />
+            {availableModels ? (
+              <select
+                aria-label="model"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+              >
+                {availableModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                aria-label="model"
+                placeholder="Model"
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                required
+              />
+            )}
             <select
               aria-label="stance"
               value={stance}

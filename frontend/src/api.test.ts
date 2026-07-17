@@ -6,6 +6,7 @@ import {
   eventsUrl,
   exportUrl,
   listChambers,
+  listModels,
   startDebate,
 } from "./api";
 
@@ -80,5 +81,22 @@ describe("api client", () => {
   it("builds events and export URLs", () => {
     expect(eventsUrl("c1")).toBe("/chambers/c1/events");
     expect(exportUrl("c1", "markdown")).toBe("/chambers/c1/export?format=markdown");
+  });
+
+  it("listModels GETs the provider's models and unwraps the list", async () => {
+    const fetchMock = mockFetch(200, { provider: "ollama", models: ["llama3", "mistral"] });
+    vi.stubGlobal("fetch", fetchMock);
+    const models = await listModels("ollama");
+    expect(fetchMock.mock.calls[0][0]).toBe("/providers/ollama/models");
+    expect(models).toEqual(["llama3", "mistral"]);
+  });
+
+  it("listModels surfaces a 502 as ApiError", async () => {
+    const fetchMock = mockFetch(502, { detail: "Ollama request failed: ConnectError" });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(listModels("ollama")).rejects.toMatchObject({
+      name: "ApiError",
+      status: 502,
+    });
   });
 });

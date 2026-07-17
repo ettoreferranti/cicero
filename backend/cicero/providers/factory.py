@@ -18,9 +18,11 @@ from cicero.providers.ollama import OllamaProvider
 
 
 class ProviderFactory(Protocol):
-    """Resolves a participant to a provider that can generate its turns."""
+    """Resolves a participant (or a provider type) to a provider."""
 
     def get(self, participant: Participant) -> Provider: ...
+
+    def get_for_type(self, provider_type: ProviderType) -> Provider: ...
 
 
 class SettingsProviderFactory:
@@ -31,7 +33,9 @@ class SettingsProviderFactory:
         self._cache: dict[ProviderType, Provider] = {}
 
     def get(self, participant: Participant) -> Provider:
-        provider_type = participant.provider
+        return self.get_for_type(participant.provider)
+
+    def get_for_type(self, provider_type: ProviderType) -> Provider:
         cached = self._cache.get(provider_type)
         if cached is not None:
             return cached

@@ -33,7 +33,10 @@ Fully runnable end-to-end with the deterministic mock provider — no keys requi
 See [`docs/backlog.md`](./docs/backlog.md) for milestone progress.
 
 > Controls note: **start** and **stop** are implemented; pause/resume/step are a
-> planned follow-up. Provider connectivity validation is not yet added.
+> planned follow-up. The participant form's **model selector** lists the models
+> actually available from the chosen provider (e.g. those loaded in your local
+> Ollama, via `GET /providers/{provider}/models`), falling back to free-text when
+> the provider is unreachable. Server-side model validation on add is still todo.
 
 ### Quickstart (backend)
 

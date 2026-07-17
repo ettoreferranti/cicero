@@ -186,3 +186,43 @@ def test_cannot_add_participant_after_run(client: TestClient) -> None:
 
 def test_run_missing_chamber_returns_404(client: TestClient) -> None:
     assert client.post("/chambers/00000000-0000-0000-0000-000000000000/run").status_code == 404
+
+
+def test_list_providers(client: TestClient) -> None:
+    resp = client.get("/providers")
+    assert resp.status_code == 200
+    assert set(resp.json()) == {"mock", "ollama", "anthropic"}
+
+
+def test_list_models_for_provider(client: TestClient) -> None:
+    # The fixture's factory serves a ScriptedProvider for every type.
+    resp = client.get("/providers/mock/models")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider"] == "mock"
+    assert body["models"] == ["scripted"]
+
+
+def test_list_models_unknown_provider_422(client: TestClient) -> None:
+    assert client.get("/providers/nonsense/models").status_code == 422
+
+
+def test_list_models_provider_error_returns_502() -> None:
+    from cicero.domain.enums import ProviderType
+    from cicero.domain.models import Participant
+    from cicero.providers import Provider, ProviderError
+
+    class BrokenFactory:
+        def get(self, participant: Participant) -> Provider:
+            raise ProviderError("unconfigured")
+
+        def get_for_type(self, provider_type: ProviderType) -> Provider:
+            raise ProviderError("Anthropic API key is not configured")
+
+    app = create_app()
+    app.dependency_overrides[get_provider_factory] = lambda: BrokenFactory()
+    with TestClient(app) as broken_client:
+        resp = broken_client.get("/providers/anthropic/models")
+    app.dependency_overrides.clear()
+    assert resp.status_code == 502
+    assert "not configured" in resp.json()["detail"]

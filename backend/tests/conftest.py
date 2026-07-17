@@ -65,6 +65,9 @@ class StubFactory:
     def get(self, participant: Participant) -> Provider:
         return self._providers[participant.id]
 
+    def get_for_type(self, provider_type: ProviderType) -> Provider:
+        return next(iter(self._providers.values()))
+
 
 class ConstantFactory:
     """Provider factory returning the same provider for every participant."""
@@ -73,6 +76,9 @@ class ConstantFactory:
         self._provider = provider
 
     def get(self, participant: Participant) -> Provider:
+        return self._provider
+
+    def get_for_type(self, provider_type: ProviderType) -> Provider:
         return self._provider
 
 

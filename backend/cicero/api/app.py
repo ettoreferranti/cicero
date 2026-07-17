@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from cicero.api.routers import chambers
+from cicero.api.routers import chambers, providers
 from cicero.config import Settings, get_settings
 
 # The JSON API serves no active content, so forbid everything.
@@ -56,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(chambers.router)
+    app.include_router(providers.router)
     return app
 
 

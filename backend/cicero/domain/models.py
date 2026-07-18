@@ -10,11 +10,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cicero.domain.enums import (
     ChamberStatus,
     ConsensusOutcome,
+    DecisionRule,
     ProviderType,
     Stance,
 )
@@ -53,6 +54,31 @@ class ParticipantTuning(_Base):
     style: str = Field(default="", max_length=500)
 
 
+class DebateSettings(_Base):
+    """Per-chamber debate tuning (FR-16, FR-11) — how long it runs and how it ends.
+
+    Hard caps here bound every run (NFR-SEC-8); the API only accepts values in
+    these ranges.
+    """
+
+    max_rounds: int = Field(default=8, gt=0, le=100)
+    max_total_tokens: int = Field(default=200_000, gt=0, le=5_000_000)
+    #: Wall-clock cap for the whole debate; ``None`` means no time limit.
+    max_duration_seconds: float | None = Field(default=None, gt=0, le=86_400)
+    min_rounds: int = Field(default=1, ge=1)
+    decision_rule: DecisionRule = DecisionRule.JUDGE
+    #: How many closing rounds are steered toward common ground (0 disables).
+    convergence_rounds: int = Field(default=2, ge=0, le=100)
+    #: Per-chamber opt-in for web evidence (also needs the global flag, FR-26).
+    web_evidence: bool = False
+
+    @model_validator(mode="after")
+    def _check_round_bounds(self) -> DebateSettings:
+        if self.min_rounds > self.max_rounds:
+            raise ValueError("min_rounds cannot exceed max_rounds")
+        return self
+
+
 class Participant(_Base):
     """An LLM instance in a chamber, bound to a provider, model and stance."""
 
@@ -65,10 +91,14 @@ class Participant(_Base):
 
 
 class Turn(_Base):
-    """One participant's contribution to the group chat (see FR-17)."""
+    """One contribution to the group chat (see FR-17).
+
+    ``participant_id`` is ``None`` for system-authored turns — moderator notes
+    (FR-21) and injected web evidence (FR-28); ``metadata["kind"]`` says which.
+    """
 
     id: UUID = Field(default_factory=uuid4)
-    participant_id: UUID
+    participant_id: UUID | None = None
     round_index: int = Field(ge=0)
     content: str = Field(default="", max_length=100_000)
     citations: list[Citation] = Field(default_factory=list)
@@ -82,6 +112,9 @@ class ConsensusResult(_Base):
     id: UUID = Field(default_factory=uuid4)
     outcome: ConsensusOutcome
     statement: str = Field(min_length=1, max_length=50_000)
+    #: The position that prevailed; ``None`` only when the debate ended in
+    #: disagreement (or a judge verdict could not name a side).
+    winning_stance: Stance | None = None
     # Each participant's final stance, keyed by participant id (as string).
     final_stances: dict[str, Stance] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=_utcnow)
@@ -95,6 +128,7 @@ class Chamber(_Base):
     category: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=5000)
     status: ChamberStatus = ChamberStatus.DRAFT
+    settings: DebateSettings = Field(default_factory=DebateSettings)
     config: dict[str, object] = Field(default_factory=dict)
     participants: list[Participant] = Field(default_factory=list)
     turns: list[Turn] = Field(default_factory=list)

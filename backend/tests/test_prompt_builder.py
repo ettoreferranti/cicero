@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from cicero.core import prompts
 from cicero.core.prompt_builder import (
     TRANSCRIPT_CLOSE,
     TRANSCRIPT_OPEN,
@@ -33,6 +34,46 @@ def test_transcript_includes_speaker_and_content() -> None:
     rendered = render_transcript(chamber)
     assert "Athena (pro)" in rendered
     assert "Mars is vital." in rendered
+
+
+def test_transcript_labels_viewers_own_turns_as_you() -> None:
+    # Without this, models see "[Athena]: ..." for their own words and start
+    # quoting themselves in the third person.
+    athena = make_participant("Athena", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(athena, zeno)
+    chamber.turns.append(Turn(participant_id=athena.id, round_index=0, content="Mars matters."))
+    chamber.turns.append(Turn(participant_id=zeno.id, round_index=0, content="Too costly."))
+
+    for_athena = render_transcript(chamber, viewer=athena)
+    assert "[You (pro)]: Mars matters." in for_athena
+    assert "Athena" not in for_athena  # own name never appears as a speaker
+    assert "[Zeno (con)]: Too costly." in for_athena
+
+    neutral = render_transcript(chamber)  # moderator view keeps real names
+    assert "You (" not in neutral
+    assert "Athena (pro)" in neutral
+
+
+def test_turn_and_poll_prompts_are_viewer_relative() -> None:
+    athena = make_participant("Athena", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(athena, zeno)
+    chamber.turns.append(Turn(participant_id=athena.id, round_index=0, content="Mars matters."))
+
+    turn_user = build_turn_messages(chamber, athena)[1].content
+    assert "[You (pro)]: Mars matters." in turn_user
+    poll_user = build_stance_poll_messages(chamber, athena)[1].content
+    assert "[You (pro)]: Mars matters." in poll_user
+    # The other participant still sees Athena by name.
+    other_view = build_turn_messages(chamber, zeno)[1].content
+    assert "[Athena (pro)]: Mars matters." in other_view
+
+
+def test_turn_system_prompt_includes_first_person_rule() -> None:
+    p = make_participant("A", Stance.PRO)
+    system = build_turn_messages(make_chamber(p), p)[0].content
+    assert prompts.FIRST_PERSON_RULE in system
 
 
 def test_transcript_skips_empty_and_unknown_turns_but_keeps_later_valid() -> None:
@@ -96,12 +137,58 @@ def test_stance_poll_asks_for_one_word() -> None:
     assert "reply with exactly one word" in user.lower()
 
 
-def test_moderator_prompt_differs_by_outcome() -> None:
+def test_moderator_prompt_carries_task_and_positions() -> None:
     p = make_participant("A", Stance.PRO)
     chamber = make_chamber(p)
     stances = {str(p.id): Stance.PRO}
-    consensus = build_moderator_messages(chamber, stances, is_consensus=True)[1].content
-    disagreement = build_moderator_messages(chamber, stances, is_consensus=False)[1].content
+    consensus = build_moderator_messages(chamber, stances, prompts.MODERATOR_CONSENSUS_TASK)[
+        1
+    ].content
+    disagreement = build_moderator_messages(
+        chamber, stances, prompts.MODERATOR_DISAGREEMENT_TASK
+    )[1].content
     assert "CONSENSUS STATEMENT" in consensus
     assert "SUMMARY OF DISAGREEMENT" in disagreement
     assert "A: pro" in consensus
+
+
+def test_research_flag_adds_search_instruction() -> None:
+    p = make_participant("A", Stance.PRO)
+    chamber = make_chamber(p)
+    without = build_turn_messages(chamber, p)[0].content
+    with_research = build_turn_messages(chamber, p, research=True)[0].content
+    assert prompts.RESEARCH_INSTRUCTION not in without
+    assert prompts.RESEARCH_INSTRUCTION in with_research
+
+
+def test_converge_phase_adds_guidance() -> None:
+    p = make_participant("A", Stance.PRO)
+    chamber = make_chamber(p)
+    open_phase = build_turn_messages(chamber, p)[0].content
+    converge_phase = build_turn_messages(chamber, p, converge=True)[0].content
+    assert prompts.CONVERGE_GUIDANCE not in open_phase
+    assert prompts.CONVERGE_GUIDANCE in converge_phase
+
+
+def test_system_turns_render_with_labels() -> None:
+    p = make_participant("Athena", Stance.PRO)
+    chamber = make_chamber(p)
+    chamber.turns.append(
+        Turn(
+            participant_id=None,
+            round_index=0,
+            content="Focus on cost.",
+            metadata={"kind": "moderator_note"},
+        )
+    )
+    chamber.turns.append(
+        Turn(
+            participant_id=None,
+            round_index=0,
+            content="Study X found Y.",
+            metadata={"kind": "evidence"},
+        )
+    )
+    rendered = render_transcript(chamber)
+    assert f"[{prompts.MODERATOR_NOTE_SPEAKER}]: Focus on cost." in rendered
+    assert f"[{prompts.EVIDENCE_SPEAKER}]: Study X found Y." in rendered

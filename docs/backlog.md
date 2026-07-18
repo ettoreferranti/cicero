@@ -52,7 +52,7 @@
 |----|-------|--------|-----|-----|--------|
 | D1 | As a user, I can create/list/view/delete chambers with topic, category, and description. | FR-1/2 | M | 3 | ✅ done |
 | D2 | As a user, I can add participants with provider, model, name, and stance (default `neutral`). | FR-6/7 | M | 3 | ✅ done |
-| D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | todo |
+| D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | 🟡 partial — API accepts tuning on add; per-chamber debate settings (rounds/tokens/duration/decision rule) tunable via API+UI; per-participant tuning UI still todo |
 | D4 | As a user, I can edit a chamber while `draft` and remove/mute participants. | FR-3/13 | S | 3 | todo |
 | D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
 
@@ -67,15 +67,15 @@
 | E4 | As a user, every turn is persisted with metadata (participant, timestamp, tokens, tools). | FR-17 | M | 3 | ✅ done |
 | E5 | As a user, I can start, pause, resume, step, and stop a debate. | FR-19 | S | 5 | 🟡 partial |
 | E6 | As a user, turns stream live as they generate. | FR-18, NFR-R-2 | S | 5 | ✅ done |
-| E7 | As an observer, I can inject a moderator note between turns. | FR-21 | C | 3 | todo |
+| E7 | As an observer, I can inject a moderator note between turns. | FR-21 | C | 3 | ✅ done |
 
 ## Epic F — Consensus
 *Goal: converge and produce the final artifact.*
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| F1 | As a developer, a consensus detector decides convergence (hybrid: stance-stability signal + moderator-LLM check). | FR-22, OQ-1 | M | 8 | ✅ done |
-| F2 | As a user, on convergence the chamber produces a Consensus Statement plus each participant's final stance/agreement. | FR-23 | M | 5 | ✅ done |
+| F1 | As a developer, a consensus detector decides convergence (hybrid: stance-stability signal + moderator-LLM check), with two-phase prompting (adversarial → convergence) and per-chamber decision rules (unanimous / majority / judge) so a winner can always emerge. | FR-22, OQ-1 | M | 8 | ✅ done |
+| F2 | As a user, on convergence the chamber produces a Consensus Statement (or majority Resolution / judge's Verdict, incl. the winning stance) plus each participant's final stance/agreement. | FR-23 | M | 5 | ✅ done |
 | F3 | As a user, if no consensus within budget, I get a Summary of Disagreement (positions, cruxes, open points). | FR-24 | S | 5 | ✅ done |
 | F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | todo |
 
@@ -84,10 +84,10 @@
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| G1 | As a developer, a controlled web-search+fetch tool exists (off by default, per-chamber opt-in). | FR-26/27 | M | 5 | todo |
-| G2 | As a security owner, the tool enforces SSRF protection, allow/deny lists, timeouts, and size/MIME caps. | FR-29, NFR-SEC-4 | M | 5 | todo |
-| G3 | As a developer, fetched content is sanitised and injection-delimited before entering a prompt. | NFR-SEC-5 | M | 3 | todo |
-| G4 | As a user, sources used in a turn are recorded as citations and shown in the transcript. | FR-28 | M | 3 | todo |
+| G1 | As a developer, a controlled web-search+fetch tool exists (off by default, per-chamber opt-in). | FR-26/27 | M | 5 | ✅ done — DuckDuckGo search + `SafeWebClient`; needs `WEB_ACCESS_ENABLED` *and* chamber `settings.web_evidence`. Upfront brief **and** per-turn model-requested searches (`SEARCH:` text protocol for any provider; native tool use on Anthropic), engine-executed, ≤1/turn |
+| G2 | As a security owner, the tool enforces SSRF protection, allow/deny lists, timeouts, and size/MIME caps. | FR-29, NFR-SEC-4 | M | 5 | ✅ done |
+| G3 | As a developer, fetched content is sanitised and injection-delimited before entering a prompt. | NFR-SEC-5 | M | 3 | ✅ done |
+| G4 | As a user, sources used in a turn are recorded as citations and shown in the transcript. | FR-28 | M | 3 | ✅ done — upfront brief is a cited system turn; per-turn searches attach queries + citations to the exact turn that used them |
 
 ## Epic H — Review, Export & Observability
 *Goal: make debates reviewable and comparable.*
@@ -97,7 +97,7 @@
 | H1 | As a user, I can read a full transcript with per-turn metadata and citations. | FR-30 | S | 3 | ✅ done |
 | H2 | As a user, I can export a chamber to JSON and Markdown. | FR-31 | S | 3 | ✅ done |
 | H3 | As an evaluator, I can see token/cost/latency metrics per participant and chamber. | FR-33 | S | 3 | ✅ done |
-| H4 | As an evaluator, I can compare two runs of the same topic. | FR-32 | C | 5 | todo |
+| H4 | As an evaluator, I can compare two runs of the same topic. | FR-32 | C | 5 | ✅ done — `GET /chambers/{a}/compare/{b}` (API) |
 
 ## Epic I — User Interface
 *Goal: a usable UI to compose and watch debates.*
@@ -108,24 +108,24 @@
 | I2 | As a user, I can watch a debate stream live and use start/pause/step/stop controls. | FR-18/19 | S | 5 | 🟡 partial |
 | I3 | As a user, I can view the consensus/disagreement result and export it. | FR-23/24/31 | S | 3 | ✅ done |
 | I4 | As a developer, all model/web-derived content is rendered safely (no XSS). | NFR-SEC-6 | M | 3 | ✅ done |
-| I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | todo |
+| I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | 🟡 partial — labelled form controls / aria-labels; no full audit |
 
 ## Epic J — Hardening & Release
 *Goal: production-readiness for self-hosting.*
 
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
-| J1 | As an operator, security headers, CORS, and (optional) authn/authz are in place before non-localhost use. | NFR-SEC-9 | S | 5 | todo |
-| J2 | As an operator, rate limiting and resource budgets prevent runaway cost/loops. | NFR-SEC-8 | S | 3 | todo |
+| J1 | As an operator, security headers, CORS, and (optional) authn/authz are in place before non-localhost use. | NFR-SEC-9 | S | 5 | ✅ done — headers + CORS since M0; optional bearer-token auth via `API_AUTH_TOKEN` |
+| J2 | As an operator, rate limiting and resource budgets prevent runaway cost/loops. | NFR-SEC-8 | S | 3 | ✅ done — per-IP rate limiter + per-chamber round/token/time budgets |
 | J3 | As an operator, debates can resume after a restart. | NFR-R-3 | C | 5 | todo |
-| J4 | As a maintainer, all docs are verified in sync at release; end-to-end demo passes. | NFR-M-2, §9 | M | 3 | todo |
+| J4 | As a maintainer, all docs are verified in sync at release; end-to-end demo passes. | NFR-M-2, §9 | M | 3 | 🟡 partial — docs synced with Milestone 3; release demo pending |
 
 ---
 
 ## Milestones (approved 2026-07-16)
 *Reflects approved decisions: Python+React stack, lightweight web UI, web evidence in v1, hybrid consensus, SQLite.*
 
-### Milestone 0 — Walking Skeleton (Foundation + Security) ← **in progress**
+### Milestone 0 — Walking Skeleton (Foundation + Security) ✅
 Epics **A**, **B1/B2**, **C1/C6**. Deliverable: scaffold, CI (lint/type/test/secret/SCA), mutation testing wired, domain model + persistence, mock provider. *No live LLMs yet — everything testable.*
 
 ### Milestone 1 — First Real Debate (MVP core)
@@ -134,8 +134,9 @@ Epics **A**, **B1/B2**, **C1/C6**. Deliverable: scaffold, CI (lint/type/test/sec
 ### Milestone 2 — Usable & Observable
 **E5/E6**, **F3/F4**, **H1/H2/H3**, **I1/I2/I3/I4**, **C4/C5**, **B3**, **D3/D4**. Deliverable: lightweight live-streaming web UI, controls, disagreement summaries, exports, metrics.
 
-### Milestone 3 — Web Evidence (v1 feature) & Hardening
+### Milestone 3 — Web Evidence (v1 feature) & Hardening ← **mostly done**
 Epic **G** (SSRF-sandboxed web search + fetch + citations), **J1/J2**, **H4**, **E7**, **I5**, **J3**, **J4**. Deliverable: safe web evidence with citations wired into the debate loop, security hardening, release.
+Also delivered here (user-driven): per-chamber **debate settings** (rounds, token budget, wall-clock duration, convergence rounds, decision rule) via API + UI, and the **convergence redesign** (two-phase prompting + unanimous/majority/judge decision rules with a recorded winning stance) so debates end with one position winning. Remaining: J3 (resume after restart), release demo (J4), full a11y audit (I5).
 
 ---
 

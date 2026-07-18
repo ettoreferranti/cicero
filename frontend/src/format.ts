@@ -1,6 +1,6 @@
 // Pure presentation helpers — no I/O, no React. These are the frontend's
 // mutation-testing targets (see stryker.config.json).
-import type { Participant, Stance, Turn } from "./types";
+import type { Outcome, Participant, Stance, Turn } from "./types";
 
 const STANCE_LABEL: Record<Stance, string> = {
   pro: "Pro",
@@ -10,6 +10,56 @@ const STANCE_LABEL: Record<Stance, string> = {
 
 export function stanceLabel(stance: Stance): string {
   return STANCE_LABEL[stance];
+}
+
+const OUTCOME_LABEL: Record<Outcome, string> = {
+  consensus: "Consensus",
+  majority: "Majority decision",
+  verdict: "Judge's verdict",
+  disagreement: "No agreement",
+};
+
+export function outcomeLabel(outcome: Outcome): string {
+  return OUTCOME_LABEL[outcome] ?? outcome;
+}
+
+const SYSTEM_SPEAKER_LABEL: Record<string, string> = {
+  moderator_note: "Moderator note",
+  evidence: "Research (web evidence)",
+};
+
+// Distinct accent colours assigned to debaters by their position in the
+// chamber (stable across rounds); system turns fall back to grey.
+export const PARTICIPANT_COLORS = [
+  "#60a5fa", // blue
+  "#f59e0b", // amber
+  "#34d399", // emerald
+  "#f472b6", // pink
+  "#a78bfa", // violet
+  "#f87171", // red
+  "#2dd4bf", // teal
+  "#facc15", // yellow
+] as const;
+
+export const SYSTEM_TURN_COLOR = "#6b7280";
+
+/** The accent colour for a participant's turns (grey for system/unknown). */
+export function participantColor(
+  participants: Participant[],
+  participantId: string | null,
+): string {
+  const index = participants.findIndex((p) => p.id === participantId);
+  if (index === -1) return SYSTEM_TURN_COLOR;
+  return PARTICIPANT_COLORS[index % PARTICIPANT_COLORS.length];
+}
+
+/** Speaker label for any turn, including system-authored ones. */
+export function turnSpeaker(participants: Participant[], turn: Turn): string {
+  if (turn.participant_id === null) {
+    const kind = typeof turn.metadata.kind === "string" ? turn.metadata.kind : "";
+    return SYSTEM_SPEAKER_LABEL[kind] ?? "System";
+  }
+  return speakerName(participants, turn.participant_id);
 }
 
 /** Turns grouped by round index, ascending, skipping empty (error) turns. */

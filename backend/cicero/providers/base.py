@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Awaitable, Callable
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from cicero.domain.enums import ProviderType
+
+#: Executes one sandboxed web search for a query and returns the delimited,
+#: sanitised result text (see ``cicero.core.research.ResearchSession.run``).
+SearchExecutor = Callable[[str], Awaitable[str]]
 
 
 class Role(StrEnum):
@@ -65,12 +70,31 @@ class Provider(abc.ABC):
     #: The provider family this adapter implements.
     provider_type: ProviderType
 
+    #: Whether :meth:`generate_with_search` is implemented with the provider's
+    #: native tool-calling. Providers without it get the engine's text-protocol
+    #: fallback instead.
+    supports_native_search: bool = False
+
     @abc.abstractmethod
     async def generate(
         self, messages: list[Message], options: GenerateOptions
     ) -> GenerateResult:
         """Produce a completion for ``messages`` under ``options``."""
         raise NotImplementedError
+
+    async def generate_with_search(
+        self,
+        messages: list[Message],
+        options: GenerateOptions,
+        search: SearchExecutor,
+        max_searches: int = 1,
+    ) -> GenerateResult:
+        """Like :meth:`generate`, but the model may call ``search`` via native
+        tool use (at most ``max_searches`` times) before answering.
+
+        Only meaningful when ``supports_native_search`` is True.
+        """
+        raise ProviderError("this provider does not support native web search")
 
     @abc.abstractmethod
     async def list_models(self) -> list[str]:

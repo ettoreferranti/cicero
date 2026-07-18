@@ -37,15 +37,30 @@ export function App() {
     }
   }
 
+  async function onDelete(id: string) {
+    if (!window.confirm("Delete this chamber and its transcript? This cannot be undone.")) {
+      return;
+    }
+    setError(null);
+    try {
+      await api.deleteChamber(id);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to delete chamber");
+    }
+  }
+
   if (selectedId) {
     return (
       <div className="app">
         <ChamberDetail
+          key={selectedId} // remount on switch (e.g. after clone) to reset stream state
           chamberId={selectedId}
           onBack={() => {
             setSelectedId(null);
             void refresh();
           }}
+          onOpenChamber={setSelectedId}
         />
       </div>
     );
@@ -93,7 +108,16 @@ export function App() {
                     "none yet"}
                 </div>
               </div>
-              <button onClick={() => setSelectedId(c.id)}>Open</button>
+              <div className="row">
+                <button onClick={() => setSelectedId(c.id)}>Open</button>
+                <button
+                  className="danger"
+                  aria-label={`delete chamber ${c.topic}`}
+                  onClick={() => void onDelete(c.id)}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         ))

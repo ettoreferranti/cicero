@@ -33,6 +33,42 @@
 - API bound to **localhost** by default.
 - All external I/O has timeouts and size limits.
 - No secret is ever returned to a client or written to a log.
+- Per-client rate limiting on by default (`RATE_LIMIT_PER_MINUTE`, J2).
+- Optional bearer-token auth (`API_AUTH_TOKEN`) — set it before any
+  non-localhost exposure (J1).
+
+## 4.1 Web evidence controls (Epic G, implemented)
+The `cicero.tools.web` module is the only code that touches the internet.
+Both switches must be on for a debate to gather evidence: the global
+`WEB_ACCESS_ENABLED` env flag **and** the chamber's `settings.web_evidence`.
+
+Evidence flows in two ways, and **models never make network calls
+themselves** in either: (1) an upfront research brief gathered once by the
+engine before round 1, and (2) per-turn searches the model *requests* —
+via a `SEARCH: <query>` text reply (any provider) or native tool use
+(Anthropic) — which the engine executes through the same sandboxed
+gatherer, capped at 1 search per turn, with the queries and resulting
+citations recorded on that turn. Controls enforced by `SafeWebClient` /
+`validate_public_url` for every query, whoever initiates it:
+
+- **SSRF policy**: http/https only, default ports only, no credentials in
+  URLs; the hostname is resolved and *every* address must be globally
+  routable (blocks loopback, RFC-1918, link-local incl. `169.254.169.254`
+  cloud metadata, CGNAT `100.64/10`, multicast, reserved). Redirects are
+  re-validated hop by hop, capped at 3.
+- **Allow/deny lists**: `WEB_DOMAIN_ALLOWLIST` (when set, only those domains
+  and their subdomains) and `WEB_DOMAIN_DENYLIST` (always blocked).
+- **Caps**: `WEB_FETCH_TIMEOUT_SECONDS`, `WEB_MAX_RESPONSE_BYTES` (enforced
+  while streaming), a text-only MIME allowlist, `WEB_MAX_RESULTS` sources.
+- **Sanitisation**: HTML is reduced to visible plain text (scripts/styles
+  dropped, control characters stripped) and enters prompts only inside the
+  delimited transcript block, covered by the "data, not instructions" rule
+  (T2). Sources are recorded as citations on the transcript turn (FR-28).
+
+*Known limitation*: DNS is resolved for validation separately from the
+fetch, so a fast-flux DNS rebind between the two lookups is theoretically
+possible. Strict deployments should set a domain allowlist, which bounds
+the damage to the listed domains.
 
 ## 5. Secrets handling checklist (contributors)
 - [ ] No API keys, tokens, or personal data in code, tests, fixtures, or docs.

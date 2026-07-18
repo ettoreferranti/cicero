@@ -19,16 +19,33 @@ evidence, hold or change positions, and cooperate.
 
 ## Status
 
-🚧 **Milestone 2 — Usable & Observable (in progress).**
-Architecture approved; Milestone 0 (foundation) merged; Milestone 1 (first real
-debate) complete. **Backend:** Ollama + Anthropic adapters, a turn-based debate
-engine (injection-delimited prompts, hard round/token budgets, per-turn
-resilience), a hybrid consensus engine (with disagreement fallback), and a
-FastAPI API that now **runs debates in the background, streams every turn live
-over Server-Sent Events**, supports a **stop** control, and offers **export**
-(JSON/Markdown) and per-participant **metrics**. **Frontend:** a lightweight
-**React + TypeScript** web UI to create chambers, add participants with stances,
-start a debate, watch turns stream in live, and view/export the outcome.
+🚧 **Milestone 3 — Web Evidence & Hardening (mostly done).**
+Milestones 0–2 are merged (foundation; first real debate; live-streaming web
+UI with exports and metrics). Milestone 3 adds:
+
+- **Tunable debates** — per-chamber settings (max/min rounds, token budget,
+  **wall-clock duration**, convergence rounds, decision rule, web evidence)
+  set at creation or via `PUT /chambers/{id}/settings`, and editable in the UI
+  while the chamber is a draft.
+- **Debates that actually end with a winner** — a two-phase debate loop
+  (adversarial → **convergence phase** that pushes for concessions and
+  compromise) plus a per-chamber **decision rule**: `unanimous`, `majority`,
+  or `judge` (default — majority wins, and the moderator breaks ties with an
+  explicit `WINNER:` verdict). The outcome records the **winning stance**.
+- **Sandboxed web evidence (Epic G)** — opt-in per chamber *and* via
+  `WEB_ACCESS_ENABLED`: key-less DuckDuckGo search + an SSRF-guarded fetcher
+  (private/metadata IP blocking, allow/deny lists, redirect re-validation,
+  timeouts, size/MIME caps). Two flavours, both executed by the engine (models
+  never touch the network): an upfront **cited research turn**, and
+  **per-turn searches the debaters request themselves** — a universal
+  `SEARCH: <query>` text protocol, upgraded to native tool use on Anthropic —
+  with queries and citations recorded on the exact turn that used them.
+- **Hardening (J1/J2)** — optional bearer-token auth (`API_AUTH_TOKEN`),
+  per-IP rate limiting (`RATE_LIMIT_PER_MINUTE`), on top of the existing
+  security headers and CORS lockdown.
+- **Moderator notes (E7)** — inject a note between turns (API + UI) — and
+  **run comparison (H4)** via `GET /chambers/{a}/compare/{b}`.
+
 Fully runnable end-to-end with the deterministic mock provider — no keys required.
 See [`docs/backlog.md`](./docs/backlog.md) for milestone progress.
 

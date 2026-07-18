@@ -6,7 +6,25 @@ export type ChamberStatus =
   | "paused"
   | "concluded"
   | "archived";
-export type Outcome = "consensus" | "disagreement";
+export type Outcome = "consensus" | "majority" | "verdict" | "disagreement";
+export type DecisionRule = "unanimous" | "majority" | "judge";
+
+export interface DebateSettings {
+  max_rounds: number;
+  max_total_tokens: number;
+  max_duration_seconds: number | null;
+  min_rounds: number;
+  decision_rule: DecisionRule;
+  convergence_rounds: number;
+  web_evidence: boolean;
+}
+
+export interface Citation {
+  id: string;
+  url: string;
+  title: string;
+  excerpt: string;
+}
 
 export interface Participant {
   id: string;
@@ -18,9 +36,11 @@ export interface Participant {
 
 export interface Turn {
   id: string;
-  participant_id: string;
+  // null = system-authored (moderator note or web evidence; see metadata.kind)
+  participant_id: string | null;
   round_index: number;
   content: string;
+  citations?: Citation[];
   metadata: Record<string, unknown>;
   created_at: string;
 }
@@ -28,6 +48,7 @@ export interface Turn {
 export interface ConsensusResult {
   outcome: Outcome;
   statement: string;
+  winning_stance: Stance | null;
   final_stances: Record<string, Stance>;
 }
 
@@ -37,6 +58,7 @@ export interface Chamber {
   category: string;
   description: string;
   status: ChamberStatus;
+  settings: DebateSettings;
   participants: Participant[];
   turns: Turn[];
   consensus: ConsensusResult | null;

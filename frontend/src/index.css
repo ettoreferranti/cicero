@@ -96,11 +96,25 @@ textarea {
   color: #a3a3a3;
 }
 
+/* Per-debater accent colour is set inline via border-left-color. */
 .turn {
   border-left: 3px solid #2563eb;
   padding: 0.25rem 0 0.25rem 0.75rem;
   margin: 0.5rem 0;
   white-space: pre-wrap;
+}
+
+.dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  vertical-align: baseline;
+}
+
+button.danger {
+  border-color: #7f1d1d;
+  color: #f87171;
 }
 
 .muted {

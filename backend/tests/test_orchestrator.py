@@ -7,7 +7,14 @@ import pytest
 from cicero.core.budget import DebateBudget
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.orchestrator import DebateEngine
-from cicero.domain.enums import ChamberStatus, ConsensusOutcome, ProviderType, Stance
+from cicero.domain.enums import (
+    ChamberStatus,
+    ConsensusOutcome,
+    DecisionRule,
+    ProviderType,
+    Stance,
+)
+from cicero.domain.models import Citation
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers.base import (
     GenerateOptions,
@@ -102,6 +109,7 @@ async def test_debate_runs_to_max_rounds_on_disagreement() -> None:
     factory = StubFactory(
         {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="con")}
     )
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
     engine = _engine(factory, repo)
 
     # min_rounds == max_rounds prevents an early stability stop.
@@ -128,11 +136,16 @@ async def test_debate_stops_early_on_stable_stances() -> None:
     result = await engine.run(chamber, DebateBudget(max_rounds=9, max_total_tokens=100_000))
 
     assert result.config["stop_reason"] == "stances_stable"
-    # Stable after round 2 (previous poll == current poll): stops there, not at max.
-    assert result.config["rounds_completed"] == 2
-    assert len(result.turns) == 4
+    # Stable after round 2 → the engine fast-forwards into the convergence phase
+    # for round 3; still stable there → stops, well short of max_rounds.
+    assert result.config["rounds_completed"] == 3
+    assert len(result.turns) == 6
+    # Round 3 was prompted as the convergence phase.
+    assert result.turns[-1].metadata["phase"] == "converge"
+    assert result.turns[0].metadata["phase"] == "open"
     assert result.consensus is not None
-    assert result.consensus.outcome is ConsensusOutcome.DISAGREEMENT
+    # Default rule is JUDGE: a pro/con tie goes to the moderator's verdict.
+    assert result.consensus.outcome is ConsensusOutcome.VERDICT
 
 
 async def test_changing_stances_prevent_early_stability_stop() -> None:
@@ -190,6 +203,233 @@ async def test_failing_provider_does_not_crash_debate() -> None:
     assert b_turns and all(t.content == "" for t in b_turns)
     assert all("error" in t.metadata for t in b_turns)
     assert all("provider" in t.metadata for t in b_turns)
+
+
+class StubGatherer:
+    """Deterministic evidence gatherer (no network)."""
+
+    def __init__(self, citations: list[Citation] | None = None, fail: bool = False) -> None:
+        self._citations = citations or []
+        self._fail = fail
+        self.calls = 0
+
+    async def gather(self, topic: str) -> list[Citation]:
+        self.calls += 1
+        if self._fail:
+            raise RuntimeError("search backend down")
+        return list(self._citations)
+
+
+class OneShotNotes:
+    """Note source that yields its notes on the first drain only."""
+
+    def __init__(self, notes: list[str]) -> None:
+        self._notes = notes
+
+    def drain(self) -> list[str]:
+        notes, self._notes = self._notes, []
+        return notes
+
+
+def _two_pro_participants():  # type: ignore[no-untyped-def]
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="pro")}
+    )
+    return a, b, factory
+
+
+async def test_evidence_injected_as_cited_system_turn() -> None:
+    a, b, factory = _two_pro_participants()
+    chamber = make_chamber(a, b)
+    chamber.settings.web_evidence = True
+    citation = Citation(url="https://example.org/mars", title="Mars study", excerpt="Dust is bad.")
+    gatherer = StubGatherer([citation])
+    repo = InMemoryChamberRepository()
+    consensus = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+    engine = DebateEngine(factory, repo, consensus, evidence=gatherer)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=3, max_total_tokens=100_000))
+
+    first = result.turns[0]
+    assert first.participant_id is None
+    assert first.metadata["kind"] == "evidence"
+    assert first.citations == [citation]
+    assert "Dust is bad." in first.content
+    assert "https://example.org/mars" in first.content
+    assert gatherer.calls == 1
+
+
+async def test_evidence_skipped_without_opt_in_and_on_failure() -> None:
+    a, b, factory = _two_pro_participants()
+    repo = InMemoryChamberRepository()
+    consensus = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+
+    # Not opted in: the gatherer must not even be called.
+    chamber = make_chamber(a, b)
+    gatherer = StubGatherer([Citation(url="https://example.org", excerpt="x")])
+    engine = DebateEngine(factory, repo, consensus, evidence=gatherer)
+    result = await engine.run(chamber, DebateBudget(max_rounds=2, max_total_tokens=100_000))
+    assert gatherer.calls == 0
+    assert all(t.participant_id is not None for t in result.turns)
+
+    # Opted in but gathering fails: the debate still runs, with no evidence turn.
+    chamber2 = make_chamber(*[make_participant(n, Stance.PRO) for n in ("C", "D")])
+    chamber2.settings.web_evidence = True
+    factory2 = StubFactory(
+        {p.id: ScriptedProvider(stance_word="pro") for p in chamber2.participants}
+    )
+    consensus2 = ConsensusEngine(factory2, ScriptedProvider(), MOD_OPTS)
+    engine2 = DebateEngine(factory2, repo, consensus2, evidence=StubGatherer(fail=True))
+    result2 = await engine2.run(chamber2, DebateBudget(max_rounds=2, max_total_tokens=100_000))
+    assert result2.status is ChamberStatus.CONCLUDED
+    assert all(t.participant_id is not None for t in result2.turns)
+
+
+async def test_moderator_notes_drained_into_transcript() -> None:
+    a, b, factory = _two_pro_participants()
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    consensus = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+    engine = DebateEngine(
+        factory, repo, consensus, notes=OneShotNotes(["Address the costs."])
+    )
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=3, max_total_tokens=100_000))
+
+    note_turns = [t for t in result.turns if t.participant_id is None]
+    assert len(note_turns) == 1
+    assert note_turns[0].content == "Address the costs."
+    assert note_turns[0].metadata["kind"] == "moderator_note"
+    # Injected before the first participant turn of the round.
+    assert result.turns[0] is note_turns[0]
+
+
+class SearchingProvider(ScriptedProvider):
+    """Replies with a SEARCH request on its first turn, then a real argument."""
+
+    def __init__(self, query: str = "mars costs", always: bool = False) -> None:
+        super().__init__(stance_word="pro", argument="Based on the evidence, pro.")
+        self._query = query
+        self._always = always
+
+    async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+        text = messages[-1].content.lower()
+        if "reply with exactly one word" in text:
+            return await super().generate(messages, options)
+        self.turn_calls += 1
+        if self._always or self.turn_calls == 1:
+            return GenerateResult(
+                content=f"SEARCH: {self._query}", prompt_tokens=2, completion_tokens=2
+            )
+        return GenerateResult(content=self.argument, prompt_tokens=5, completion_tokens=5)
+
+
+async def test_text_protocol_search_attaches_citations_to_the_turn() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    chamber.settings.web_evidence = True
+    citation = Citation(url="https://example.org/x", title="X", excerpt="Fact.")
+    gatherer = StubGatherer([citation])
+    searcher = SearchingProvider()
+    factory = StubFactory({a.id: searcher, b.id: ScriptedProvider(stance_word="pro")})
+    repo = InMemoryChamberRepository()
+    consensus = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+    engine = DebateEngine(factory, repo, consensus, evidence=gatherer)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=2, max_total_tokens=100_000))
+
+    # Turn 0 is the upfront evidence brief; turn 1 is A's researched argument.
+    a_turn = result.turns[1]
+    assert a_turn.participant_id == a.id
+    assert a_turn.content == "Based on the evidence, pro."
+    assert a_turn.citations == [citation]
+    assert a_turn.metadata["searches"] == ["mars costs"]
+    # Token accounting covers both generate calls (2+2 then 5+5).
+    assert a_turn.metadata["prompt_tokens"] == 7
+    assert a_turn.metadata["completion_tokens"] == 7
+    assert searcher.turn_calls == 2
+    # B never searched: no citations, no searches metadata.
+    b_turn = result.turns[2]
+    assert b_turn.citations == [] and "searches" not in b_turn.metadata
+
+
+async def test_text_protocol_search_capped_per_turn() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    chamber.settings.web_evidence = True
+    gatherer = StubGatherer([])
+    stubborn = SearchingProvider(query="again", always=True)
+    factory = StubFactory({a.id: stubborn, b.id: ScriptedProvider(stance_word="pro")})
+    repo = InMemoryChamberRepository()
+    consensus = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+    engine = DebateEngine(factory, repo, consensus, evidence=gatherer)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000))
+
+    a_turn = next(t for t in result.turns if t.participant_id == a.id)
+    # One search executed, one "no more searches" nudge, then the reply stands.
+    assert a_turn.metadata["searches"] == ["again"]
+    assert stubborn.turn_calls == 3
+    assert a_turn.content == "SEARCH: again"
+
+
+async def test_research_disabled_leaves_search_text_verbatim() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)  # web_evidence stays False
+    gatherer = StubGatherer([Citation(url="https://example.org", excerpt="x")])
+    searcher = SearchingProvider()
+    factory = StubFactory({a.id: searcher, b.id: ScriptedProvider(stance_word="pro")})
+    repo = InMemoryChamberRepository()
+    consensus = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+    engine = DebateEngine(factory, repo, consensus, evidence=gatherer)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000))
+
+    a_turn = next(t for t in result.turns if t.participant_id == a.id)
+    assert a_turn.content == "SEARCH: mars costs"  # treated as an ordinary reply
+    assert gatherer.calls == 0
+    assert searcher.turn_calls == 1
+
+
+async def test_native_search_provider_is_routed_to_tool_loop() -> None:
+    class NativeProvider(ScriptedProvider):
+        supports_native_search = True
+
+        def __init__(self) -> None:
+            super().__init__(stance_word="pro")
+            self.native_calls = 0
+
+        async def generate_with_search(self, messages, options, search, max_searches=1):  # type: ignore[no-untyped-def]
+            self.native_calls += 1
+            await search("native query")
+            return GenerateResult(
+                content="Tool-informed argument.", prompt_tokens=4, completion_tokens=4
+            )
+
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    chamber.settings.web_evidence = True
+    citation = Citation(url="https://example.org/n", title="N", excerpt="Native fact.")
+    gatherer = StubGatherer([citation])
+    native = NativeProvider()
+    factory = StubFactory({a.id: native, b.id: ScriptedProvider(stance_word="pro")})
+    repo = InMemoryChamberRepository()
+    consensus = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+    engine = DebateEngine(factory, repo, consensus, evidence=gatherer)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000))
+
+    a_turn = next(t for t in result.turns if t.participant_id == a.id)
+    assert native.native_calls == 1
+    assert a_turn.content == "Tool-informed argument."
+    assert a_turn.metadata["searches"] == ["native query"]
+    assert a_turn.citations == [citation]
 
 
 async def test_listener_receives_each_turn() -> None:

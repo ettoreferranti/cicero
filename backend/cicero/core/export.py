@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from cicero.core.prompt_builder import system_speaker_label
 from cicero.domain.models import Chamber
 
 
@@ -36,14 +37,26 @@ def to_markdown(chamber: Chamber) -> str:
     for turn in chamber.turns:
         if not turn.content.strip():
             continue
-        speaker = chamber.participant_by_id(turn.participant_id)
-        name = speaker.display_name if speaker is not None else "unknown"
+        if turn.participant_id is None:
+            name = system_speaker_label(turn)
+        else:
+            speaker = chamber.participant_by_id(turn.participant_id)
+            name = speaker.display_name if speaker is not None else "unknown"
         lines.append(f"### Round {turn.round_index + 1} — {name}")
         lines.append(turn.content)
+        if turn.citations:
+            lines.append("")
+            lines.append("Sources:")
+            for citation in turn.citations:
+                label = citation.title.strip() or citation.url
+                lines.append(f"- [{label}]({citation.url})")
         lines.append("")
 
     if chamber.consensus is not None:
         lines.append(f"## Outcome: {chamber.consensus.outcome.value}")
+        if chamber.consensus.winning_stance is not None:
+            lines.append(f"**Winning position:** {chamber.consensus.winning_stance.value}")
+            lines.append("")
         lines.append(chamber.consensus.statement)
         lines.append("")
 

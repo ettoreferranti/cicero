@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
+  addNote,
   addParticipant,
+  cloneChamber,
   createChamber,
+  getServerConfig,
   eventsUrl,
   exportUrl,
   listChambers,
   listModels,
   startDebate,
+  updateSettings,
 } from "./api";
 
 function mockFetch(status: number, body: unknown) {
@@ -52,6 +56,44 @@ describe("api client", () => {
       stance: "pro",
     });
     expect(fetchMock.mock.calls[0][0]).toBe("/chambers/c1/participants");
+  });
+
+  it("updateSettings PUTs to the settings sub-resource", async () => {
+    const fetchMock = mockFetch(200, { id: "c1" });
+    vi.stubGlobal("fetch", fetchMock);
+    await updateSettings("c1", { max_rounds: 3, decision_rule: "majority" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1/settings");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ max_rounds: 3, decision_rule: "majority" });
+  });
+
+  it("addNote POSTs the note content", async () => {
+    const fetchMock = mockFetch(202, { status: "queued" });
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await addNote("c1", "Focus on costs.");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1/notes");
+    expect(JSON.parse(init.body)).toEqual({ content: "Focus on costs." });
+    expect(res.status).toBe("queued");
+  });
+
+  it("getServerConfig GETs /config", async () => {
+    const fetchMock = mockFetch(200, { web_access_enabled: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const config = await getServerConfig();
+    expect(fetchMock.mock.calls[0][0]).toBe("/config");
+    expect(config.web_access_enabled).toBe(true);
+  });
+
+  it("cloneChamber POSTs to /clone and returns the new chamber", async () => {
+    const fetchMock = mockFetch(201, { id: "new-id", status: "draft" });
+    vi.stubGlobal("fetch", fetchMock);
+    const clone = await cloneChamber("c1");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1/clone");
+    expect(init.method).toBe("POST");
+    expect(clone.id).toBe("new-id");
   });
 
   it("startDebate POSTs to /run", async () => {

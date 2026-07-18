@@ -12,7 +12,7 @@ from __future__ import annotations
 from cicero.core import prompts
 from cicero.core.prompts import TRANSCRIPT_CLOSE, TRANSCRIPT_OPEN
 from cicero.domain.enums import Stance
-from cicero.domain.models import Chamber, Participant
+from cicero.domain.models import Chamber, Participant, Turn
 from cicero.providers.base import Message, Role
 
 __all__ = [
@@ -22,25 +22,54 @@ __all__ = [
     "build_stance_poll_messages",
     "build_turn_messages",
     "render_transcript",
+    "system_speaker_label",
 ]
 
+#: ``metadata["kind"]`` values for system-authored turns.
+KIND_MODERATOR_NOTE = "moderator_note"
+KIND_EVIDENCE = "evidence"
 
-def _visible_turns(chamber: Chamber) -> list[tuple[str, str]]:
-    """Return (speaker_label, content) for turns that carry real content."""
+_SYSTEM_SPEAKERS = {
+    KIND_MODERATOR_NOTE: prompts.MODERATOR_NOTE_SPEAKER,
+    KIND_EVIDENCE: prompts.EVIDENCE_SPEAKER,
+}
+
+
+def system_speaker_label(turn: Turn) -> str:
+    """The speaker label for a turn without a participant (note/evidence)."""
+    kind = turn.metadata.get("kind")
+    return _SYSTEM_SPEAKERS.get(str(kind), prompts.SYSTEM_SPEAKER)
+
+
+def _visible_turns(chamber: Chamber, viewer: Participant | None = None) -> list[tuple[str, str]]:
+    """Return (speaker_label, content) for turns that carry real content.
+
+    When rendered for a ``viewer``, that participant's own turns are labelled
+    "You" — otherwise models treat their earlier statements as another
+    debater's and start quoting themselves in the third person.
+    """
     rows: list[tuple[str, str]] = []
     for turn in chamber.turns:
         if not turn.content.strip():
             continue  # skip empty/error turns
+        if turn.participant_id is None:
+            rows.append((system_speaker_label(turn), turn.content))
+            continue
         speaker = chamber.participant_by_id(turn.participant_id)
         if speaker is None:
             continue
-        rows.append((f"{speaker.display_name} ({speaker.stance.value})", turn.content))
+        if viewer is not None and speaker.id == viewer.id:
+            rows.append((f"You ({speaker.stance.value})", turn.content))
+        else:
+            rows.append((f"{speaker.display_name} ({speaker.stance.value})", turn.content))
     return rows
 
 
-def render_transcript(chamber: Chamber, max_turns: int | None = None) -> str:
+def render_transcript(
+    chamber: Chamber, max_turns: int | None = None, viewer: Participant | None = None
+) -> str:
     """Render the delimited transcript block from a chamber's turns."""
-    rows = _visible_turns(chamber)
+    rows = _visible_turns(chamber, viewer)
     if max_turns is not None:
         rows = rows[-max_turns:]
     if not rows:
@@ -51,9 +80,20 @@ def render_transcript(chamber: Chamber, max_turns: int | None = None) -> str:
 
 
 def build_turn_messages(
-    chamber: Chamber, participant: Participant, max_turns: int | None = None
+    chamber: Chamber,
+    participant: Participant,
+    max_turns: int | None = None,
+    converge: bool = False,
+    research: bool = False,
 ) -> list[Message]:
-    """Build the message list for ``participant``'s next turn."""
+    """Build the message list for ``participant``'s next turn.
+
+    ``converge`` switches the prompt into the final, common-ground-seeking phase
+    (FR-22): participants are told to concede, pick the strongest position, and
+    propose compromises instead of opening new lines of attack. ``research``
+    additionally invites the model to request a sandboxed web search via the
+    ``SEARCH:`` protocol (FR-26/27).
+    """
     system_parts = [
         prompts.TURN_INTRO.format(name=participant.display_name),
         prompts.MOTION_LABEL.format(topic=chamber.topic),
@@ -64,9 +104,17 @@ def build_turn_messages(
     if participant.tuning.persona.strip():
         system_parts.append(prompts.PERSONA_LABEL.format(persona=participant.tuning.persona))
     system_parts.append(prompts.TURN_GUIDANCE)
+    if converge:
+        system_parts.append(prompts.CONVERGE_GUIDANCE)
+    if research:
+        system_parts.append(prompts.RESEARCH_INSTRUCTION)
+    system_parts.append(prompts.FIRST_PERSON_RULE)
     system_parts.append(prompts.SAFETY_RULE)
 
-    user_content = f"{render_transcript(chamber, max_turns)}\n\n{prompts.TURN_USER_INSTRUCTION}"
+    user_content = (
+        f"{render_transcript(chamber, max_turns, viewer=participant)}"
+        f"\n\n{prompts.TURN_USER_INSTRUCTION}"
+    )
     return [
         Message(role=Role.SYSTEM, content="\n\n".join(system_parts)),
         Message(role=Role.USER, content=user_content),
@@ -83,10 +131,13 @@ def _stance_tally(chamber: Chamber, stances: dict[str, Stance]) -> str:
 
 
 def build_moderator_messages(
-    chamber: Chamber, stances: dict[str, Stance], is_consensus: bool
+    chamber: Chamber, stances: dict[str, Stance], task: str
 ) -> list[Message]:
-    """Build the moderator prompt that drafts the final artifact (FR-23/24)."""
-    task = prompts.MODERATOR_CONSENSUS_TASK if is_consensus else prompts.MODERATOR_DISAGREEMENT_TASK
+    """Build the moderator prompt that drafts the final artifact (FR-23/24).
+
+    ``task`` is one of the ``MODERATOR_*_TASK`` texts (consensus, majority,
+    judge, or disagreement), already formatted by the consensus engine.
+    """
     user = (
         f"{prompts.MODERATOR_MOTION_LABEL.format(topic=chamber.topic)}\n\n"
         f"{render_transcript(chamber)}\n\n"
@@ -102,7 +153,9 @@ def build_moderator_messages(
 def build_stance_poll_messages(chamber: Chamber, participant: Participant) -> list[Message]:
     """Build a short poll asking a participant for its current stance (FR-25)."""
     system = prompts.POLL_SYSTEM.format(name=participant.display_name, topic=chamber.topic)
-    user = f"{render_transcript(chamber)}\n\n{prompts.POLL_USER_INSTRUCTION}"
+    user = (
+        f"{render_transcript(chamber, viewer=participant)}\n\n{prompts.POLL_USER_INSTRUCTION}"
+    )
     return [
         Message(role=Role.SYSTEM, content=system),
         Message(role=Role.USER, content=user),

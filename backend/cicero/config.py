@@ -36,16 +36,26 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
-    # --- Debate budgets (hard caps prevent runaway loops — NFR-SEC-8) ----
+    # --- Debate budgets (defaults for new chambers; per-chamber settings
+    # override them within their own hard caps — NFR-SEC-8) ----------------
     max_rounds: int = Field(default=8, gt=0, le=100)
     max_total_tokens: int = Field(default=200_000, gt=0)
     turn_timeout_seconds: float = Field(default=120.0, gt=0)
 
+    # --- API hardening (NFR-SEC-8/9) -------------------------------------
+    # Secret: when set, every request (except /health) must send
+    # ``Authorization: Bearer <token>``.
+    api_auth_token: SecretStr | None = None
+    # Requests per client IP per minute; 0 disables rate limiting.
+    rate_limit_per_minute: int = Field(default=240, ge=0)
+
     # --- Web evidence (off by default; per-chamber opt-in — NFR-SEC-4) ---
     web_access_enabled: bool = False
     web_domain_allowlist: list[str] = Field(default_factory=list)
+    web_domain_denylist: list[str] = Field(default_factory=list)
     web_fetch_timeout_seconds: float = Field(default=10.0, gt=0)
     web_max_response_bytes: int = Field(default=2_000_000, gt=0)
+    web_max_results: int = Field(default=3, gt=0, le=10)
 
 
 @lru_cache

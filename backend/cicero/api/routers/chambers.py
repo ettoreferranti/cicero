@@ -16,26 +16,41 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from cicero.api.debate_manager import DebateManager
 from cicero.api.dependencies import (
     get_debate_manager,
+    get_evidence_service,
     get_provider_factory,
     get_repository,
 )
-from cicero.api.schemas import ChamberCreate, ParticipantCreate
-from cicero.config import get_settings
+from cicero.api.schemas import (
+    ChamberCreate,
+    DebateSettingsIn,
+    ModeratorNoteIn,
+    ParticipantCreate,
+)
 from cicero.core.budget import DebateBudget
+from cicero.core.compare import compare_chambers
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.metrics import ParticipantMetrics, compute_participant_metrics
-from cicero.core.orchestrator import DebateEngine, TurnListener
+from cicero.core.orchestrator import DebateEngine, NoteSource, TurnListener
+from cicero.core.prompt_builder import KIND_MODERATOR_NOTE
 from cicero.domain.enums import ChamberStatus
-from cicero.domain.models import Chamber, Participant, ParticipantTuning
+from cicero.domain.models import (
+    Chamber,
+    DebateSettings,
+    Participant,
+    ParticipantTuning,
+    Turn,
+)
 from cicero.persistence import ChamberRepository
 from cicero.providers import GenerateOptions, ProviderError, ProviderFactory
+from cicero.tools.web import EvidenceService
 
 router = APIRouter(prefix="/chambers", tags=["chambers"])
 
 RepoDep = Annotated[ChamberRepository, Depends(get_repository)]
 FactoryDep = Annotated[ProviderFactory, Depends(get_provider_factory)]
 ManagerDep = Annotated[DebateManager, Depends(get_debate_manager)]
+EvidenceDep = Annotated[EvidenceService | None, Depends(get_evidence_service)]
 
 MIN_PARTICIPANTS = 2
 _MODERATOR_MAX_TOKENS = 1024
@@ -54,6 +69,8 @@ def _build_engine(
     repo: ChamberRepository,
     factory: ProviderFactory,
     listener: TurnListener | None,
+    evidence: EvidenceService | None = None,
+    notes: NoteSource | None = None,
 ) -> tuple[DebateEngine, DebateBudget]:
     """Assemble the engine + budget for a debate. May raise ProviderError."""
     moderator_source = chamber.participants[0]
@@ -64,10 +81,15 @@ def _build_engine(
         temperature=_MODERATOR_TEMPERATURE,
     )
     consensus = ConsensusEngine(factory, moderator, moderator_options)
-    engine = DebateEngine(factory, repo, consensus, listener=listener)
-    settings = get_settings()
+    engine = DebateEngine(
+        factory, repo, consensus, listener=listener, evidence=evidence, notes=notes
+    )
+    settings = chamber.settings  # per-chamber tuning (FR-16/FR-11)
     budget = DebateBudget(
-        max_rounds=settings.max_rounds, max_total_tokens=settings.max_total_tokens
+        max_rounds=settings.max_rounds,
+        max_total_tokens=settings.max_total_tokens,
+        min_rounds=settings.min_rounds,
+        max_duration_seconds=settings.max_duration_seconds,
     )
     return engine, budget
 
@@ -77,10 +99,33 @@ def _build_engine(
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=Chamber)
 def create_chamber(payload: ChamberCreate, repo: RepoDep) -> Chamber:
+    settings = (
+        DebateSettings(**payload.settings.model_dump())
+        if payload.settings is not None
+        else DebateSettings()
+    )
     chamber = Chamber(
-        topic=payload.topic, category=payload.category, description=payload.description
+        topic=payload.topic,
+        category=payload.category,
+        description=payload.description,
+        settings=settings,
     )
     return repo.add(chamber)
+
+
+@router.put("/{chamber_id}/settings", response_model=Chamber)
+def update_settings(
+    chamber_id: UUID, payload: DebateSettingsIn, repo: RepoDep
+) -> Chamber:
+    """Tune the debate (rounds, token/time budgets, decision rule) while a draft."""
+    chamber = _require_chamber(repo, chamber_id)
+    if chamber.status is not ChamberStatus.DRAFT:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "settings can only be changed while the chamber is a draft",
+        )
+    chamber.settings = DebateSettings(**payload.model_dump())
+    return repo.update(chamber)
 
 
 @router.get("", response_model=list[Chamber])
@@ -97,6 +142,33 @@ def get_chamber(chamber_id: UUID, repo: RepoDep) -> Chamber:
 def delete_chamber(chamber_id: UUID, repo: RepoDep) -> None:
     if not repo.delete(chamber_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "chamber not found")
+
+
+@router.post("/{chamber_id}/clone", status_code=status.HTTP_201_CREATED, response_model=Chamber)
+def clone_chamber(chamber_id: UUID, repo: RepoDep) -> Chamber:
+    """Create a fresh draft copy (topic, settings, participants) to rerun a debate.
+
+    Turns and the consensus result are not copied; participants get new ids.
+    Pairs with ``GET /chambers/{a}/compare/{b}`` for run-vs-run comparison (FR-32).
+    """
+    source = _require_chamber(repo, chamber_id)
+    clone = Chamber(
+        topic=source.topic,
+        category=source.category,
+        description=source.description,
+        settings=source.settings.model_copy(deep=True),
+        participants=[
+            Participant(
+                display_name=participant.display_name,
+                provider=participant.provider,
+                model=participant.model,
+                stance=participant.stance,
+                tuning=participant.tuning.model_copy(deep=True),
+            )
+            for participant in source.participants
+        ],
+    )
+    return repo.add(clone)
 
 
 @router.post(
@@ -139,6 +211,7 @@ async def run_debate(
     repo: RepoDep,
     factory: FactoryDep,
     manager: ManagerDep,
+    evidence: EvidenceDep,
     wait: bool = False,
 ) -> Chamber | JSONResponse:
     """Start a debate. Async by default (202 + stream via /events); ``wait=true``
@@ -151,12 +224,14 @@ async def run_debate(
             status.HTTP_409_CONFLICT, "a debate needs at least two participants"
         )
 
-    def build(listener: TurnListener | None) -> tuple[DebateEngine, DebateBudget]:
-        return _build_engine(chamber, repo, factory, listener)
+    def build(
+        listener: TurnListener | None, notes: NoteSource | None
+    ) -> tuple[DebateEngine, DebateBudget]:
+        return _build_engine(chamber, repo, factory, listener, evidence, notes)
 
     if wait:
         try:
-            engine, budget = build(None)
+            engine, budget = build(None, None)
             return await engine.run(chamber, budget)
         except ValueError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
@@ -191,6 +266,45 @@ async def stream_events(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/{chamber_id}/notes", status_code=status.HTTP_202_ACCEPTED)
+def add_moderator_note(
+    chamber_id: UUID, payload: ModeratorNoteIn, repo: RepoDep, manager: ManagerDep
+) -> dict[str, str]:
+    """Inject a moderator note into the debate (FR-21).
+
+    Queued between turns while a debate is running; appended directly to the
+    transcript while the chamber is a draft or paused.
+    """
+    chamber = _require_chamber(repo, chamber_id)
+    if manager.add_note(chamber_id, payload.content):
+        return {"status": "queued"}
+    if chamber.status in (ChamberStatus.DRAFT, ChamberStatus.PAUSED):
+        next_round = max((turn.round_index for turn in chamber.turns), default=0)
+        chamber.turns.append(
+            Turn(
+                participant_id=None,
+                round_index=next_round,
+                content=payload.content,
+                metadata={"kind": KIND_MODERATOR_NOTE},
+            )
+        )
+        repo.update(chamber)
+        return {"status": "added"}
+    raise HTTPException(
+        status.HTTP_409_CONFLICT, "notes cannot be added to a concluded chamber"
+    )
+
+
+@router.get("/{chamber_id}/compare/{other_id}")
+def compare_runs(
+    chamber_id: UUID, other_id: UUID, repo: RepoDep
+) -> JSONResponse:
+    """Compare two debate runs side by side (FR-32)."""
+    a = _require_chamber(repo, chamber_id)
+    b = _require_chamber(repo, other_id)
+    return JSONResponse(compare_chambers(a, b))
 
 
 @router.post("/{chamber_id}/stop")

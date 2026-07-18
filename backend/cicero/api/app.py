@@ -1,12 +1,16 @@
-"""FastAPI application factory with locked-down CORS and security headers."""
+"""FastAPI application factory: locked-down CORS, security headers, optional
+bearer-token auth, and per-client rate limiting (J1/J2, NFR-SEC-8/9)."""
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from cicero.api.rate_limit import FixedWindowRateLimiter
 from cicero.api.routers import chambers, providers
 from cicero.config import Settings, get_settings
 
@@ -35,9 +39,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,  # explicit allowlist (NFR-SEC-9)
         allow_credentials=False,
-        allow_methods=["GET", "POST", "DELETE"],
-        allow_headers=["Content-Type"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "Authorization"],
     )
+
+    limiter = FixedWindowRateLimiter(settings.rate_limit_per_minute)
+    auth_token = settings.api_auth_token
+
+    @app.middleware("http")
+    async def enforce_access_controls(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        # OPTIONS preflights carry no credentials and are answered by CORS.
+        if request.url.path == "/health" or request.method == "OPTIONS":
+            return await call_next(request)
+        client_key = request.client.host if request.client is not None else "unknown"
+        if not limiter.allow(client_key):
+            return JSONResponse(
+                status_code=429, content={"detail": "rate limit exceeded"}
+            )
+        if auth_token is not None:
+            expected = f"Bearer {auth_token.get_secret_value()}"
+            supplied = request.headers.get("authorization", "")
+            if not secrets.compare_digest(supplied, expected):
+                return JSONResponse(
+                    status_code=401, content={"detail": "missing or invalid API token"}
+                )
+        return await call_next(request)
 
     @app.middleware("http")
     async def add_security_headers(

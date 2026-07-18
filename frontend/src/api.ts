@@ -1,4 +1,10 @@
-import type { Chamber, ParticipantMetrics, Provider, Stance } from "./types";
+import type {
+  Chamber,
+  DebateSettings,
+  ParticipantMetrics,
+  Provider,
+  Stance,
+} from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -48,8 +54,29 @@ export function createChamber(input: {
   });
 }
 
+export function updateSettings(
+  id: string,
+  settings: Partial<DebateSettings>,
+): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}/settings`, {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
+export function addNote(id: string, content: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/chambers/${id}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
 export function deleteChamber(id: string): Promise<void> {
   return request<void>(`/chambers/${id}`, { method: "DELETE" });
+}
+
+export function cloneChamber(id: string): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}/clone`, { method: "POST" });
 }
 
 export function addParticipant(

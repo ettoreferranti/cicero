@@ -73,6 +73,92 @@ async def test_generate_raises_on_unexpected_shape() -> None:
         await _provider(handler).generate([Message(role=Role.USER, content="x")], OPTS)
 
 
+async def test_generate_with_search_runs_the_tool_loop() -> None:
+    calls: list[dict] = []  # captured request bodies
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        if len(calls) == 1:
+            return httpx.Response(
+                200,
+                json={
+                    "stop_reason": "tool_use",
+                    "content": [
+                        {"type": "text", "text": "Let me check."},
+                        {
+                            "type": "tool_use",
+                            "id": "tu_1",
+                            "name": "web_search",
+                            "input": {"query": "mars costs"},
+                        },
+                    ],
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "Evidence says pro."}],
+                "usage": {"input_tokens": 20, "output_tokens": 7},
+            },
+        )
+
+    executed: list[str] = []
+
+    async def search(query: str) -> str:
+        executed.append(query)
+        return "SEARCH RESULTS BLOCK"
+
+    messages = [
+        Message(role=Role.SYSTEM, content="You are a debater."),
+        Message(role=Role.USER, content="Argue."),
+    ]
+    result = await _provider(handler).generate_with_search(
+        messages, OPTS, search, max_searches=1
+    )
+
+    assert executed == ["mars costs"]
+    assert result.content == "Evidence says pro."
+    assert result.prompt_tokens == 30 and result.completion_tokens == 12  # summed
+    assert result.metadata["native_searches"] == 1
+
+    # First call offers the tool; the follow-up forbids further searches and
+    # carries the assistant's tool_use plus our sandboxed tool_result.
+    assert calls[0]["tools"][0]["name"] == "web_search"
+    assert calls[0]["tool_choice"] == {"type": "auto"}
+    assert calls[1]["tool_choice"] == {"type": "none"}
+    follow_up = calls[1]["messages"]
+    assert follow_up[-2]["role"] == "assistant"
+    assert follow_up[-1]["content"][0] == {
+        "type": "tool_result",
+        "tool_use_id": "tu_1",
+        "content": "SEARCH RESULTS BLOCK",
+    }
+
+
+async def test_generate_with_search_without_tool_use_returns_directly() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "No research needed."}],
+                "usage": {"input_tokens": 8, "output_tokens": 3},
+            },
+        )
+
+    async def search(query: str) -> str:  # pragma: no cover - must not be called
+        raise AssertionError("search should not run")
+
+    result = await _provider(handler).generate_with_search(
+        [Message(role=Role.USER, content="Argue.")], OPTS, search
+    )
+    assert result.content == "No research needed."
+    assert result.metadata["native_searches"] == 0
+
+
 async def test_list_models() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/models"

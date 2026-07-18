@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { canRun, groupTurnsByRound, isRunning, speakerName, stanceLabel } from "./format";
+import {
+  PARTICIPANT_COLORS,
+  SYSTEM_TURN_COLOR,
+  canRun,
+  groupTurnsByRound,
+  isRunning,
+  outcomeLabel,
+  participantColor,
+  speakerName,
+  stanceLabel,
+  turnSpeaker,
+} from "./format";
 import type { Participant, Turn } from "./types";
 
-function turn(id: string, round: number, content: string, participantId = "p"): Turn {
+function turn(
+  id: string,
+  round: number,
+  content: string,
+  participantId: string | null = "p",
+): Turn {
   return {
     id,
     participant_id: participantId,
@@ -54,6 +70,64 @@ describe("speakerName", () => {
   });
   it("falls back to Unknown for an unknown id", () => {
     expect(speakerName(participants, "nope")).toBe("Unknown");
+  });
+});
+
+describe("turnSpeaker", () => {
+  const participants: Participant[] = [
+    { id: "p1", display_name: "Ada", provider: "mock", model: "m", stance: "pro" },
+  ];
+  it("uses the participant name for normal turns", () => {
+    expect(turnSpeaker(participants, turn("a", 0, "x", "p1"))).toBe("Ada");
+  });
+  it("labels system turns by their kind", () => {
+    const noteTurn = { ...turn("n", 0, "x", null), metadata: { kind: "moderator_note" } };
+    const evidenceTurn = { ...turn("e", 0, "x", null), metadata: { kind: "evidence" } };
+    const unknownTurn = turn("u", 0, "x", null);
+    expect(turnSpeaker(participants, noteTurn)).toBe("Moderator note");
+    expect(turnSpeaker(participants, evidenceTurn)).toBe("Research (web evidence)");
+    expect(turnSpeaker(participants, unknownTurn)).toBe("System");
+  });
+});
+
+describe("participantColor", () => {
+  const participant = (id: string): Participant => ({
+    id,
+    display_name: id,
+    provider: "mock",
+    model: "m",
+    stance: "neutral",
+  });
+
+  it("assigns each debater a distinct, stable palette colour", () => {
+    const participants = ["p1", "p2", "p3"].map(participant);
+    expect(participantColor(participants, "p1")).toBe(PARTICIPANT_COLORS[0]);
+    expect(participantColor(participants, "p2")).toBe(PARTICIPANT_COLORS[1]);
+    expect(participantColor(participants, "p3")).toBe(PARTICIPANT_COLORS[2]);
+    // Stable: same input, same colour.
+    expect(participantColor(participants, "p2")).toBe(participantColor(participants, "p2"));
+  });
+
+  it("wraps around the palette for many participants", () => {
+    const many = Array.from({ length: PARTICIPANT_COLORS.length + 1 }, (_, i) =>
+      participant(`p${i}`),
+    );
+    expect(participantColor(many, `p${PARTICIPANT_COLORS.length}`)).toBe(PARTICIPANT_COLORS[0]);
+  });
+
+  it("uses grey for system and unknown turns", () => {
+    const participants = [participant("p1")];
+    expect(participantColor(participants, null)).toBe(SYSTEM_TURN_COLOR);
+    expect(participantColor(participants, "ghost")).toBe(SYSTEM_TURN_COLOR);
+  });
+});
+
+describe("outcomeLabel", () => {
+  it("maps every outcome to a readable label", () => {
+    expect(outcomeLabel("consensus")).toBe("Consensus");
+    expect(outcomeLabel("majority")).toBe("Majority decision");
+    expect(outcomeLabel("verdict")).toBe("Judge's verdict");
+    expect(outcomeLabel("disagreement")).toBe("No agreement");
   });
 });
 

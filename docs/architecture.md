@@ -198,17 +198,30 @@ sequenceDiagram
 Stop conditions (FR-16): `max_rounds` ∨ `token/time budget` ∨ `consensus` —
 whichever first. Budgets are hard caps (NFR-SEC-8) preventing runaway loops/cost.
 
-## 6. Consensus mechanism (addresses OQ-1)
-**Recommended: hybrid.**
-1. **Signal (cheap, deterministic):** after each round, capture each
-   participant's self-reported stance + confidence via a structured micro-prompt;
-   track **stance stability** across rounds.
-2. **Adjudication (LLM moderator):** when stances stabilise (or budget nears), a
-   **moderator role** assesses whether a genuine common position exists and, if
-   so, drafts the Consensus Statement; participants get a final ratification turn
-   (endorse / object).
-3. **Fallback:** if no convergence within budget → **Disagreement Summary**
-   (positions, key cruxes, unresolved points) (FR-24).
+## 6. Consensus mechanism (addresses OQ-1) — implemented (Milestone 3)
+**Hybrid detection + a decision rule, run in two debate phases.**
+
+1. **Two phases (why debates now converge).** Assigned stances are framed as
+   *starting positions* for honest, truth-seeking debaters — not roles to
+   defend at all costs. The last `settings.convergence_rounds` rounds switch
+   the prompts into a **convergence phase**: stop opening new attacks, concede
+   what is well argued, name the strongest position, propose a workable
+   compromise. If stances stabilise early in the adversarial phase, the engine
+   fast-forwards straight into the convergence phase rather than burning
+   rounds on a stalemate.
+2. **Signal (cheap, deterministic):** after each round, each participant's
+   stance is polled with a one-word micro-prompt that explicitly permits
+   changing sides; stability across rounds is tracked.
+3. **Decision rule (`settings.decision_rule`)** resolves the final poll:
+   - `unanimous` — only full agreement counts (else Disagreement Summary).
+   - `majority` — the plurality of final stances wins (tie → disagreement).
+   - `judge` *(default)* — like majority, but on a tie the moderator weighs
+     the arguments and **declares a winner** (`WINNER: pro|con|neutral` +
+     verdict). Under this rule a debate always ends with one position on top.
+4. **Adjudication (LLM moderator):** drafts the terminal artifact matching the
+   outcome — Consensus Statement, majority Resolution, judge's Verdict, or
+   Summary of Disagreement (FR-23/24). The winning stance is recorded on the
+   `ConsensusResult` (`winning_stance`).
 
 This avoids naive "everyone said yes" sycophancy by recording *final stances and
 objections explicitly* (FR-23/25) and by separating detection (rule-based) from

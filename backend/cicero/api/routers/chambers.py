@@ -219,6 +219,40 @@ async def run_debate(
     chamber = _require_chamber(repo, chamber_id)
     if chamber.status is not ChamberStatus.DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, "only a draft chamber can be run")
+    return await _launch_debate(chamber, repo, factory, manager, evidence, wait)
+
+
+@router.post("/{chamber_id}/resume", response_model=None)
+async def resume_debate(
+    chamber_id: UUID,
+    repo: RepoDep,
+    factory: FactoryDep,
+    manager: ManagerDep,
+    evidence: EvidenceDep,
+    wait: bool = False,
+) -> Chamber | JSONResponse:
+    """Resume a paused debate from where it stopped (J3/NFR-R-3, FR-19).
+
+    Chambers land in ``paused`` when stopped mid-debate or when a restart
+    interrupted them; the engine continues at the first round with a missing
+    turn, and prior token/round spend still counts against the budget.
+    """
+    chamber = _require_chamber(repo, chamber_id)
+    if chamber.status is not ChamberStatus.PAUSED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "only a paused chamber can be resumed"
+        )
+    return await _launch_debate(chamber, repo, factory, manager, evidence, wait)
+
+
+async def _launch_debate(
+    chamber: Chamber,
+    repo: ChamberRepository,
+    factory: ProviderFactory,
+    manager: DebateManager,
+    evidence: EvidenceService | None,
+    wait: bool,
+) -> Chamber | JSONResponse:
     if len(chamber.participants) < MIN_PARTICIPANTS:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "a debate needs at least two participants"
@@ -246,7 +280,7 @@ async def run_debate(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
-        content={"status": "running", "chamber_id": str(chamber_id)},
+        content={"status": "running", "chamber_id": str(chamber.id)},
     )
 
 

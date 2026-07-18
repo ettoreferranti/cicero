@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   PARTICIPANT_COLORS,
   SYSTEM_TURN_COLOR,
+  canResume,
   canRun,
   groupTurnsByRound,
   isRunning,
+  mergeTurns,
   outcomeLabel,
   participantColor,
   speakerName,
@@ -137,6 +139,30 @@ describe("canRun", () => {
     expect(canRun("draft", 1)).toBe(false);
     expect(canRun("running", 2)).toBe(false);
     expect(canRun("concluded", 3)).toBe(false);
+  });
+});
+
+describe("canResume", () => {
+  it("is true only for a paused chamber with >= 2 participants", () => {
+    expect(canResume("paused", 2)).toBe(true);
+    expect(canResume("paused", 1)).toBe(false);
+    expect(canResume("draft", 2)).toBe(false);
+    expect(canResume("concluded", 2)).toBe(false);
+  });
+});
+
+describe("mergeTurns", () => {
+  it("appends live turns after persisted ones, deduplicating by id", () => {
+    const persisted = [turn("a", 0, "old"), turn("b", 1, "kept")];
+    const live = [turn("b", 1, "kept"), turn("c", 1, "new")];
+    const merged = mergeTurns(persisted, live);
+    expect(merged.map((t) => t.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("handles a fresh debate with no persisted turns", () => {
+    const live = [turn("x", 0, "first")];
+    expect(mergeTurns([], live)).toEqual(live);
+    expect(mergeTurns(live, [])).toEqual(live);
   });
 });
 

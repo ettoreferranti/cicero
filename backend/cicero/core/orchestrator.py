@@ -18,7 +18,9 @@ against mock providers and is in the mutation gate.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Protocol
+from uuid import UUID
 
 from cicero.core import prompts
 from cicero.core.budget import BudgetTracker, DebateBudget, StopReason
@@ -65,6 +67,45 @@ class NoteSource(Protocol):
     def drain(self) -> list[str]: ...
 
 
+def tokens_spent(chamber: Chamber) -> int:
+    """Tokens recorded on persisted turns — seeds the budget on resume (NFR-R-3)."""
+    total = 0
+    for turn in chamber.turns:
+        for key in ("prompt_tokens", "completion_tokens"):
+            value = turn.metadata.get(key, 0)
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                total += value
+    return total
+
+
+def participants_spoken(chamber: Chamber, round_index: int) -> set[UUID]:
+    """Ids of participants that already have a turn in ``round_index``."""
+    return {
+        turn.participant_id
+        for turn in chamber.turns
+        if turn.participant_id is not None and turn.round_index == round_index
+    }
+
+
+def resume_round(chamber: Chamber) -> int:
+    """The round a (resumed) debate should continue from.
+
+    The last round with participant turns, if someone still hasn't spoken in
+    it; otherwise the next round. A chamber with no participant turns starts
+    at round 0, so fresh debates take the same path.
+    """
+    rounds = [
+        turn.round_index for turn in chamber.turns if turn.participant_id is not None
+    ]
+    if not rounds:
+        return 0
+    last = max(rounds)
+    spoken = participants_spoken(chamber, last)
+    if all(participant.id in spoken for participant in chamber.participants):
+        return last + 1
+    return last
+
+
 def format_evidence_content(citations: list[Citation]) -> str:
     """Render gathered evidence as a readable, source-attributed block."""
     blocks = []
@@ -96,17 +137,36 @@ class DebateEngine:
         self._notes = notes
 
     async def run(self, chamber: Chamber, budget: DebateBudget) -> Chamber:
+        """Run a debate to conclusion — from `draft`, or resumed from `paused`
+        (NFR-R-3): the loop continues at the first round any participant has
+        not yet spoken in, and prior token/round spend still counts against
+        the budget."""
         if len(chamber.participants) < MIN_PARTICIPANTS:
             raise ValueError("a debate needs at least two participants")
 
         self._persist(chamber)
         transition(chamber, ChamberStatus.RUNNING)
         self._persist(chamber)
+        try:
+            return await self._run_to_conclusion(chamber, budget)
+        except asyncio.CancelledError:
+            # A stopped/interrupted debate parks as `paused`, so it can be
+            # resumed instead of wedging in `running` (E5/J3).
+            if chamber.status is ChamberStatus.RUNNING:
+                transition(chamber, ChamberStatus.PAUSED)
+                self._persist(chamber)
+            raise
 
+    async def _run_to_conclusion(self, chamber: Chamber, budget: DebateBudget) -> Chamber:
         await self._inject_evidence(chamber)
 
         settings = chamber.settings
-        tracker = BudgetTracker(budget)
+        start_round = min(resume_round(chamber), budget.max_rounds)
+        tracker = BudgetTracker(
+            budget,
+            initial_tokens=tokens_spent(chamber),
+            initial_rounds=start_round,
+        )
         # First round of the convergence phase; == max_rounds means "never".
         converge_start = budget.max_rounds - min(settings.convergence_rounds, budget.max_rounds)
         if settings.convergence_rounds == 0:
@@ -115,8 +175,13 @@ class DebateEngine:
         previous_poll: dict[str, Stance] | None = None
         final_stances: dict[str, Stance] | None = None
         stop_reason = StopReason.MAX_ROUNDS
+        budget_hit = tracker.hard_budget_hit()  # a resumed debate may be spent
+        if budget_hit is not None:
+            stop_reason = budget_hit
 
-        for round_index in range(budget.max_rounds):
+        for round_index in range(start_round, budget.max_rounds):
+            if budget_hit is not None:
+                break
             converge = round_index >= converge_start
             budget_hit = await self._run_round(chamber, round_index, tracker, converge)
             tracker.complete_round()
@@ -166,6 +231,8 @@ class DebateEngine:
         """
         if not chamber.settings.web_evidence or self._evidence is None:
             return
+        if any(turn.metadata.get("kind") == KIND_EVIDENCE for turn in chamber.turns):
+            return  # resumed debate: the brief was already gathered
         try:
             citations = await self._evidence.gather(chamber.topic)
         except Exception:  # noqa: BLE001 (evidence is best-effort)
@@ -199,7 +266,11 @@ class DebateEngine:
     ) -> StopReason | None:
         """Run one round of turns. Returns the hard budget hit, if any."""
         gatherer = self._evidence if chamber.settings.web_evidence else None
+        # On resume, a partially completed round is finished, not repeated.
+        spoken = participants_spoken(chamber, round_index)
         for participant in chamber.participants:
+            if participant.id in spoken:
+                continue
             await self._drain_notes(chamber, round_index)
             session = ResearchSession(gatherer) if gatherer is not None else None
             messages = build_turn_messages(

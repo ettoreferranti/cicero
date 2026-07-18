@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+from uuid import uuid4
+
 import pytest
 
 from cicero.core.budget import DebateBudget
 from cicero.core.consensus import ConsensusEngine
-from cicero.core.orchestrator import DebateEngine
+from cicero.core.orchestrator import (
+    DebateEngine,
+    participants_spoken,
+    resume_round,
+    tokens_spent,
+)
+from cicero.core.state_machine import transition
 from cicero.domain.enums import (
     ChamberStatus,
     ConsensusOutcome,
@@ -14,7 +23,7 @@ from cicero.domain.enums import (
     ProviderType,
     Stance,
 )
-from cicero.domain.models import Citation
+from cicero.domain.models import Citation, Turn
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers.base import (
     GenerateOptions,
@@ -430,6 +439,159 @@ async def test_native_search_provider_is_routed_to_tool_loop() -> None:
     assert a_turn.content == "Tool-informed argument."
     assert a_turn.metadata["searches"] == ["native query"]
     assert a_turn.citations == [citation]
+
+
+def _turn(participant_id, round_index: int, tokens: int = 10):  # type: ignore[no-untyped-def]
+    half = tokens // 2
+    return Turn(
+        participant_id=participant_id,
+        round_index=round_index,
+        content="said something",
+        metadata={"prompt_tokens": half, "completion_tokens": tokens - half},
+    )
+
+
+def test_resume_round_and_spoken_and_tokens() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    assert resume_round(chamber) == 0  # fresh debate
+
+    # System turns (notes/evidence) never affect the resume point.
+    chamber.turns.append(Turn(participant_id=None, round_index=0, content="note"))
+    assert resume_round(chamber) == 0
+
+    chamber.turns.append(_turn(a.id, 0))
+    chamber.turns.append(_turn(b.id, 0))
+    assert resume_round(chamber) == 1  # round 0 fully spoken
+
+    chamber.turns.append(_turn(a.id, 1))
+    assert resume_round(chamber) == 1  # round 1 partial → finish it
+    assert participants_spoken(chamber, 1) == {a.id}
+
+    # Token seeding ignores junk metadata.
+    chamber.turns.append(
+        Turn(
+            participant_id=b.id,
+            round_index=1,
+            content="x",
+            metadata={"prompt_tokens": True, "completion_tokens": -3},
+        )
+    )
+    assert tokens_spent(chamber) == 30  # three clean 10-token turns
+
+    # Unknown speakers do not block round completion detection forever.
+    ghost_only = make_chamber(a, b)
+    ghost_only.turns.append(_turn(uuid4(), 0))
+    assert resume_round(ghost_only) == 0
+
+
+async def test_resume_finishes_partial_round_without_duplicates() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    # Simulate an interrupted run: round 0 complete, round 1 has only A.
+    chamber.turns.extend([_turn(a.id, 0), _turn(b.id, 0), _turn(a.id, 1)])
+    transition(chamber, ChamberStatus.RUNNING)
+    transition(chamber, ChamberStatus.PAUSED)
+
+    provider_a = ScriptedProvider(stance_word="pro")
+    provider_b = ScriptedProvider(stance_word="pro")
+    factory = StubFactory({a.id: provider_a, b.id: provider_b})
+    repo = InMemoryChamberRepository()
+    engine = _engine(factory, repo)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=5, max_total_tokens=100_000))
+
+    assert result.status is ChamberStatus.CONCLUDED
+    # Only B spoke on resume: A's round-1 turn was not repeated.
+    assert provider_a.turn_calls == 0
+    assert provider_b.turn_calls == 1
+    assert len([t for t in result.turns if t.participant_id == a.id]) == 2
+    # Consensus detected right after the completed round.
+    assert result.config["stop_reason"] == "consensus"
+    assert result.config["rounds_completed"] == 2
+    # Prior spend (3 turns x 10) plus B's new turn (5+5) count against budget.
+    assert result.config["tokens_used"] == 40
+
+
+async def test_resume_with_exhausted_budget_concludes_without_new_turns() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.turns.extend([_turn(a.id, 0), _turn(b.id, 0)])
+    transition(chamber, ChamberStatus.RUNNING)
+    transition(chamber, ChamberStatus.PAUSED)
+
+    provider_a = ScriptedProvider(stance_word="pro")
+    provider_b = ScriptedProvider(stance_word="con")
+    factory = StubFactory({a.id: provider_a, b.id: provider_b})
+    engine = _engine(factory, InMemoryChamberRepository())
+
+    # 20 tokens already spent >= 15 budget → no further turns, straight to verdict.
+    result = await engine.run(chamber, DebateBudget(max_rounds=5, max_total_tokens=15))
+
+    assert result.status is ChamberStatus.CONCLUDED
+    assert provider_a.turn_calls == 0 and provider_b.turn_calls == 0
+    assert result.config["stop_reason"] == "token_budget"
+
+
+async def test_resume_does_not_regather_evidence() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    chamber.settings.web_evidence = True
+    chamber.turns.append(
+        Turn(
+            participant_id=None,
+            round_index=0,
+            content="Earlier evidence.",
+            metadata={"kind": "evidence"},
+        )
+    )
+    transition(chamber, ChamberStatus.RUNNING)
+    transition(chamber, ChamberStatus.PAUSED)
+
+    gatherer = StubGatherer([Citation(url="https://example.org", excerpt="x")])
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="pro")}
+    )
+    repo = InMemoryChamberRepository()
+    consensus = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+    engine = DebateEngine(factory, repo, consensus, evidence=gatherer)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=2, max_total_tokens=100_000))
+
+    assert result.status is ChamberStatus.CONCLUDED
+    evidence_turns = [t for t in result.turns if t.metadata.get("kind") == "evidence"]
+    assert len(evidence_turns) == 1  # the pre-existing one only
+    assert gatherer.calls == 0  # brief not regathered, and no turn searched
+
+
+async def test_cancelled_debate_parks_as_paused() -> None:
+    class Blocking(ScriptedProvider):
+        async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+            await asyncio.sleep(30)
+            return await super().generate(messages, options)
+
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    factory = StubFactory({a.id: Blocking(), b.id: Blocking()})
+    engine = _engine(factory, repo)
+
+    task = asyncio.create_task(
+        engine.run(chamber, DebateBudget(max_rounds=3, max_total_tokens=100_000))
+    )
+    await asyncio.sleep(0)  # let it reach the blocking generate
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert chamber.status is ChamberStatus.PAUSED
+    stored = repo.get(chamber.id)
+    assert stored is not None and stored.status is ChamberStatus.PAUSED
 
 
 async def test_listener_receives_each_turn() -> None:

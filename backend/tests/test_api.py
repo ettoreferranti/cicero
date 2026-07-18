@@ -50,6 +50,18 @@ def test_health(client: TestClient) -> None:
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_config_reports_web_access_capability() -> None:
+    from cicero.config import Settings
+
+    off = create_app(Settings(_env_file=None))  # type: ignore[call-arg]
+    with TestClient(off) as c:
+        assert c.get("/config").json() == {"web_access_enabled": False}
+
+    on = create_app(Settings(web_access_enabled=True, _env_file=None))  # type: ignore[call-arg]
+    with TestClient(on) as c:
+        assert c.get("/config").json() == {"web_access_enabled": True}
+
+
 def test_security_headers_present(client: TestClient) -> None:
     headers = client.get("/health").headers
     assert headers["X-Content-Type-Options"] == "nosniff"

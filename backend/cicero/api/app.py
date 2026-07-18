@@ -83,6 +83,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/config", tags=["meta"])
+    async def config() -> dict[str, bool]:
+        """Non-secret server capabilities, so the UI can grey out what's off."""
+        return {"web_access_enabled": settings.web_access_enabled}
+
     app.include_router(chambers.router)
     app.include_router(providers.router)
     return app

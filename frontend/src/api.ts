@@ -35,6 +35,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface ServerConfig {
+  web_access_enabled: boolean;
+}
+
+export function getServerConfig(): Promise<ServerConfig> {
+  return request<ServerConfig>("/config");
+}
+
 export function listChambers(): Promise<Chamber[]> {
   return request<Chamber[]>("/chambers");
 }

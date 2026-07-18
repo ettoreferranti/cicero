@@ -42,6 +42,15 @@ export function ChamberDetail({
   const [streaming, setStreaming] = useState(false);
   const [settingsForm, setSettingsForm] = useState<DebateSettings | null>(null);
   const [note, setNote] = useState("");
+  // null = unknown (config not loaded); the checkbox stays usable then.
+  const [webAccessEnabled, setWebAccessEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api
+      .getServerConfig()
+      .then((config) => setWebAccessEnabled(config.web_access_enabled))
+      .catch(() => setWebAccessEnabled(null));
+  }, []);
 
   // participant form
   const [name, setName] = useState("");
@@ -300,15 +309,24 @@ export function ChamberDetail({
                   ))}
                 </select>
               </label>
-              <label>
+              <label
+                className={webAccessEnabled === false ? "muted" : undefined}
+                title={
+                  webAccessEnabled === false
+                    ? "Disabled on this server — set WEB_ACCESS_ENABLED=true in backend/.env and restart"
+                    : "Upfront research brief + per-turn searches, via the sandboxed fetcher"
+                }
+              >
                 <input
                   type="checkbox"
                   checked={settingsForm.web_evidence}
+                  disabled={webAccessEnabled === false}
                   onChange={(e) =>
                     setSettingsForm({ ...settingsForm, web_evidence: e.target.checked })
                   }
                 />{" "}
-                Web research (upfront brief + per-turn search; needs server opt-in)
+                Web research
+                {webAccessEnabled === false && " — disabled on this server (WEB_ACCESS_ENABLED)"}
               </label>
               <button type="submit">Save settings</button>
             </div>
@@ -320,7 +338,10 @@ export function ChamberDetail({
               ` · ${chamber.settings.max_duration_seconds}s limit`}{" "}
             · {chamber.settings.max_total_tokens.toLocaleString()} tokens · rule:{" "}
             {chamber.settings.decision_rule}
-            {chamber.settings.web_evidence && " · web evidence"}
+            {chamber.settings.web_evidence &&
+              (webAccessEnabled === false
+                ? " · web research (unavailable on this server)"
+                : " · web research")}
           </p>
         )}
       </div>

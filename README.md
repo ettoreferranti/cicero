@@ -19,7 +19,7 @@ evidence, hold or change positions, and cooperate.
 
 ## Status
 
-🚧 **Milestone 3 — Web Evidence & Hardening (mostly done).**
+✅ **Milestone 3 — Web Evidence & Hardening (complete).**
 Milestones 0–2 are merged (foundation; first real debate; live-streaming web
 UI with exports and metrics). Milestone 3 adds:
 
@@ -45,9 +45,13 @@ UI with exports and metrics). Milestone 3 adds:
   security headers and CORS lockdown.
 - **Moderator notes (E7)** — inject a note between turns (API + UI) — and
   **run comparison (H4)** via `GET /chambers/{a}/compare/{b}`.
+- **Restart resilience (J3)** and an **executable release demo (J4)** —
+  `make demo` walks the whole acceptance path against a live API and reports
+  PASS/FAIL per requirement (see [Release demo](#release-demo)).
 
 Fully runnable end-to-end with the deterministic mock provider — no keys required.
-See [`docs/backlog.md`](./docs/backlog.md) for milestone progress.
+See [`docs/backlog.md`](./docs/backlog.md) for milestone progress and the
+follow-ups carried past the milestone.
 
 > Controls note: **start**, **pause** (stop parks the debate as resumable), and
 > **resume** are implemented — including after a server restart: interrupted
@@ -105,6 +109,24 @@ by the consensus/disagreement statement, metrics, and JSON/Markdown export links
 
 Frontend checks: `npm run typecheck`, `npm run lint`, `npm test` (Vitest).
 
+### Release demo
+
+The release acceptance criteria are executable. From `backend/`:
+
+```bash
+make demo            # starts its own API on a free port, runs the whole path
+make demo-release    # same, but fails unless >=2 real providers debated
+```
+
+It creates a chamber, adds debaters, streams the debate live, checks the
+outcome, reads metrics, exports JSON + Markdown (into `demo-output/`), and
+prints a PASS/FAIL row per requirement — exiting non-zero if any fails. It uses
+whichever providers actually answer (a local Ollama, Anthropic when
+`ANTHROPIC_API_KEY` is set) and falls back to the offline mock, so it runs
+anywhere. `python scripts/demo.py --help` lists the options
+(`--base-url` to hit an already-running server, `--participant`, `--compare`,
+`--web-evidence`, …).
+
 ## Documentation
 
 | Doc | What it covers |
@@ -124,10 +146,11 @@ Frontend checks: `npm run typecheck`, `npm run lint`, `npm test` (Vitest).
 - **Deeply tested:** deterministic core, mocked providers, and **mutation
   testing** as the quality gate.
 
-## Planned tech (proposed — pending approval)
+## Tech stack (approved 2026-07-16, see architecture §10)
 
-Python 3.12 · FastAPI · SQLite/SQLAlchemy · React + TypeScript · pytest +
-`mutmut` (mutation testing) · GitHub Actions CI.
+Python 3.11+ · FastAPI + Uvicorn · SQLite/SQLAlchemy 2.0 · React + TypeScript +
+Vite · pytest + `mutmut` (mutation testing) · StrykerJS (frontend mutation) ·
+GitHub Actions CI.
 
 ## License
 

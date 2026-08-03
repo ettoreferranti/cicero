@@ -118,7 +118,7 @@
 | J1 | As an operator, security headers, CORS, and (optional) authn/authz are in place before non-localhost use. | NFR-SEC-9 | S | 5 | ✅ done — headers + CORS since M0; optional bearer-token auth via `API_AUTH_TOKEN` |
 | J2 | As an operator, rate limiting and resource budgets prevent runaway cost/loops. | NFR-SEC-8 | S | 3 | ✅ done — per-IP rate limiter + per-chamber round/token/time budgets |
 | J3 | As an operator, debates can resume after a restart. | NFR-R-3 | C | 5 | ✅ done — startup recovery parks interrupted `running` chambers as `paused`; `POST /chambers/{id}/resume` continues from the first missing turn with budgets counting prior spend |
-| J4 | As a maintainer, all docs are verified in sync at release; end-to-end demo passes. | NFR-M-2, §9 | M | 3 | 🟡 partial — docs synced with Milestone 3; release demo pending |
+| J4 | As a maintainer, all docs are verified in sync at release; end-to-end demo passes. | NFR-M-2, §9 | M | 3 | ✅ done — `backend/scripts/demo.py` (`make demo`) walks the §9 path against a live API and asserts a PASS/FAIL row per requirement; run in CI and by `tests/test_demo_e2e.py`. Docs audited against the shipped code (see below) |
 
 ---
 
@@ -134,9 +134,23 @@ Epics **A**, **B1/B2**, **C1/C6**. Deliverable: scaffold, CI (lint/type/test/sec
 ### Milestone 2 — Usable & Observable
 **E5/E6**, **F3/F4**, **H1/H2/H3**, **I1/I2/I3/I4**, **C4/C5**, **B3**, **D3/D4**. Deliverable: lightweight live-streaming web UI, controls, disagreement summaries, exports, metrics.
 
-### Milestone 3 — Web Evidence (v1 feature) & Hardening ← **mostly done**
+### Milestone 3 — Web Evidence (v1 feature) & Hardening ← **done**
 Epic **G** (SSRF-sandboxed web search + fetch + citations), **J1/J2**, **H4**, **E7**, **I5**, **J3**, **J4**. Deliverable: safe web evidence with citations wired into the debate loop, security hardening, release.
-Also delivered here (user-driven): per-chamber **debate settings** (rounds, token budget, wall-clock duration, convergence rounds, decision rule) via API + UI, and the **convergence redesign** (two-phase prompting + unanimous/majority/judge decision rules with a recorded winning stance) so debates end with one position winning. **J3 landed** (restart recovery + pause/resume). Remaining: release demo (J4), full a11y audit (I5), step control (E5).
+Also delivered here (user-driven): per-chamber **debate settings** (rounds, token budget, wall-clock duration, convergence rounds, decision rule) via API + UI, and the **convergence redesign** (two-phase prompting + unanimous/majority/judge decision rules with a recorded winning stance) so debates end with one position winning. **J3 landed** (restart recovery + pause/resume). **J4 landed** (executable release demo + doc audit).
+Carried forward as follow-ups, none blocking the release: full a11y audit (I5), step control (E5/I2), server-side model validation on add (C4), provider retry/backoff (C5), per-participant tuning UI (D3), draft editing / muting (D4), stance-change history (F4), Docker Compose (A6).
+
+#### J4 doc audit — drift found and fixed (2026-08-03)
+| Doc | Claimed | Actual | Action |
+|---|---|---|---|
+| `architecture.md` §2, §10 | Python **3.12** | `requires-python >=3.11`; CI pins 3.11 | Corrected to 3.11+ |
+| `architecture.md` §2 | SQLAlchemy + **Alembic migrations** | Schema bootstrapped via `metadata.create_all`; no Alembic | Corrected, with a note on when migrations land |
+| `architecture.md` §4 | ER model without `settings` / `winning_stance` | Both shipped, plus system-authored turns | Diagram + note updated |
+| `architecture.md` §9 | Layout incl. `docker-compose.yml`, `migrations/` | Neither exists; `scripts/` does | Layout matched to the tree; gap called out |
+| `architecture.md` §11 | 5 endpoints listed | 15 endpoints shipped (resume, clone, compare, notes, settings, providers, …) | Full table added |
+| `architecture.md` | J3 resume/recovery undocumented | Shipped in the previous PR | New §12 |
+| `requirements.md` §10 | 5 open questions "to resolve" | All closed at architecture approval (D-1…D-5) | Resolutions recorded; doc baselined v1.0 |
+| `testing.md` §3 | Mutation scope "Milestone 1"; `metrics`/`export` listed as in-gate | `setup.cfg` mutated neither, and omitted 4 newer modules | `metrics`+`export` added to the gate (100% branch coverage first); scope list matched to `setup.cfg` |
+| `README.md` | "Planned tech (proposed — pending approval)"; Python 3.12 | Stack approved 2026-07-16 and shipped on 3.11 | Rewritten as the shipped stack |
 
 ---
 

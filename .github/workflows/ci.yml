@@ -43,6 +43,15 @@ jobs:
       - name: Pytest (unit + integration, providers mocked)
         run: pytest --cov=cicero --cov-report=term-missing
 
+      # J4 / requirements §9: walk the whole release path against a real server
+      # (offline mock providers) and print the acceptance checklist into the log.
+      - name: End-to-end release demo
+        run: |
+          python scripts/demo.py \
+            --participant Ada:mock:mock-small:pro \
+            --participant Zeno:mock:mock-large:con \
+            --compare --out demo-output
+
       - name: Mutation testing (quality gate)
         run: |
           mutmut run || true

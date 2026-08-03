@@ -1,9 +1,9 @@
 # Cicero — Requirements Specification
 
-> **Status:** Draft v0.1 — output of the initial requirements engineering session.
-> This document is the single source of truth for *what* Cicero must do. The
-> *how* lives in [`architecture.md`](./architecture.md); the *when/priority*
-> lives in [`backlog.md`](./backlog.md).
+> **Status:** **Baselined v1.0** — open questions closed at architecture approval
+> (2026-07-16, see §10). This document is the single source of truth for *what*
+> Cicero must do. The *how* lives in [`architecture.md`](./architecture.md); the
+> *when/priority* and delivery status live in [`backlog.md`](./backlog.md).
 
 ---
 
@@ -238,11 +238,22 @@ Requirements use MoSCoW priority: **M**ust / **S**hould / **C**ould / **W**on't 
 - Docs (requirements, architecture, backlog, testing, security) reflect the
   shipped behaviour.
 
-## 10. Open Questions (to resolve during architecture approval)
-- **OQ-1** Consensus mechanism: moderator-LLM adjudicated, rule-based
-  (stance-stability), voting, or hybrid? *(recommend hybrid; see architecture.)*
-- **OQ-2** Frontend depth for v1: full SPA vs. lightweight web UI vs. API + CLI
-  first?
-- **OQ-3** Web-evidence tooling in v1 scope, or deferred to a fenced later epic?
-- **OQ-4** Persistence: SQLite default acceptable for v1?
-- **OQ-5** Primary implementation language/stack (see architecture proposal).
+> **How this is verified.** The first criterion is executable:
+> `backend/scripts/demo.py` (`make demo`) walks the whole path against a live API
+> and prints a PASS/FAIL row per requirement, exiting non-zero on failure. CI runs
+> it on every push with the offline mock provider; `make demo-release` is the
+> sign-off form, which additionally *requires* the debate to span ≥2 real
+> providers. See [`architecture.md`](./architecture.md) §13.
+
+## 10. Open Questions — **resolved 2026-07-16**
+All five were closed at architecture approval; the decisions are recorded as
+D-1…D-5 in [`architecture.md`](./architecture.md) §10 and are reflected in the
+shipped code.
+
+| # | Question | Resolution |
+|---|---|---|
+| **OQ-1** | Consensus mechanism: moderator-LLM adjudicated, rule-based (stance-stability), voting, or hybrid? | **Hybrid** (D-2): a deterministic stance-stability signal drives detection, an LLM moderator synthesises the artifact, and a per-chamber `decision_rule` (`unanimous` / `majority` / `judge`) resolves the final poll — see architecture §6. |
+| **OQ-2** | Frontend depth for v1: full SPA, lightweight web UI, or API + CLI first? | **Lightweight web UI** (D-5): React + TypeScript + Vite, live SSE transcript, compose/watch/export. |
+| **OQ-3** | Web evidence in v1, or a fenced later epic? | **In v1** (D-3): Epic G shipped in Milestone 3, off by default and sandboxed (architecture §7, security §4.1). |
+| **OQ-4** | Persistence: is SQLite acceptable for v1? | **Yes** (D-4): SQLite via SQLAlchemy 2.0, swappable to Postgres by config. |
+| **OQ-5** | Primary implementation language/stack? | **Python 3.11+ / FastAPI backend + React/TypeScript frontend** (D-1). |

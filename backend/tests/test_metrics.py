@@ -65,3 +65,32 @@ def test_metrics_ignore_unknown_participant_turns() -> None:
     m = compute_participant_metrics(chamber)[0]
     assert m.turns == 0
     assert m.total_tokens == 0
+
+
+def test_metrics_ignore_system_turns() -> None:
+    """Moderator notes and evidence turns have no participant, so they count for none."""
+    a = make_participant("A", Stance.PRO)
+    chamber = make_chamber(a)
+    chamber.turns.append(Turn(round_index=0, content="note", metadata={"prompt_tokens": 7}))
+    m = compute_participant_metrics(chamber)[0]
+    assert m.turns == 0
+    assert m.total_tokens == 0
+
+
+def test_metrics_treat_non_integer_token_counts_as_zero() -> None:
+    """Turn metadata is free-form, so odd values must not corrupt the totals."""
+    a = make_participant("A", Stance.PRO)
+    chamber = make_chamber(a)
+    chamber.turns.append(
+        Turn(
+            participant_id=a.id,
+            round_index=0,
+            content="x",
+            # bool is an int subclass, and a provider may report a string.
+            metadata={"prompt_tokens": True, "completion_tokens": "12"},
+        )
+    )
+    m = compute_participant_metrics(chamber)[0]
+    assert m.turns == 1
+    assert m.prompt_tokens == 0
+    assert m.completion_tokens == 0

@@ -22,7 +22,7 @@
 | A3 | As an operator, CI runs lint, type-check, tests, secret scanning, and dependency (SCA) scanning on every push. | NFR-Q-1/4, NFR-SEC-1/7 | M | 5 | ✅ done |
 | A4 | As a developer, mutation testing is wired up with a configured threshold on core modules and runs in CI. | NFR-Q-2 | M | 5 | ✅ done |
 | A5 | As a maintainer, `SECURITY.md`, threat model, and a CONTRIBUTING guide exist. | NFR-SEC-10, NFR-M-2 | M | 2 | ✅ done |
-| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | 🟡 partial |
+| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | ✅ done — `uv`+`uvicorn` quickstart plus `docker compose up --build` (API image runs non-root with no baked secrets; nginx serves the SPA and reverse-proxies the API same-origin so SSE works without CORS; both ports published to `127.0.0.1` only). ⚠️ *Image build not yet executed — see the note below* |
 
 ## Epic B — Domain Model & Persistence
 *Goal: the core entities and their storage.*
@@ -56,6 +56,24 @@
 | D4 | As a user, I can edit a chamber while it is a `draft` — its topic/category/description, and the participant roster (add, edit, remove) — including on a **clone before its rerun**, so a rerun can change one variable. | FR-3 | S | 3 | ✅ done — `PATCH /chambers/{id}`, `PATCH`/`DELETE /chambers/{id}/participants/{pid}`, plus edit/remove controls in the UI |
 | D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
 | D6 | As a user, I can remove or mute a participant **mid-debate**. | FR-13 | C | 5 | todo — split out of the original D4 (see note below) |
+
+> **I5 scope.** The story asks for *basic* accessibility and that is what
+> shipped: keyboard operability, screen-reader labelling, focus visibility and
+> management, table semantics, and a live region for the streaming transcript
+> (the one place a screen-reader user was previously told nothing at all). What
+> has **not** been done is a real audit — no automated axe/Lighthouse pass, no
+> testing with an actual screen reader, and no contrast measurement of the eight
+> participant accent colours (they are decorative and always paired with a text
+> label, but that is an argument, not a measurement). Reopen as a new story if a
+> WCAG conformance claim is ever needed.
+
+> **A6 verification gap.** The compose stack was authored and statically checked
+> (every Dockerfile `COPY` source resolves inside its declared build context,
+> ports are localhost-bound, the nginx and vite proxy lists match, no secret is
+> baked in), but `docker compose up --build` has **not** been run — the Docker
+> CLI was unavailable in the environment the work was done in. Run it once and
+> confirm the UI answers on `http://localhost:8080` before treating A6 as
+> verified; the one thing most likely to need adjusting is the base-image tags.
 
 > **Why D4 and D6 are separate.** The original D4 bundled FR-3 (edit while
 > `draft`) with FR-13 (remove/mute mid-debate); they are very different jobs.
@@ -121,7 +139,7 @@
 | I2 | As a user, I can watch a debate stream live and use start/pause/step/stop controls. | FR-18/19 | S | 5 | ✅ done — live SSE transcript with Start/Resume, Step, and Pause controls |
 | I3 | As a user, I can view the consensus/disagreement result and export it. | FR-23/24/31 | S | 3 | ✅ done |
 | I4 | As a developer, all model/web-derived content is rendered safely (no XSS). | NFR-SEC-6 | M | 3 | ✅ done |
-| I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | 🟡 partial — labelled form controls / aria-labels; no full audit |
+| I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | ✅ done (basic) — labelled controls, a `<main>` landmark, a visible focus ring on the dark palette, `scope`d table headers with row headers, spelled-out "Yes/No" instead of a bare tick, focus moved into (and back out of) the participant edit form, and an `aria-live` region announcing debate progress without reading whole turns aloud. **Not** a full WCAG audit — see the note below |
 
 ## Epic J — Hardening & Release
 *Goal: production-readiness for self-hosting.*

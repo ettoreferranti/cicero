@@ -1,0 +1,53 @@
+# Cicero — self-hosted stack (A6 / NFR-O-2).
+#
+#   docker compose up --build      → UI on http://localhost:8080
+#
+# Both ports are published to 127.0.0.1 only, matching the API's localhost
+# default (NFR-SEC-9): nothing here is exposed to your network unless you
+# deliberately change that *and* set API_AUTH_TOKEN.
+#
+# Secrets come from a git-ignored `.env` beside this file (compose reads it
+# automatically). Nothing sensitive is baked into an image.
+
+services:
+  backend:
+    build:
+      # Root context: backend/pyproject.toml declares `readme = "../README.md"`,
+      # so that file has to be inside the build context.
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      # Inside the container we must bind all interfaces; the published port
+      # below is what keeps it reachable from localhost only.
+      API_HOST: 0.0.0.0
+      DATABASE_URL: sqlite:////data/cicero.db
+      # The UI is same-origin behind nginx, so CORS stays empty by default.
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-[]}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Reach an Ollama running on the host, not in this network.
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-240}
+      WEB_ACCESS_ENABLED: ${WEB_ACCESS_ENABLED:-false}
+      PROVIDER_MAX_ATTEMPTS: ${PROVIDER_MAX_ATTEMPTS:-3}
+    volumes:
+      - cicero-data:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    extra_hosts:
+      # Docker Desktop provides this automatically; on Linux it needs saying.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: unless-stopped
+
+volumes:
+  cicero-data:

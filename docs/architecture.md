@@ -296,15 +296,35 @@ cicero/
 │   │   │                  #   rate limiting, dependency wiring
 │   │   └── config.py      # env-based settings (secrets)
 │   ├── scripts/           # check_mutation_score.py (quality gate), demo.py (J4 demo)
-│   └── tests/             # unit, integration, security, e2e demo; mutation config
+│   ├── tests/             # unit, integration, security, e2e demo; mutation config
+│   └── Dockerfile         # API image (non-root, no baked secrets)
 ├── frontend/              # React + TS + Vite (added at Milestone 2)
+│   ├── Dockerfile         # build → nginx static serve
+│   └── nginx.conf         # serves the SPA, reverse-proxies the API same-origin
+├── docker-compose.yml     # self-hosted stack, localhost-published (A6)
 ├── .github/workflows/     # CI: lint, type, test, demo, mutation, secret-scan, SCA
 ├── SECURITY.md
 ├── CONTRIBUTING.md
-└── .gitignore / .env.example
+└── .gitignore / .dockerignore / .env.example
 ```
-*Not yet present:* a `docker-compose.yml` (NFR-O-2 / backlog A6 — containerised
-runs are still an open item; the documented quickstart is `uv` + `uvicorn`).
+
+**Containerised runs (A6 / NFR-O-2).** `docker compose up --build` serves the UI
+on `http://localhost:8080` with the API behind it. Three deliberate choices:
+
+- **nginx reverse-proxies the API** (`/chambers`, `/providers`, `/health`,
+  `/config`) to the backend service, so the SPA is same-origin end to end — no
+  CORS, and `EventSource` streams without cross-origin configuration. Buffering
+  is off and the read timeout is long, because SSE must flow as it is produced
+  (FR-18). That proxy list is the deployed twin of the dev-server proxy in
+  `vite.config.ts` and the two must be kept in step.
+- **Both ports publish to `127.0.0.1` only**, matching the API's localhost
+  default (NFR-SEC-9). Exposing the stack to a network is a deliberate edit, and
+  should come with `API_AUTH_TOKEN`.
+- **No secrets in any image.** The API image runs as a non-root user and reads
+  everything from the environment at run time; compose interpolates from a
+  git-ignored root `.env` (NFR-SEC-1/3). The backend build context is the
+  repository root because `backend/pyproject.toml` declares
+  `readme = "../README.md"`; the root `.dockerignore` keeps the rest out.
 
 ## 10. Approved decisions (2026-07-16)
 - **D-1 Stack:** ✅ **Python (3.11+) / FastAPI backend + React/TypeScript frontend.**

@@ -78,6 +78,20 @@ follow-ups carried past the milestone.
 > server-side: an unreachable provider is a `502`, and a model the provider
 > cannot serve is a `422` that names the ones it can.
 
+### Quickstart (Docker Compose)
+
+The whole stack, UI included:
+
+```bash
+cp backend/.env.example .env    # optional: add ANTHROPIC_API_KEY, etc.
+docker compose up --build       # UI on http://localhost:8080
+```
+
+Both ports publish to `127.0.0.1` only, the API image runs as a non-root user,
+and no secrets are baked into any image — compose reads them from the
+git-ignored `.env` beside `docker-compose.yml`. To use an Ollama running on your
+host, leave `OLLAMA_HOST` at its default (`http://host.docker.internal:11434`).
+
 ### Quickstart (backend)
 
 ```bash

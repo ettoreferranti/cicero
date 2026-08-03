@@ -5,6 +5,7 @@ import {
   canRun,
   canStep,
   groupTurnsByRound,
+  liveStatusMessage,
   mergeTurns,
   outcomeLabel,
   participantColor,
@@ -238,6 +239,7 @@ export function ChamberDetail({
     : chamber.turns;
   const rounds = groupTurnsByRound(liveTurns);
   const consensus = stream.consensus ?? chamber.consensus;
+  const liveStatus = streaming ? (stream.status ?? "running") : chamber.status;
   const runnable = canRun(chamber.status, chamber.participants.length);
   const resumable = canResume(chamber.status, chamber.participants.length);
   const steppable = canStep(chamber.status, chamber.participants.length);
@@ -308,7 +310,7 @@ export function ChamberDetail({
       )}
       <p className="muted">
         {chamber.category && <>Category: {chamber.category} · </>}
-        Status: {streaming ? (stream.status ?? "running") : chamber.status}
+        Status: {liveStatus}
       </p>
       {chamber.description && <p>{chamber.description}</p>}
       {error && <p className="error">{error}</p>}
@@ -558,6 +560,10 @@ export function ChamberDetail({
             </button>
           </form>
         )}
+        {/* Announces progress without reading whole turns aloud (NFR-U-2). */}
+        <p aria-live="polite" className="visually-hidden">
+          {liveStatusMessage(chamber.participants, liveTurns, liveStatus)}
+        </p>
         {rounds.length === 0 ? (
           <p className="muted">No turns yet.</p>
         ) : (
@@ -619,25 +625,27 @@ export function ChamberDetail({
       {chamber.stance_history.length > 0 && (
         <div className="card">
           <h2>Stance history</h2>
-          <p className="muted" style={{ fontSize: "0.85rem" }}>
-            Where each debater stood after each round — a ✓ marks anyone who moved.
+          <p className="muted" style={{ fontSize: "0.85rem" }} id="stance-history-hint">
+            Where each debater stood after each round, and whether they moved.
           </p>
           <div style={{ overflowX: "auto" }}>
-            <table>
+            <table aria-describedby="stance-history-hint">
               <thead>
                 <tr>
-                  <th>Debater</th>
+                  <th scope="col">Debater</th>
                   {chamber.stance_history.map((poll) => (
-                    <th key={poll.round_index}>R{poll.round_index + 1}</th>
+                    <th scope="col" key={poll.round_index}>
+                      Round {poll.round_index + 1}
+                    </th>
                   ))}
-                  <th>Moved</th>
+                  <th scope="col">Moved</th>
                 </tr>
               </thead>
               <tbody>
                 {stanceTrajectories(chamber.participants, chamber.stance_history).map(
                   ({ participant, stances, moved }) => (
                     <tr key={participant.id}>
-                      <td>
+                      <th scope="row" style={{ fontWeight: "normal" }}>
                         <span
                           className="dot"
                           style={{
@@ -649,13 +657,15 @@ export function ChamberDetail({
                           aria-hidden="true"
                         />{" "}
                         {participant.display_name}
-                      </td>
+                      </th>
                       {stances.map((stance, index) => (
                         <td key={chamber.stance_history[index].round_index}>
                           <span className={`stance ${stance}`}>{stanceLabel(stance)}</span>
                         </td>
                       ))}
-                      <td>{moved ? "✓" : ""}</td>
+                      {/* Spelled out rather than a tick: a bare ✓ reads as
+                          "check mark" and its absence reads as nothing. */}
+                      <td>{moved ? "Yes" : "No"}</td>
                     </tr>
                   ),
                 )}
@@ -671,11 +681,11 @@ export function ChamberDetail({
           <table>
             <thead>
               <tr>
-                <th>Participant</th>
-                <th>Turns</th>
-                <th>Prompt tok.</th>
-                <th>Completion tok.</th>
-                <th>Errors</th>
+                <th scope="col">Participant</th>
+                <th scope="col">Turns</th>
+                <th scope="col">Prompt tok.</th>
+                <th scope="col">Completion tok.</th>
+                <th scope="col">Errors</th>
               </tr>
             </thead>
             <tbody>

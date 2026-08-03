@@ -52,7 +52,7 @@ export function App() {
 
   if (selectedId) {
     return (
-      <div className="app">
+      <main className="app">
         <ChamberDetail
           key={selectedId} // remount on switch (e.g. after clone) to reset stream state
           chamberId={selectedId}
@@ -62,12 +62,12 @@ export function App() {
           }}
           onOpenChamber={setSelectedId}
         />
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="app">
+    <main className="app">
       <h1>Cicero — Debate Chambers</h1>
       {error && <p className="error">{error}</p>}
 
@@ -122,6 +122,6 @@ export function App() {
           </div>
         ))
       )}
-    </div>
+    </main>
   );
 }

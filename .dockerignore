@@ -1,0 +1,45 @@
+# Build context for backend/Dockerfile is the repository root, so keep secrets,
+# local state, and build noise out of it.
+.git/
+.github/
+
+# Secrets & local config — must never reach an image layer.
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.mutmut-cache
+mutants/
+.coverage
+htmlcov/
+
+# The API image does not need the tests, the frontend, or the docs tree.
+backend/tests/
+backend/scripts/
+frontend/
+docs/
+
+# Local databases and demo output
+*.db
+*.sqlite
+*.sqlite3
+demo-output/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

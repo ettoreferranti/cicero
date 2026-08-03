@@ -81,6 +81,29 @@ export function tuningSummary(tuning: ParticipantTuning | undefined): string {
 }
 
 /**
+ * A one-line spoken summary of where a live debate has got to (NFR-U-2).
+ *
+ * Read out by an `aria-live` region: announcing whole turns would be
+ * overwhelming, but announcing *nothing* leaves a screen-reader user with no
+ * idea the debate is progressing. Naming the latest speaker and round is the
+ * useful middle.
+ */
+export function liveStatusMessage(
+  participants: Participant[],
+  turns: Turn[],
+  status: string | null,
+): string {
+  const spoken = turns.filter((turn) => turn.content.trim() !== "");
+  const latest = spoken[spoken.length - 1];
+  if (!latest) {
+    return status ? `Debate ${status}.` : "";
+  }
+  const speaker = turnSpeaker(participants, latest);
+  const position = `${speaker} spoke in round ${latest.round_index + 1}`;
+  return status ? `${position}. Debate ${status}.` : `${position}.`;
+}
+
+/**
  * Each participant's stance across the recorded polls, plus whether they ever
  * moved (FR-25). A participant missing from a poll falls back to their declared
  * stance, which is what the engine itself does.

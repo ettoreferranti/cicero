@@ -7,6 +7,7 @@ import {
   canStep,
   groupTurnsByRound,
   isRunning,
+  liveStatusMessage,
   mergeTurns,
   outcomeLabel,
   participantColor,
@@ -167,6 +168,41 @@ describe("canResume", () => {
     expect(canResume("paused", 1)).toBe(false);
     expect(canResume("draft", 2)).toBe(false);
     expect(canResume("concluded", 2)).toBe(false);
+  });
+});
+
+describe("liveStatusMessage", () => {
+  const ada: Participant = {
+    id: "p",
+    display_name: "Ada",
+    provider: "mock",
+    model: "m",
+    stance: "pro",
+    tuning: DEFAULT_TUNING,
+  };
+
+  it("names the latest speaker and round", () => {
+    const turns = [turn("t1", 0, "first"), turn("t2", 1, "second")];
+    expect(liveStatusMessage([ada], turns, "running")).toBe(
+      "Ada spoke in round 2. Debate running.",
+    );
+  });
+
+  it("skips empty (failed) turns when picking the latest", () => {
+    const turns = [turn("t1", 0, "first"), turn("t2", 1, "   ")];
+    expect(liveStatusMessage([ada], turns, null)).toBe("Ada spoke in round 1.");
+  });
+
+  it("falls back to the status alone before anyone has spoken", () => {
+    expect(liveStatusMessage([ada], [], "running")).toBe("Debate running.");
+    expect(liveStatusMessage([ada], [], null)).toBe("");
+  });
+
+  it("labels system turns rather than naming a debater", () => {
+    const note = { ...turn("n", 0, "note", null), metadata: { kind: "moderator_note" } };
+    expect(liveStatusMessage([ada], [note], "running")).toBe(
+      "Moderator note spoke in round 1. Debate running.",
+    );
   });
 });
 

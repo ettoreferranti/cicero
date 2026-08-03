@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "./api";
 import { stanceLabel, tuningSummary } from "./format";
 import { DEFAULT_TUNING } from "./types";
@@ -44,6 +44,14 @@ export function ParticipantForm({
 }) {
   const [draft, setDraft] = useState<ParticipantDraft>(initial ?? BLANK);
   const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const editing = initial !== undefined;
+
+  // An edit form replaces a roster row in place; without moving focus into it,
+  // a keyboard or screen-reader user is left where the row used to be (NFR-U-2).
+  useEffect(() => {
+    if (editing) nameRef.current?.focus();
+  }, [editing]);
   // Models available from the selected provider (e.g. loaded in Ollama).
   // null = lookup failed/unavailable -> fall back to a free-text field.
   const [availableModels, setAvailableModels] = useState<string[] | null>(null);
@@ -76,8 +84,12 @@ export function ParticipantForm({
     try {
       await onSubmit(draft);
       // Adding stays put on the same provider/model so a roster is quick to
-      // build; only the name is cleared. Editing leaves the form as-is.
-      if (!initial) setDraft((current) => ({ ...current, display_name: "" }));
+      // build; only the name is cleared, and focus returns there for the next
+      // debater. Editing leaves the form as-is (the row closes over it).
+      if (!editing) {
+        setDraft((current) => ({ ...current, display_name: "" }));
+        nameRef.current?.focus();
+      }
     } finally {
       setBusy(false);
     }
@@ -93,6 +105,7 @@ export function ParticipantForm({
     <form aria-label={formLabel} onSubmit={handleSubmit}>
       <div className="row">
       <input
+        ref={nameRef}
         aria-label="participant name"
         placeholder="Name"
         value={draft.display_name}

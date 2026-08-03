@@ -333,9 +333,13 @@ streaming path:
   | Endpoint | Purpose |
   |---|---|
   | `POST/GET/DELETE /chambers[/{id}]` | Chamber CRUD (FR-1/2) |
+  | `PATCH /chambers/{id}` | Edit topic/category/description while `draft` (FR-3) |
   | `PUT /chambers/{id}/settings` | Debate tuning while `draft` (FR-11/16) |
   | `POST /chambers/{id}/participants` | Add a debater (FR-6/7) |
+  | `PATCH /chambers/{id}/participants/{pid}` | Edit a debater while `draft` (FR-3) |
+  | `DELETE /chambers/{id}/participants/{pid}` | Remove a debater while `draft` (FR-3) |
   | `POST /chambers/{id}/run` | Start — async → 202, or `?wait=true` (FR-19) |
+  | `POST /chambers/{id}/step` | Run one turn, then park as `paused` (FR-19) |
   | `POST /chambers/{id}/resume` | Continue a paused debate (FR-19, J3) |
   | `POST /chambers/{id}/stop` | Park a running debate as `paused` (FR-19) |
   | `GET /chambers/{id}/events` | SSE stream of turns/status/consensus (FR-18) |
@@ -357,10 +361,29 @@ SSE (one-directional server→client) is chosen over WebSockets because debate
 streaming is a pure fan-out of events; there is no client→server channel to
 justify a bidirectional socket.
 
-## 12. Resilience: pause, resume & restart recovery (Milestone 3 / J3)
+**Draft mutability (FR-3).** Everything that defines *what will be debated* —
+topic, category, description, debate settings, and the participant roster — is
+editable only while the chamber is `draft`, enforced in one place
+(`_require_draft`) so every write path answers `409` identically once a debate
+has started. The rule keeps a transcript honest: a concluded debate always
+reflects the roster and topic it actually ran with. Because `POST
+/chambers/{id}/clone` produces a *fresh draft*, the same endpoints are how a
+rerun is prepared — swap one debater's model, drop or add a participant, retitle
+the topic — which is what makes `GET /chambers/{a}/compare/{b}` (FR-32) a
+controlled comparison rather than a repeat. Removing a debater may take a draft
+below two participants; `/run` is the single place that enforces the minimum, so
+a roster can be rebuilt freely before the debate starts.
+
+Editing a participant *mid-debate* (FR-13, backlog D6) is deliberately **not**
+covered by this: it would invalidate the fixed-roster assumption in
+`participants_spoken()` / `round_complete()` that resume and step both rely on.
+
+## 12. Human controls: start, step, pause, resume & restart recovery (J3 / E5)
 
 A debate is an in-memory asyncio task, but its *state* is entirely in the
-transcript, so a run is reconstructible from persistence alone (NFR-R-3):
+transcript, so a run is reconstructible from persistence alone (NFR-R-3). Every
+control is therefore a variation on "stop writing turns, then pick the
+transcript back up" (FR-19):
 
 - **Stopping parks, it does not discard.** `POST /chambers/{id}/stop` cancels the
   task and leaves the chamber `paused` with its turns intact.
@@ -372,6 +395,21 @@ transcript, so a run is reconstructible from persistence alone (NFR-R-3):
   round with a missing turn rather than from round 0, and seeds the budget with
   the rounds and tokens already spent, so a resumed debate cannot exceed the
   caps it was created with (NFR-SEC-8).
+- **Step** (`POST /chambers/{id}/step`) reuses exactly that machinery: the engine
+  takes a `TurnLimit`, writes a single participant turn, and parks the chamber as
+  `paused` instead of concluding it. Because resume already finishes a partially
+  completed round, the *n*-th step needs no extra bookkeeping — it simply resumes
+  with an allowance of one. Unlike `/run`, a step runs synchronously and returns
+  the updated chamber, so a caller can drive a debate turn by turn without
+  holding an SSE subscription. A step whose turn spends the last of the rounds or
+  budget — or closes a round on consensus — concludes the debate as a normal run
+  would; otherwise the debate ends when the operator resumes or steps past the
+  final round.
+
+  One deliberate difference: the "stances stable across two consecutive polls"
+  early stop cannot fire while stepping, because each step is a fresh run with no
+  previous poll to compare against. A fully stepped debate still detects outright
+  consensus at a round boundary, and still ends on its round/token/time budget.
 
 ## 13. Release verification (J4)
 
@@ -379,9 +417,9 @@ transcript, so a run is reconstructible from persistence alone (NFR-R-3):
 criteria in [`requirements.md`](./requirements.md) §9. It drives a **real API
 process over HTTP** — starting its own server on a free port against a throwaway
 database unless pointed at one with `--base-url` — through create → participants
-→ run → live SSE stream → outcome → metrics → export (→ clone/compare with
-`--compare`), recording a PASS/FAIL row per requirement and exiting non-zero on
-any failure.
+→ step one turn → resume → live SSE stream → outcome → metrics → export (→
+clone/compare with `--compare`), recording a PASS/FAIL row per requirement and
+exiting non-zero on any failure.
 
 It picks up whichever providers actually answer (a local Ollama, Anthropic when
 `ANTHROPIC_API_KEY` is set) and falls back to the offline mock, so the same

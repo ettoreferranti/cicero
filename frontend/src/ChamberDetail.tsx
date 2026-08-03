@@ -3,6 +3,7 @@ import * as api from "./api";
 import {
   canResume,
   canRun,
+  canStep,
   groupTurnsByRound,
   mergeTurns,
   outcomeLabel,
@@ -10,19 +11,16 @@ import {
   stanceLabel,
   turnSpeaker,
 } from "./format";
+import { ParticipantForm, type ParticipantDraft } from "./ParticipantForm";
 import { useDebateStream } from "./useDebateStream";
 import type {
   Chamber,
   DebateSettings,
   DecisionRule,
   ParticipantMetrics,
-  Provider,
-  Stance,
   Turn,
 } from "./types";
 
-const PROVIDERS: Provider[] = ["mock", "ollama", "anthropic"];
-const STANCES: Stance[] = ["neutral", "pro", "con"];
 const DECISION_RULES: { value: DecisionRule; label: string; hint: string }[] = [
   { value: "judge", label: "Judge", hint: "majority wins; the moderator breaks ties" },
   { value: "majority", label: "Majority", hint: "plurality wins; a tie ends unresolved" },
@@ -42,6 +40,8 @@ export function ChamberDetail({
   const [metrics, setMetrics] = useState<ParticipantMetrics[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
+  // A step runs synchronously on the server: hold the controls until it returns.
+  const [stepping, setStepping] = useState(false);
   const [settingsForm, setSettingsForm] = useState<DebateSettings | null>(null);
   const [note, setNote] = useState("");
   // null = unknown (config not loaded); the checkbox stays usable then.
@@ -54,36 +54,16 @@ export function ChamberDetail({
       .catch(() => setWebAccessEnabled(null));
   }, []);
 
-  // participant form
-  const [name, setName] = useState("");
-  const [provider, setProvider] = useState<Provider>("mock");
-  const [model, setModel] = useState("mock-small");
-  const [stance, setStance] = useState<Stance>("neutral");
-  // Models available from the selected provider (e.g. loaded in Ollama).
-  // null = lookup failed/unavailable -> fall back to a free-text field.
-  const [availableModels, setAvailableModels] = useState<string[] | null>(null);
+  // Id of the participant currently open for editing (D4/FR-3).
+  const [editingParticipant, setEditingParticipant] = useState<string | null>(null);
+  // Draft copy of the chamber's own fields while its edit form is open.
+  const [chamberForm, setChamberForm] = useState<{
+    topic: string;
+    category: string;
+    description: string;
+  } | null>(null);
 
   const stream = useDebateStream(chamberId, streaming);
-
-  // Refresh the model choices whenever the provider changes.
-  useEffect(() => {
-    let cancelled = false;
-    setAvailableModels(null);
-    api
-      .listModels(provider)
-      .then((models) => {
-        if (cancelled || models.length === 0) return;
-        setAvailableModels(models);
-        setModel((current) => (models.includes(current) ? current : models[0]));
-      })
-      .catch(() => {
-        // Provider unreachable (e.g. Ollama not running, no API key):
-        // keep the free-text input so the user can still type a model.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [provider]);
 
   const load = useCallback(async () => {
     try {
@@ -108,20 +88,45 @@ export function ChamberDetail({
     }
   }, [stream.done, load, chamberId]);
 
-  async function onAddParticipant(event: React.FormEvent) {
-    event.preventDefault();
+  async function onAddParticipant(draft: ParticipantDraft) {
     setError(null);
     try {
-      const updated = await api.addParticipant(chamberId, {
-        display_name: name,
-        provider,
-        model,
-        stance,
-      });
-      setChamber(updated);
-      setName("");
+      setChamber(await api.addParticipant(chamberId, draft));
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to add participant");
+    }
+  }
+
+  async function onEditParticipant(participantId: string, draft: ParticipantDraft) {
+    setError(null);
+    try {
+      setChamber(await api.updateParticipant(chamberId, participantId, draft));
+      setEditingParticipant(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to update participant");
+    }
+  }
+
+  async function onRemoveParticipant(participantId: string, name: string) {
+    if (!window.confirm(`Remove ${name} from this chamber?`)) return;
+    setError(null);
+    try {
+      setChamber(await api.removeParticipant(chamberId, participantId));
+      setEditingParticipant((current) => (current === participantId ? null : current));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to remove participant");
+    }
+  }
+
+  async function onSaveChamber(event: React.FormEvent) {
+    event.preventDefault();
+    if (!chamberForm) return;
+    setError(null);
+    try {
+      setChamber(await api.updateChamber(chamberId, chamberForm));
+      setChamberForm(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to update chamber");
     }
   }
 
@@ -166,6 +171,22 @@ export function ChamberDetail({
       setStreaming(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to resume debate");
+    }
+  }
+
+  async function onStep() {
+    setError(null);
+    setStepping(true);
+    try {
+      const updated = await api.stepDebate(chamberId);
+      setChamber(updated);
+      if (updated.status === "concluded") {
+        await api.getMetrics(chamberId).then(setMetrics).catch(() => undefined);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to step the debate");
+    } finally {
+      setStepping(false);
     }
   }
 
@@ -217,6 +238,7 @@ export function ChamberDetail({
   const consensus = stream.consensus ?? chamber.consensus;
   const runnable = canRun(chamber.status, chamber.participants.length);
   const resumable = canResume(chamber.status, chamber.participants.length);
+  const steppable = canStep(chamber.status, chamber.participants.length);
 
   return (
     <div>
@@ -231,11 +253,62 @@ export function ChamberDetail({
           </button>
         </div>
       </div>
-      <h1>{chamber.topic}</h1>
+      {chamberForm ? (
+        <form onSubmit={onSaveChamber} aria-label="edit chamber">
+          <div className="row" style={{ flexWrap: "wrap", gap: "0.75rem" }}>
+            <input
+              aria-label="topic"
+              placeholder="Topic"
+              value={chamberForm.topic}
+              onChange={(e) => setChamberForm({ ...chamberForm, topic: e.target.value })}
+              style={{ flex: 1, minWidth: "16rem" }}
+              required
+            />
+            <input
+              aria-label="category"
+              placeholder="Category"
+              value={chamberForm.category}
+              onChange={(e) => setChamberForm({ ...chamberForm, category: e.target.value })}
+            />
+            <input
+              aria-label="description"
+              placeholder="Description"
+              value={chamberForm.description}
+              onChange={(e) =>
+                setChamberForm({ ...chamberForm, description: e.target.value })
+              }
+              style={{ flex: 1, minWidth: "16rem" }}
+            />
+            <button type="submit">Save</button>
+            <button type="button" onClick={() => setChamberForm(null)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="row" style={{ gap: "0.75rem" }}>
+          <h1 style={{ margin: 0 }}>{chamber.topic}</h1>
+          {chamber.status === "draft" && (
+            <button
+              onClick={() =>
+                setChamberForm({
+                  topic: chamber.topic,
+                  category: chamber.category,
+                  description: chamber.description,
+                })
+              }
+              title="Edit the topic, category and description"
+            >
+              Edit
+            </button>
+          )}
+        </div>
+      )}
       <p className="muted">
         {chamber.category && <>Category: {chamber.category} · </>}
         Status: {streaming ? (stream.status ?? "running") : chamber.status}
       </p>
+      {chamber.description && <p>{chamber.description}</p>}
       {error && <p className="error">{error}</p>}
 
       <div className="card">
@@ -365,75 +438,62 @@ export function ChamberDetail({
       <div className="card">
         <h2>Participants</h2>
         {chamber.participants.length === 0 && <p className="muted">None yet.</p>}
-        {chamber.participants.map((p) => (
-          <div key={p.id} className="row">
-            <span
-              className="dot"
-              style={{ background: participantColor(chamber.participants, p.id) }}
-              aria-hidden="true"
+        {chamber.participants.map((p) =>
+          editingParticipant === p.id ? (
+            <ParticipantForm
+              key={p.id}
+              formLabel={`edit ${p.display_name}`}
+              submitLabel="Save"
+              initial={{
+                display_name: p.display_name,
+                provider: p.provider,
+                model: p.model,
+                stance: p.stance,
+              }}
+              onSubmit={(draft) => onEditParticipant(p.id, draft)}
+              onCancel={() => setEditingParticipant(null)}
             />
-            <strong>{p.display_name}</strong>
-            <span className={`stance ${p.stance}`}>{stanceLabel(p.stance)}</span>
-            <span className="muted">
-              {p.provider} / {p.model}
-            </span>
-          </div>
-        ))}
+          ) : (
+            <div key={p.id} className="row">
+              <span
+                className="dot"
+                style={{ background: participantColor(chamber.participants, p.id) }}
+                aria-hidden="true"
+              />
+              <strong>{p.display_name}</strong>
+              <span className={`stance ${p.stance}`}>{stanceLabel(p.stance)}</span>
+              <span className="muted">
+                {p.provider} / {p.model}
+              </span>
+              {chamber.status === "draft" && (
+                <>
+                  <button
+                    onClick={() => setEditingParticipant(p.id)}
+                    aria-label={`edit ${p.display_name}`}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="danger"
+                    onClick={() => onRemoveParticipant(p.id, p.display_name)}
+                    aria-label={`remove ${p.display_name}`}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </div>
+          ),
+        )}
 
         {chamber.status === "draft" && (
-          <form className="row" onSubmit={onAddParticipant} style={{ marginTop: "0.75rem" }}>
-            <input
-              aria-label="participant name"
-              placeholder="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
+          <div style={{ marginTop: "0.75rem" }}>
+            <ParticipantForm
+              formLabel="add participant"
+              submitLabel="Add"
+              onSubmit={onAddParticipant}
             />
-            <select
-              aria-label="provider"
-              value={provider}
-              onChange={(e) => setProvider(e.target.value as Provider)}
-            >
-              {PROVIDERS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-            {availableModels ? (
-              <select
-                aria-label="model"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-              >
-                {availableModels.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                aria-label="model"
-                placeholder="Model"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                required
-              />
-            )}
-            <select
-              aria-label="stance"
-              value={stance}
-              onChange={(e) => setStance(e.target.value as Stance)}
-            >
-              {STANCES.map((s) => (
-                <option key={s} value={s}>
-                  {stanceLabel(s)}
-                </option>
-              ))}
-            </select>
-            <button type="submit">Add</button>
-          </form>
+          </div>
         )}
       </div>
 
@@ -442,14 +502,25 @@ export function ChamberDetail({
           <h2>Debate</h2>
           <div className="row">
             {resumable ? (
-              <button className="primary" onClick={onResume} disabled={streaming}>
+              <button className="primary" onClick={onResume} disabled={streaming || stepping}>
                 Resume
               </button>
             ) : (
-              <button className="primary" onClick={onStart} disabled={!runnable || streaming}>
+              <button
+                className="primary"
+                onClick={onStart}
+                disabled={!runnable || streaming || stepping}
+              >
                 Start
               </button>
             )}
+            <button
+              onClick={onStep}
+              disabled={!steppable || streaming || stepping}
+              title="Run a single turn, then pause"
+            >
+              {stepping ? "Stepping…" : "Step"}
+            </button>
             <button onClick={onStop} disabled={!streaming} title="Pauses the debate; resumable">
               Pause
             </button>

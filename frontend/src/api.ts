@@ -62,6 +62,17 @@ export function createChamber(input: {
   });
 }
 
+/** Edit topic/category/description while the chamber is a draft (FR-3). */
+export function updateChamber(
+  id: string,
+  input: Partial<{ topic: string; category: string; description: string }>,
+): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export function updateSettings(
   id: string,
   settings: Partial<DebateSettings>,
@@ -97,6 +108,30 @@ export function addParticipant(
   });
 }
 
+/** Edit a debater while the chamber is a draft; only the sent fields change. */
+export function updateParticipant(
+  id: string,
+  participantId: string,
+  input: Partial<{
+    display_name: string;
+    provider: Provider;
+    model: string;
+    stance: Stance;
+  }>,
+): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}/participants/${participantId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Remove a debater while the chamber is a draft; resolves with the new roster. */
+export function removeParticipant(id: string, participantId: string): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}/participants/${participantId}`, {
+    method: "DELETE",
+  });
+}
+
 export function startDebate(id: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/chambers/${id}/run`, { method: "POST" });
 }
@@ -107,6 +142,11 @@ export function stopDebate(id: string): Promise<{ status: string }> {
 
 export function resumeDebate(id: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/chambers/${id}/resume`, { method: "POST" });
+}
+
+/** Advance the debate by one turn; resolves with the updated chamber. */
+export function stepDebate(id: string): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}/step`, { method: "POST" });
 }
 
 export function getMetrics(id: string): Promise<ParticipantMetrics[]> {

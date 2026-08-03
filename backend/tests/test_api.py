@@ -110,6 +110,120 @@ def test_add_participant_defaults_to_neutral(client: TestClient) -> None:
     assert resp.json()["participants"][0]["stance"] == "neutral"
 
 
+def test_edit_chamber_while_draft(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    resp = client.patch(f"/chambers/{cid}", json={"topic": "Should we colonise Venus?"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["topic"] == "Should we colonise Venus?"
+    assert body["category"] == ""  # untouched fields are left alone
+
+    # A partial edit leaves the previous topic in place.
+    resp = client.patch(f"/chambers/{cid}", json={"category": "space", "description": "d"})
+    body = resp.json()
+    assert (body["topic"], body["category"], body["description"]) == (
+        "Should we colonise Venus?",
+        "space",
+        "d",
+    )
+
+    assert client.patch(f"/chambers/{cid}", json={"topic": ""}).status_code == 422
+    assert client.patch(f"/chambers/{cid}", json={"surprise": 1}).status_code == 422
+    missing = "00000000-0000-0000-0000-000000000000"
+    assert client.patch(f"/chambers/{missing}", json={"topic": "T"}).status_code == 404
+
+
+def test_edit_and_remove_participants_while_draft(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    _add_participant(client, cid, "Zeno", "con")
+    roster = client.get(f"/chambers/{cid}").json()["participants"]
+    ada, zeno = roster[0]["id"], roster[1]["id"]
+
+    # Retarget one debater at a different model, leaving the rest untouched.
+    resp = client.patch(
+        f"/chambers/{cid}/participants/{ada}",
+        json={"model": "mock-large", "stance": "con"},
+    )
+    assert resp.status_code == 200
+    edited = next(p for p in resp.json()["participants"] if p["id"] == ada)
+    assert edited["model"] == "mock-large"
+    assert edited["stance"] == "con"
+    assert edited["display_name"] == "Ada"  # unsent fields survive
+    assert edited["tuning"]["temperature"] == 0.7
+
+    # Tuning replaces the whole block.
+    resp = client.patch(
+        f"/chambers/{cid}/participants/{ada}", json={"tuning": {"temperature": 0.1}}
+    )
+    tuning = next(p for p in resp.json()["participants"] if p["id"] == ada)["tuning"]
+    assert tuning["temperature"] == 0.1
+    assert tuning["max_tokens"] == 800  # schema default, not the old value
+
+    # Removal returns the updated roster and is idempotent-safe (404 on repeat).
+    resp = client.delete(f"/chambers/{cid}/participants/{zeno}")
+    assert resp.status_code == 200
+    assert [p["id"] for p in resp.json()["participants"]] == [ada]
+    assert client.delete(f"/chambers/{cid}/participants/{zeno}").status_code == 404
+    assert client.patch(f"/chambers/{cid}/participants/{zeno}", json={}).status_code == 404
+
+    # A draft may drop below two participants; /run is what enforces the minimum.
+    assert client.delete(f"/chambers/{cid}/participants/{ada}").status_code == 200
+    assert client.get(f"/chambers/{cid}").json()["participants"] == []
+    assert client.post(f"/chambers/{cid}/run").status_code == 409
+
+
+def test_chamber_and_roster_are_frozen_once_the_debate_has_run(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    _add_participant(client, cid, "Zeno", "con")
+    pid = client.get(f"/chambers/{cid}").json()["participants"][0]["id"]
+    assert client.post(f"/chambers/{cid}/run", params={"wait": "true"}).status_code == 200
+
+    assert client.patch(f"/chambers/{cid}", json={"topic": "T"}).status_code == 409
+    edit = client.patch(f"/chambers/{cid}/participants/{pid}", json={"stance": "con"})
+    assert edit.status_code == 409
+    assert client.delete(f"/chambers/{cid}/participants/{pid}").status_code == 409
+
+
+def test_clone_can_be_edited_before_its_rerun(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    _add_participant(client, cid, "Zeno", "con")
+    assert client.post(f"/chambers/{cid}/run", params={"wait": "true"}).status_code == 200
+
+    clone = client.post(f"/chambers/{cid}/clone").json()
+    clone_id = clone["id"]
+    # The clone is a fresh draft, so the whole roster is editable again — change
+    # one variable, drop a debater, add a replacement, then rerun.
+    assert client.patch(f"/chambers/{clone_id}", json={"category": "rerun"}).status_code == 200
+    assert (
+        client.patch(
+            f"/chambers/{clone_id}/participants/{clone['participants'][0]['id']}",
+            json={"model": "mock-large"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.delete(
+            f"/chambers/{clone_id}/participants/{clone['participants'][1]['id']}"
+        ).status_code
+        == 200
+    )
+    _add_participant(client, clone_id, "Hypatia", "con")
+
+    rerun = client.post(f"/chambers/{clone_id}/run", params={"wait": "true"})
+    assert rerun.status_code == 200
+    body = rerun.json()
+    assert body["category"] == "rerun"
+    names = [(p["display_name"], p["model"]) for p in body["participants"]]
+    assert names == [("Ada", "mock-large"), ("Hypatia", "m")]
+    # The source chamber is untouched by the clone's edits.
+    source = client.get(f"/chambers/{cid}").json()
+    assert [p["display_name"] for p in source["participants"]] == ["Ada", "Zeno"]
+    assert source["category"] == ""
+
+
 def test_run_debate_reaches_consensus(client: TestClient) -> None:
     cid = _create_chamber(client)
     _add_participant(client, cid, "Pro-A", "pro")
@@ -169,6 +283,55 @@ def test_metrics_endpoint(client: TestClient) -> None:
 def test_stop_without_running_debate_409(client: TestClient) -> None:
     cid = _create_chamber(client)
     assert client.post(f"/chambers/{cid}/stop").status_code == 409
+
+
+def test_step_advances_one_turn_at_a_time(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Pro-A", "pro")
+    _add_participant(client, cid, "Pro-B", "pro")
+
+    first = client.post(f"/chambers/{cid}/step")
+    assert first.status_code == 200
+    body = first.json()
+    # One turn taken; the chamber parks as paused, ready for the next step.
+    assert body["status"] == "paused"
+    assert len(body["turns"]) == 1
+    assert body["consensus"] is None
+    assert body["turns"][0]["participant_id"] == body["participants"][0]["id"]
+
+    second = client.post(f"/chambers/{cid}/step")
+    assert second.status_code == 200
+    body = second.json()
+    # The second step closes round 0, where both agree → the debate concludes.
+    assert body["status"] == "concluded"
+    assert len(body["turns"]) == 2
+    assert body["consensus"]["outcome"] == "consensus"
+    # Stepping a finished debate is refused.
+    assert client.post(f"/chambers/{cid}/step").status_code == 409
+
+
+def test_step_then_resume_runs_to_conclusion(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Pro-A", "pro")
+    _add_participant(client, cid, "Pro-B", "pro")
+
+    assert client.post(f"/chambers/{cid}/step").status_code == 200
+    resumed = client.post(f"/chambers/{cid}/resume", params={"wait": "true"})
+    assert resumed.status_code == 200
+    body = resumed.json()
+    assert body["status"] == "concluded"
+    # The stepped turn was kept, not replayed.
+    a_id = body["participants"][0]["id"]
+    assert len([t for t in body["turns"] if t["participant_id"] == a_id]) == 1
+
+
+def test_step_requires_two_participants_and_a_real_chamber(client: TestClient) -> None:
+    missing = "00000000-0000-0000-0000-000000000000"
+    assert client.post(f"/chambers/{missing}/step").status_code == 404
+
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Solo", "pro")
+    assert client.post(f"/chambers/{cid}/step").status_code == 409
 
 
 def test_events_unknown_chamber_404(client: TestClient) -> None:

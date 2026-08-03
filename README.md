@@ -45,6 +45,10 @@ UI with exports and metrics). Milestone 3 adds:
   security headers and CORS lockdown.
 - **Moderator notes (E7)** — inject a note between turns (API + UI) — and
   **run comparison (H4)** via `GET /chambers/{a}/compare/{b}`.
+- **Draft editing (D4)** — while a chamber is a draft, its topic/category/
+  description and its participant roster (add, edit, remove) are all editable,
+  API + UI. A clone is a fresh draft, so this is how a rerun changes exactly one
+  variable before being compared against the original.
 - **Restart resilience (J3)** and an **executable release demo (J4)** —
   `make demo` walks the whole acceptance path against a live API and reports
   PASS/FAIL per requirement (see [Release demo](#release-demo)).
@@ -53,11 +57,13 @@ Fully runnable end-to-end with the deterministic mock provider — no keys requi
 See [`docs/backlog.md`](./docs/backlog.md) for milestone progress and the
 follow-ups carried past the milestone.
 
-> Controls note: **start**, **pause** (stop parks the debate as resumable), and
-> **resume** are implemented — including after a server restart: interrupted
-> debates are recovered as `paused` and `POST /chambers/{id}/resume` continues
-> from the exact turn they stopped at, with token/round budgets counting the
-> prior spend. A **step** control is a planned follow-up. The participant
+> Controls note: **start**, **step**, **pause** (stop parks the debate as
+> resumable), and **resume** are all implemented — including after a server
+> restart: interrupted debates are recovered as `paused` and
+> `POST /chambers/{id}/resume` continues from the exact turn they stopped at,
+> with token/round budgets counting the prior spend. `POST /chambers/{id}/step`
+> takes a single turn and parks the debate again, so you can walk a debate
+> forward one argument at a time. The participant
 > form's **model selector** lists the models
 > actually available from the chosen provider (e.g. those loaded in your local
 > Ollama, via `GET /providers/{provider}/models`), falling back to free-text when
@@ -86,7 +92,10 @@ curl -s localhost:8000/chambers/$CID/participants -H 'content-type: application/
   -d '{"display_name":"Ada","provider":"mock","model":"mock-small","stance":"pro"}' >/dev/null
 curl -s localhost:8000/chambers/$CID/participants -H 'content-type: application/json' \
   -d '{"display_name":"Zeno","provider":"mock","model":"mock-small","stance":"con"}' >/dev/null
+# Take a single turn and pause again, to watch the debate build up argument by argument
+curl -s -X POST localhost:8000/chambers/$CID/step | python -m json.tool
 # Run the debate to a consensus / disagreement result (note: POST)
+# (use /resume instead of /run once you have stepped)
 curl -s -X POST localhost:8000/chambers/$CID/run | python -m json.tool
 ```
 
@@ -106,6 +115,13 @@ npm run dev        # opens http://localhost:5173 (proxies the API to :8000)
 Then in the browser: create a chamber, add at least two participants (choose a
 provider + model + stance), and click **Start** — turns stream in live, followed
 by the consensus/disagreement statement, metrics, and JSON/Markdown export links.
+**Step** takes one turn at a time instead, and **Pause** parks a running debate
+so **Resume** can pick it up where it stopped.
+
+While a chamber is still a draft you can **Edit** its topic/category/description
+and edit or remove any participant. **Clone & rerun** makes a fresh draft copy,
+so the usual way to compare runs is to clone, change one variable (say a single
+debater's model), and run it again.
 
 Frontend checks: `npm run typecheck`, `npm run lint`, `npm test` (Vitest).
 
@@ -118,7 +134,8 @@ make demo            # starts its own API on a free port, runs the whole path
 make demo-release    # same, but fails unless >=2 real providers debated
 ```
 
-It creates a chamber, adds debaters, streams the debate live, checks the
+It creates a chamber, adds debaters, steps one turn by hand, resumes and streams
+the rest live, checks the
 outcome, reads metrics, exports JSON + Markdown (into `demo-output/`), and
 prints a PASS/FAIL row per requirement — exiting non-zero if any fails. It uses
 whichever providers actually answer (a local Ollama, Anthropic when

@@ -29,7 +29,9 @@ export interface Citation {
 export interface Participant {
   id: string;
   display_name: string;
-  provider: string;
+  // The API validates this against the ProviderType enum, so it is never a
+  // free-form string — the edit form relies on that.
+  provider: Provider;
   model: string;
   stance: Stance;
 }

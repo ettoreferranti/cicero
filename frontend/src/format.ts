@@ -91,6 +91,11 @@ export function canResume(status: string, participantCount: number): boolean {
   return status === "paused" && participantCount >= 2;
 }
 
+/** Stepping one turn works from either end of the start/resume pair. */
+export function canStep(status: string, participantCount: number): boolean {
+  return canRun(status, participantCount) || canResume(status, participantCount);
+}
+
 /**
  * Persisted turns followed by any live-streamed turns not yet persisted
  * (deduplicated by id) — so resuming a debate keeps its earlier transcript.

@@ -10,8 +10,12 @@ import {
   exportUrl,
   listChambers,
   listModels,
+  removeParticipant,
   resumeDebate,
   startDebate,
+  stepDebate,
+  updateChamber,
+  updateParticipant,
   updateSettings,
 } from "./api";
 
@@ -69,6 +73,37 @@ describe("api client", () => {
     expect(JSON.parse(init.body)).toEqual({ max_rounds: 3, decision_rule: "majority" });
   });
 
+  it("updateChamber PATCHes only the fields it is given", async () => {
+    const fetchMock = mockFetch(200, { id: "c1", topic: "Venus?" });
+    vi.stubGlobal("fetch", fetchMock);
+    const chamber = await updateChamber("c1", { topic: "Venus?" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ topic: "Venus?" });
+    expect(chamber.topic).toBe("Venus?");
+  });
+
+  it("updateParticipant PATCHes the participant sub-resource", async () => {
+    const fetchMock = mockFetch(200, { id: "c1" });
+    vi.stubGlobal("fetch", fetchMock);
+    await updateParticipant("c1", "p9", { model: "mock-large", stance: "con" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1/participants/p9");
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body)).toEqual({ model: "mock-large", stance: "con" });
+  });
+
+  it("removeParticipant DELETEs and returns the updated chamber", async () => {
+    const fetchMock = mockFetch(200, { id: "c1", participants: [] });
+    vi.stubGlobal("fetch", fetchMock);
+    const chamber = await removeParticipant("c1", "p9");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1/participants/p9");
+    expect(init.method).toBe("DELETE");
+    expect(chamber.participants).toEqual([]);
+  });
+
   it("addNote POSTs the note content", async () => {
     const fetchMock = mockFetch(202, { status: "queued" });
     vi.stubGlobal("fetch", fetchMock);
@@ -111,6 +146,17 @@ describe("api client", () => {
     const res = await resumeDebate("c1");
     expect(fetchMock.mock.calls[0][0]).toBe("/chambers/c1/resume");
     expect(res.status).toBe("running");
+  });
+
+  it("stepDebate POSTs to /step and returns the updated chamber", async () => {
+    const fetchMock = mockFetch(200, { id: "c1", status: "paused", turns: [{ id: "t1" }] });
+    vi.stubGlobal("fetch", fetchMock);
+    const chamber = await stepDebate("c1");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1/step");
+    expect(init.method).toBe("POST");
+    expect(chamber.status).toBe("paused");
+    expect(chamber.turns).toHaveLength(1);
   });
 
   it("throws ApiError with the server detail on non-2xx", async () => {

@@ -4,6 +4,7 @@ import {
   SYSTEM_TURN_COLOR,
   canResume,
   canRun,
+  canStep,
   groupTurnsByRound,
   isRunning,
   mergeTurns,
@@ -148,6 +149,17 @@ describe("canResume", () => {
     expect(canResume("paused", 1)).toBe(false);
     expect(canResume("draft", 2)).toBe(false);
     expect(canResume("concluded", 2)).toBe(false);
+  });
+});
+
+describe("canStep", () => {
+  it("is true for a draft or paused chamber with >= 2 participants", () => {
+    expect(canStep("draft", 2)).toBe(true);
+    expect(canStep("paused", 2)).toBe(true);
+    expect(canStep("draft", 1)).toBe(false);
+    expect(canStep("paused", 1)).toBe(false);
+    expect(canStep("running", 2)).toBe(false);
+    expect(canStep("concluded", 2)).toBe(false);
   });
 });
 

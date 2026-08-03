@@ -45,6 +45,20 @@ class ChamberCreate(BaseModel):
     settings: DebateSettingsIn | None = None
 
 
+class ChamberUpdate(BaseModel):
+    """Editable chamber fields while it is a `draft` (FR-3).
+
+    Every field is optional; only those actually sent are applied, so a caller
+    can retarget a topic without restating the rest.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    topic: str | None = Field(default=None, min_length=1, max_length=1000)
+    category: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=5000)
+
+
 class ModeratorNoteIn(BaseModel):
     """An observer's note injected into the debate between turns (FR-21)."""
 
@@ -69,4 +83,20 @@ class ParticipantCreate(BaseModel):
     provider: ProviderType
     model: str = Field(min_length=1, max_length=200)
     stance: Stance = Stance.NEUTRAL
+    tuning: TuningIn | None = None
+
+
+class ParticipantUpdate(BaseModel):
+    """Editable participant fields while the chamber is a `draft` (FR-3).
+
+    Every field is optional; only those actually sent are applied. ``tuning``
+    replaces the whole tuning block rather than merging into it.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    provider: ProviderType | None = None
+    model: str | None = Field(default=None, min_length=1, max_length=200)
+    stance: Stance | None = None
     tuning: TuningIn | None = None

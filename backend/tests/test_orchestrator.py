@@ -11,8 +11,10 @@ from cicero.core.budget import DebateBudget
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.orchestrator import (
     DebateEngine,
+    TurnLimit,
     participants_spoken,
     resume_round,
+    round_complete,
     tokens_spent,
 )
 from cicero.core.state_machine import transition
@@ -566,6 +568,179 @@ async def test_resume_does_not_regather_evidence() -> None:
     evidence_turns = [t for t in result.turns if t.metadata.get("kind") == "evidence"]
     assert len(evidence_turns) == 1  # the pre-existing one only
     assert gatherer.calls == 0  # brief not regathered, and no turn searched
+
+
+def test_round_complete_requires_every_participant() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    assert not round_complete(chamber, 0)
+    chamber.turns.append(_turn(a.id, 0))
+    assert not round_complete(chamber, 0)
+    chamber.turns.append(_turn(b.id, 0))
+    assert round_complete(chamber, 0)
+    assert not round_complete(chamber, 1)  # nobody has spoken in the next round
+
+
+def test_turn_limit_counts_down_and_rejects_empty_steps() -> None:
+    with pytest.raises(ValueError, match=r"^a step must run at least one turn$"):
+        TurnLimit(0)
+    limit = TurnLimit(2)
+    assert limit.remaining == 2 and not limit.reached
+    limit.consume()
+    assert limit.remaining == 1 and not limit.reached  # one turn of two spent
+    limit.consume()
+    assert limit.remaining == 0 and limit.reached
+    limit.consume()
+    assert limit.reached  # stays reached once the allowance is spent
+
+
+async def test_step_runs_one_turn_then_parks_mid_round() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    provider_a = ScriptedProvider(stance_word="pro")
+    provider_b = ScriptedProvider(stance_word="con")
+    engine = _engine(StubFactory({a.id: provider_a, b.id: provider_b}), repo)
+    budget = DebateBudget(max_rounds=3, max_total_tokens=100_000, min_rounds=2)
+
+    result = await engine.run(chamber, budget, TurnLimit(1))
+
+    # Only the first participant spoke, and the debate is resumable, not over.
+    assert result.status is ChamberStatus.PAUSED
+    assert result.consensus is None
+    assert [t.participant_id for t in result.turns] == [a.id]
+    assert provider_a.turn_calls == 1 and provider_b.turn_calls == 0
+    assert provider_a.poll_calls == 0  # no stance poll mid-round
+    stored = repo.get(chamber.id)
+    assert stored is not None and stored.status is ChamberStatus.PAUSED
+
+    # The next step finishes round 0 and parks on the round boundary: min_rounds
+    # blocks an early stop and rounds are not exhausted.
+    result = await engine.run(result, budget, TurnLimit(1))
+    assert result.status is ChamberStatus.PAUSED
+    assert [t.participant_id for t in result.turns] == [a.id, b.id]
+    assert provider_a.turn_calls == 1 and provider_b.turn_calls == 1
+
+
+async def test_stepping_walks_a_debate_to_the_same_conclusion() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    repo = InMemoryChamberRepository()
+    provider_a = ScriptedProvider(stance_word="pro")
+    provider_b = ScriptedProvider(stance_word="con")
+    engine = _engine(StubFactory({a.id: provider_a, b.id: provider_b}), repo)
+    budget = DebateBudget(max_rounds=2, max_total_tokens=100_000, min_rounds=2)
+
+    steps = 0
+    while chamber.status is not ChamberStatus.CONCLUDED:
+        chamber = await engine.run(chamber, budget, TurnLimit(1))
+        steps += 1
+        assert steps <= 10  # guard against a stepping loop that never converges
+
+    # One step per turn — nobody spoke twice in a round — and the outcome matches
+    # the same budget run straight through (see the max-rounds test above).
+    assert steps == 4
+    assert len(chamber.turns) == 4
+    assert provider_a.turn_calls == 2 and provider_b.turn_calls == 2
+    assert chamber.config["stop_reason"] == "max_rounds"
+    assert chamber.config["rounds_completed"] == 2
+    assert chamber.consensus is not None
+    assert chamber.consensus.outcome is ConsensusOutcome.DISAGREEMENT
+
+
+async def test_step_concludes_when_its_turn_closes_a_round_on_consensus() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="pro")}
+    )
+    engine = _engine(factory, repo)
+    budget = DebateBudget(max_rounds=5, max_total_tokens=100_000)
+
+    parked = await engine.run(chamber, budget, TurnLimit(1))
+    assert parked.status is ChamberStatus.PAUSED
+
+    concluded = await engine.run(parked, budget, TurnLimit(1))
+
+    # The second step completed round 0, where the stance poll found consensus:
+    # the debate ends there rather than parking again.
+    assert concluded.status is ChamberStatus.CONCLUDED
+    assert concluded.config["stop_reason"] == "consensus"
+    assert concluded.config["rounds_completed"] == 1
+    assert len(concluded.turns) == 2
+    assert concluded.consensus is not None
+
+
+async def test_step_that_exhausts_the_budget_concludes_instead_of_parking() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="pro")}
+    )
+    engine = _engine(factory, repo)
+
+    # The single stepped turn costs 10 tokens against a 5-token budget.
+    result = await engine.run(
+        chamber, DebateBudget(max_rounds=5, max_total_tokens=5), TurnLimit(1)
+    )
+
+    assert result.status is ChamberStatus.CONCLUDED
+    assert result.config["stop_reason"] == "token_budget"
+    assert len(result.turns) == 1
+
+
+async def test_step_can_advance_a_debate_paused_mid_round() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    c = make_participant("C", Stance.PRO)
+    chamber = make_chamber(a, b, c)
+    # An interrupted run left round 0 with only A's turn.
+    chamber.turns.append(_turn(a.id, 0))
+    transition(chamber, ChamberStatus.RUNNING)
+    transition(chamber, ChamberStatus.PAUSED)
+
+    repo = InMemoryChamberRepository()
+    providers = {p.id: ScriptedProvider(stance_word="pro") for p in (a, b, c)}
+    engine = _engine(StubFactory(providers), repo)
+    budget = DebateBudget(max_rounds=4, max_total_tokens=100_000)
+
+    result = await engine.run(chamber, budget, TurnLimit(1))
+
+    # Only B spoke: A's turn was neither repeated nor skipped past.
+    assert result.status is ChamberStatus.PAUSED
+    assert [t.participant_id for t in result.turns] == [a.id, b.id]
+    assert providers[a.id].turn_calls == 0
+    assert providers[b.id].turn_calls == 1
+    assert providers[c.id].turn_calls == 0
+
+
+async def test_step_can_be_followed_by_a_full_run() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    provider_a = ScriptedProvider(stance_word="pro")
+    provider_b = ScriptedProvider(stance_word="pro")
+    engine = _engine(StubFactory({a.id: provider_a, b.id: provider_b}), repo)
+    budget = DebateBudget(max_rounds=5, max_total_tokens=100_000)
+
+    parked = await engine.run(chamber, budget, TurnLimit(1))
+    assert parked.status is ChamberStatus.PAUSED
+
+    result = await engine.run(parked, budget)  # resume, no limit
+
+    assert result.status is ChamberStatus.CONCLUDED
+    assert len(result.turns) == 2
+    assert provider_a.turn_calls == 1  # the stepped turn was not repeated
+    assert provider_b.turn_calls == 1
 
 
 async def test_cancelled_debate_parks_as_paused() -> None:

@@ -171,6 +171,55 @@ def test_stop_without_running_debate_409(client: TestClient) -> None:
     assert client.post(f"/chambers/{cid}/stop").status_code == 409
 
 
+def test_step_advances_one_turn_at_a_time(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Pro-A", "pro")
+    _add_participant(client, cid, "Pro-B", "pro")
+
+    first = client.post(f"/chambers/{cid}/step")
+    assert first.status_code == 200
+    body = first.json()
+    # One turn taken; the chamber parks as paused, ready for the next step.
+    assert body["status"] == "paused"
+    assert len(body["turns"]) == 1
+    assert body["consensus"] is None
+    assert body["turns"][0]["participant_id"] == body["participants"][0]["id"]
+
+    second = client.post(f"/chambers/{cid}/step")
+    assert second.status_code == 200
+    body = second.json()
+    # The second step closes round 0, where both agree → the debate concludes.
+    assert body["status"] == "concluded"
+    assert len(body["turns"]) == 2
+    assert body["consensus"]["outcome"] == "consensus"
+    # Stepping a finished debate is refused.
+    assert client.post(f"/chambers/{cid}/step").status_code == 409
+
+
+def test_step_then_resume_runs_to_conclusion(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Pro-A", "pro")
+    _add_participant(client, cid, "Pro-B", "pro")
+
+    assert client.post(f"/chambers/{cid}/step").status_code == 200
+    resumed = client.post(f"/chambers/{cid}/resume", params={"wait": "true"})
+    assert resumed.status_code == 200
+    body = resumed.json()
+    assert body["status"] == "concluded"
+    # The stepped turn was kept, not replayed.
+    a_id = body["participants"][0]["id"]
+    assert len([t for t in body["turns"] if t["participant_id"] == a_id]) == 1
+
+
+def test_step_requires_two_participants_and_a_real_chamber(client: TestClient) -> None:
+    missing = "00000000-0000-0000-0000-000000000000"
+    assert client.post(f"/chambers/{missing}/step").status_code == 404
+
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Solo", "pro")
+    assert client.post(f"/chambers/{cid}/step").status_code == 409
+
+
 def test_events_unknown_chamber_404(client: TestClient) -> None:
     resp = client.get("/chambers/00000000-0000-0000-0000-000000000000/events")
     assert resp.status_code == 404

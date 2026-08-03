@@ -1,7 +1,7 @@
 """Chamber, participant, debate-run, streaming, export and metrics endpoints.
 
 Covers FR-1/2/6/7 (chambers/participants), E1 (run), E6/FR-18 (live SSE stream),
-E5/FR-19 (stop control), H2/FR-31 (export), and H3/FR-33 (metrics).
+E5/FR-19 (start/step/pause/resume/stop), H2/FR-31 (export), and H3/FR-33 (metrics).
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from cicero.core.compare import compare_chambers
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.metrics import ParticipantMetrics, compute_participant_metrics
-from cicero.core.orchestrator import DebateEngine, NoteSource, TurnListener
+from cicero.core.orchestrator import DebateEngine, NoteSource, TurnLimit, TurnListener
 from cicero.core.prompt_builder import KIND_MODERATOR_NOTE
 from cicero.domain.enums import ChamberStatus
 from cicero.domain.models import (
@@ -243,6 +243,46 @@ async def resume_debate(
             status.HTTP_409_CONFLICT, "only a paused chamber can be resumed"
         )
     return await _launch_debate(chamber, repo, factory, manager, evidence, wait)
+
+
+@router.post("/{chamber_id}/step", response_model=Chamber)
+async def step_debate(
+    chamber_id: UUID,
+    repo: RepoDep,
+    factory: FactoryDep,
+    manager: ManagerDep,
+    evidence: EvidenceDep,
+) -> Chamber:
+    """Advance the debate by a single turn, then park it as `paused` (E5/FR-19).
+
+    Works from `draft` (the debate starts) and from `paused` (it continues where
+    it stopped). Runs synchronously and returns the updated chamber, so the
+    caller sees the new turn without subscribing to the stream. A debate whose
+    rounds or budget are spent — or one whose stepped turn closed a round on
+    consensus — concludes on this step instead of parking.
+    """
+    chamber = _require_chamber(repo, chamber_id)
+    if chamber.status not in (ChamberStatus.DRAFT, ChamberStatus.PAUSED):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "only a draft or paused chamber can be stepped"
+        )
+    if manager.is_running(chamber_id):
+        # The chamber can still read as `draft` in the window between /run
+        # returning 202 and the background task starting.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "a debate is already running for this chamber"
+        )
+    if len(chamber.participants) < MIN_PARTICIPANTS:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "a debate needs at least two participants"
+        )
+    try:
+        engine, budget = _build_engine(chamber, repo, factory, None, evidence, None)
+        return await engine.run(chamber, budget, TurnLimit(1))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except ProviderError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
 
 async def _launch_debate(

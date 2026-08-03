@@ -1,4 +1,4 @@
-"""The debate engine: the turn-based group-chat loop (FR-14/15/16/17).
+"""The debate engine: the turn-based group-chat loop (FR-14/15/16/17/19).
 
 Round-robin turns; each participant sees the shared transcript and argues per its
 stance. The loop persists every turn, enforces budgets (rounds, tokens, wall
@@ -87,8 +87,14 @@ def participants_spoken(chamber: Chamber, round_index: int) -> set[UUID]:
     }
 
 
+def round_complete(chamber: Chamber, round_index: int) -> bool:
+    """Whether every participant has spoken in ``round_index``."""
+    spoken = participants_spoken(chamber, round_index)
+    return all(participant.id in spoken for participant in chamber.participants)
+
+
 def resume_round(chamber: Chamber) -> int:
-    """The round a (resumed) debate should continue from.
+    """The round a (resumed or stepped) debate should continue from.
 
     The last round with participant turns, if someone still hasn't spoken in
     it; otherwise the next round. A chamber with no participant turns starts
@@ -100,10 +106,30 @@ def resume_round(chamber: Chamber) -> int:
     if not rounds:
         return 0
     last = max(rounds)
-    spoken = participants_spoken(chamber, last)
-    if all(participant.id in spoken for participant in chamber.participants):
-        return last + 1
-    return last
+    return last + 1 if round_complete(chamber, last) else last
+
+
+class TurnLimit:
+    """Caps how many participant turns one run produces — the step control (FR-19).
+
+    A run given a limit stops once its allowance is spent and parks the chamber
+    as ``paused`` instead of concluding it. Stepping (or resuming) again picks up
+    exactly where it left off, because the engine already finishes a partially
+    completed round on resume.
+    """
+
+    def __init__(self, turns: int) -> None:
+        if turns < 1:
+            raise ValueError("a step must run at least one turn")
+        self.remaining = turns
+
+    @property
+    def reached(self) -> bool:
+        """Whether the allowance is spent."""
+        return self.remaining <= 0
+
+    def consume(self) -> None:
+        self.remaining -= 1
 
 
 def format_evidence_content(citations: list[Citation]) -> str:
@@ -136,11 +162,22 @@ class DebateEngine:
         self._evidence = evidence
         self._notes = notes
 
-    async def run(self, chamber: Chamber, budget: DebateBudget) -> Chamber:
+    async def run(
+        self,
+        chamber: Chamber,
+        budget: DebateBudget,
+        turn_limit: TurnLimit | None = None,
+    ) -> Chamber:
         """Run a debate to conclusion — from `draft`, or resumed from `paused`
         (NFR-R-3): the loop continues at the first round any participant has
         not yet spoken in, and prior token/round spend still counts against
-        the budget."""
+        the budget.
+
+        With a ``turn_limit`` the run instead stops after that many participant
+        turns and parks the chamber as `paused` — the step control (FR-19). A
+        stepped debate still concludes normally once its rounds or budget run
+        out, or when a round boundary lands on consensus.
+        """
         if len(chamber.participants) < MIN_PARTICIPANTS:
             raise ValueError("a debate needs at least two participants")
 
@@ -148,7 +185,7 @@ class DebateEngine:
         transition(chamber, ChamberStatus.RUNNING)
         self._persist(chamber)
         try:
-            return await self._run_to_conclusion(chamber, budget)
+            return await self._run_to_conclusion(chamber, budget, turn_limit)
         except asyncio.CancelledError:
             # A stopped/interrupted debate parks as `paused`, so it can be
             # resumed instead of wedging in `running` (E5/J3).
@@ -157,7 +194,9 @@ class DebateEngine:
                 self._persist(chamber)
             raise
 
-    async def _run_to_conclusion(self, chamber: Chamber, budget: DebateBudget) -> Chamber:
+    async def _run_to_conclusion(
+        self, chamber: Chamber, budget: DebateBudget, limit: TurnLimit | None = None
+    ) -> Chamber:
         await self._inject_evidence(chamber)
 
         settings = chamber.settings
@@ -183,7 +222,12 @@ class DebateEngine:
             if budget_hit is not None:
                 break
             converge = round_index >= converge_start
-            budget_hit = await self._run_round(chamber, round_index, tracker, converge)
+            budget_hit = await self._run_round(chamber, round_index, tracker, converge, limit)
+            # A spent step allowance parks the debate — unless a budget was hit
+            # too, in which case the debate is over and should conclude instead.
+            stepped_out = limit is not None and limit.reached and budget_hit is None
+            if stepped_out and not round_complete(chamber, round_index):
+                return self._park(chamber)  # mid-round: no round to count yet
             tracker.complete_round()
             if budget_hit is not None:
                 stop_reason = budget_hit
@@ -206,6 +250,8 @@ class DebateEngine:
             if tracker.rounds_exhausted():
                 stop_reason = StopReason.MAX_ROUNDS
                 break
+            if stepped_out:
+                return self._park(chamber)  # step landed on a round boundary
 
         if final_stances is None:
             final_stances = await self._consensus.poll_stances(chamber)
@@ -262,15 +308,26 @@ class DebateEngine:
             await self._append_turn(chamber, turn)
 
     async def _run_round(
-        self, chamber: Chamber, round_index: int, tracker: BudgetTracker, converge: bool
+        self,
+        chamber: Chamber,
+        round_index: int,
+        tracker: BudgetTracker,
+        converge: bool,
+        limit: TurnLimit | None = None,
     ) -> StopReason | None:
-        """Run one round of turns. Returns the hard budget hit, if any."""
+        """Run one round of turns. Returns the hard budget hit, if any.
+
+        A stepped run (``limit``) stops as soon as its turn allowance is spent,
+        leaving the round partly done for the next step to finish.
+        """
         gatherer = self._evidence if chamber.settings.web_evidence else None
         # On resume, a partially completed round is finished, not repeated.
         spoken = participants_spoken(chamber, round_index)
         for participant in chamber.participants:
             if participant.id in spoken:
                 continue
+            if limit is not None and limit.reached:
+                return None
             await self._drain_notes(chamber, round_index)
             session = ResearchSession(gatherer) if gatherer is not None else None
             messages = build_turn_messages(
@@ -313,6 +370,8 @@ class DebateEngine:
                 metadata=metadata,
             )
             await self._append_turn(chamber, turn)
+            if limit is not None:
+                limit.consume()
 
             budget_hit = tracker.hard_budget_hit()
             if budget_hit is not None:
@@ -384,6 +443,12 @@ class DebateEngine:
             completion_tokens=completion_tokens,
             metadata=result.metadata,
         )
+
+    def _park(self, chamber: Chamber) -> Chamber:
+        """Pause a stepped debate so the next step (or resume) continues it."""
+        transition(chamber, ChamberStatus.PAUSED)
+        self._persist(chamber)
+        return chamber
 
     async def _append_turn(self, chamber: Chamber, turn: Turn) -> None:
         chamber.turns.append(turn)

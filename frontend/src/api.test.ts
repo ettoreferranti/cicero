@@ -12,6 +12,7 @@ import {
   listModels,
   resumeDebate,
   startDebate,
+  stepDebate,
   updateSettings,
 } from "./api";
 
@@ -111,6 +112,17 @@ describe("api client", () => {
     const res = await resumeDebate("c1");
     expect(fetchMock.mock.calls[0][0]).toBe("/chambers/c1/resume");
     expect(res.status).toBe("running");
+  });
+
+  it("stepDebate POSTs to /step and returns the updated chamber", async () => {
+    const fetchMock = mockFetch(200, { id: "c1", status: "paused", turns: [{ id: "t1" }] });
+    vi.stubGlobal("fetch", fetchMock);
+    const chamber = await stepDebate("c1");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1/step");
+    expect(init.method).toBe("POST");
+    expect(chamber.status).toBe("paused");
+    expect(chamber.turns).toHaveLength(1);
   });
 
   it("throws ApiError with the server detail on non-2xx", async () => {

@@ -67,7 +67,7 @@ validation unit tests:
 | `core/state_machine.py` — lifecycle transitions | `providers/base.py` — provider interface + request/response DTOs |
 | `core/prompt_builder.py` — prompt **assembly** & transcript delimiting | `core/prompts.py` — prompt template **text** (prose) |
 | `core/consensus.py` — stance parsing, consensus rule, finalize | `providers/ollama.py`, `providers/anthropic.py` — HTTP I/O adapters (tested via `httpx.MockTransport`) |
-| `core/orchestrator.py` — the debate loop | `providers/factory.py` — provider construction/wiring |
+| `core/orchestrator.py` — the debate loop, incl. resume + step (`TurnLimit`) | `providers/factory.py` — provider construction/wiring |
 | `providers/mock.py` | `persistence/repository.py` — abstract interface (overridden → decorator mutants equivalent) |
 | `persistence/memory.py` | `persistence/sqlalchemy_repo.py` — ORM table/column declarations (equivalent under SQLite) |
 | `core/metrics.py` — per-participant aggregation | `api/*` — HTTP layer + SSE transport (tested via FastAPI `TestClient` and the async `DebateManager` tests) |

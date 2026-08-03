@@ -65,7 +65,7 @@
 | E2 | As a developer, prompt construction injects topic, stance, persona, transcript window, and rules, with clear delimiting of untrusted content. | FR-15, NFR-SEC-5 | M | 5 | ✅ done |
 | E3 | As a user, stop conditions (max rounds / token / time budget) end the debate safely. | FR-16, NFR-SEC-8 | M | 3 | ✅ done |
 | E4 | As a user, every turn is persisted with metadata (participant, timestamp, tokens, tools). | FR-17 | M | 3 | ✅ done |
-| E5 | As a user, I can start, pause, resume, step, and stop a debate. | FR-19 | S | 5 | 🟡 partial — start ✅, pause ✅ (stop now parks as `paused`), resume ✅ (continues mid-round); step still todo |
+| E5 | As a user, I can start, pause, resume, step, and stop a debate. | FR-19 | S | 5 | ✅ done — start, pause (stop parks as `paused`), resume (continues mid-round), and step (`POST /chambers/{id}/step` runs one turn synchronously, then parks) |
 | E6 | As a user, turns stream live as they generate. | FR-18, NFR-R-2 | S | 5 | ✅ done |
 | E7 | As an observer, I can inject a moderator note between turns. | FR-21 | C | 3 | ✅ done |
 
@@ -105,7 +105,7 @@
 | ID | Story | FR/NFR | Pri | Est | Status |
 |----|-------|--------|-----|-----|--------|
 | I1 | As a user, I can create chambers and add participants from a UI. | FR-1/6/7, NFR-U-1 | S | 5 | ✅ done |
-| I2 | As a user, I can watch a debate stream live and use start/pause/step/stop controls. | FR-18/19 | S | 5 | 🟡 partial |
+| I2 | As a user, I can watch a debate stream live and use start/pause/step/stop controls. | FR-18/19 | S | 5 | ✅ done — live SSE transcript with Start/Resume, Step, and Pause controls |
 | I3 | As a user, I can view the consensus/disagreement result and export it. | FR-23/24/31 | S | 3 | ✅ done |
 | I4 | As a developer, all model/web-derived content is rendered safely (no XSS). | NFR-SEC-6 | M | 3 | ✅ done |
 | I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | 🟡 partial — labelled form controls / aria-labels; no full audit |
@@ -137,7 +137,15 @@ Epics **A**, **B1/B2**, **C1/C6**. Deliverable: scaffold, CI (lint/type/test/sec
 ### Milestone 3 — Web Evidence (v1 feature) & Hardening ← **done**
 Epic **G** (SSRF-sandboxed web search + fetch + citations), **J1/J2**, **H4**, **E7**, **I5**, **J3**, **J4**. Deliverable: safe web evidence with citations wired into the debate loop, security hardening, release.
 Also delivered here (user-driven): per-chamber **debate settings** (rounds, token budget, wall-clock duration, convergence rounds, decision rule) via API + UI, and the **convergence redesign** (two-phase prompting + unanimous/majority/judge decision rules with a recorded winning stance) so debates end with one position winning. **J3 landed** (restart recovery + pause/resume). **J4 landed** (executable release demo + doc audit).
-Carried forward as follow-ups, none blocking the release: full a11y audit (I5), step control (E5/I2), server-side model validation on add (C4), provider retry/backoff (C5), per-participant tuning UI (D3), draft editing / muting (D4), stance-change history (F4), Docker Compose (A6).
+Carried forward as follow-ups, none blocking the release: full a11y audit (I5), server-side model validation on add (C4), provider retry/backoff (C5), per-participant tuning UI (D3), draft editing / muting (D4), stance-change history (F4), Docker Compose (A6).
+
+### Post-release follow-up — step control (E5/I2) ✅ *2026-08-03*
+`POST /chambers/{id}/step` runs exactly one participant turn and parks the chamber
+as `paused`, reusing the J3 resume machinery (the engine already finishes partial
+rounds), plus a **Step** button in the debate controls. A step that spends the last
+round/token/time budget — or that closes a round on consensus — concludes the debate
+instead of parking. The release demo now steps a turn by hand before resuming, so
+FR-19 has a PASS row for start, step, and resume. Closes **E5** and **I2**.
 
 #### J4 doc audit — drift found and fixed (2026-08-03)
 | Doc | Claimed | Actual | Action |

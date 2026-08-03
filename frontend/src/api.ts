@@ -109,6 +109,11 @@ export function resumeDebate(id: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/chambers/${id}/resume`, { method: "POST" });
 }
 
+/** Advance the debate by one turn; resolves with the updated chamber. */
+export function stepDebate(id: string): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}/step`, { method: "POST" });
+}
+
 export function getMetrics(id: string): Promise<ParticipantMetrics[]> {
   return request<ParticipantMetrics[]>(`/chambers/${id}/metrics`);
 }

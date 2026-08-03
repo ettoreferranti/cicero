@@ -298,13 +298,35 @@ def _print_event(event: dict[str, Any], names: dict[str, str]) -> None:
         print(f"    -- error: {payload.get('message')}")
 
 
-def _run_debate(
-    client: httpx.Client, chamber_id: str, report: Report, timeout: float, names: dict[str, str]
-) -> list[dict[str, Any]]:
-    started = client.post(f"/chambers/{chamber_id}/run")
+def _step_debate(client: httpx.Client, chamber_id: str, report: Report) -> int:
+    """Take a single turn under manual control, then hand back to the run loop."""
+    stepped = client.post(f"/chambers/{chamber_id}/step")
+    body: dict[str, Any] = stepped.json() if stepped.status_code == 200 else {}
+    turns: list[dict[str, Any]] = body.get("turns", [])
+    spoken = [turn for turn in turns if turn.get("participant_id")]
     report.check(
         "FR-19",
-        "debate starts asynchronously",
+        "step control ran one turn and paused the debate",
+        stepped.status_code == 200 and len(spoken) == 1 and body.get("status") == "paused",
+        f"HTTP {stepped.status_code}, status={body.get('status')}, turns={len(spoken)}",
+    )
+    return len(spoken)
+
+
+def _run_debate(
+    client: httpx.Client,
+    chamber_id: str,
+    report: Report,
+    timeout: float,
+    names: dict[str, str],
+    paused: bool = False,
+) -> list[dict[str, Any]]:
+    # A stepped debate is already past `draft`, so it continues via /resume.
+    action = "resume" if paused else "run"
+    started = client.post(f"/chambers/{chamber_id}/{action}")
+    report.check(
+        "FR-19",
+        f"debate {'resumes' if paused else 'starts'} asynchronously",
         started.status_code == 202,
         f"HTTP {started.status_code}",
     )
@@ -344,7 +366,7 @@ def _compare_runs(
     client: httpx.Client, chamber_id: str, report: Report, timeout: float
 ) -> None:
     """Clone the chamber, rerun it, and compare the two runs (H4 / FR-32)."""
-    print("\n[7] Cloning the chamber and rerunning it for a run-vs-run comparison")
+    print("\n[8] Cloning the chamber and rerunning it for a run-vs-run comparison")
     clone = client.post(f"/chambers/{chamber_id}/clone")
     if not report.check(
         "FR-32", "chamber cloned for a second run", clone.status_code == 201
@@ -436,8 +458,11 @@ def run_demo(
         "FR-21", "moderator note accepted", note.status_code in (200, 202), note.text.strip()
     )
 
-    print("\n[5] Running the debate")
-    events = _run_debate(client, chamber_id, report, args.timeout, names)
+    print("\n[5] Stepping the debate one turn by hand")
+    stepped = _step_debate(client, chamber_id, report)
+
+    print("\n[6] Running the rest of the debate")
+    events = _run_debate(client, chamber_id, report, args.timeout, names, paused=stepped > 0)
     turn_events = [event for event in events if event.get("type") == "turn"]
     report.check(
         "FR-18", "turns streamed live over SSE", len(turn_events) > 0, f"{len(turn_events)} turns"
@@ -445,11 +470,11 @@ def run_demo(
     report.check(
         "FR-14/15",
         "debate ran as a turn-based group chat",
-        len(turn_events) >= len(roster),
-        f"{len(turn_events)} turns across {len(roster)} debaters",
+        stepped + len(turn_events) >= len(roster),
+        f"{stepped + len(turn_events)} turns across {len(roster)} debaters",
     )
 
-    print("\n[6] Reading back the concluded chamber")
+    print("\n[7] Reading back the concluded chamber")
     final = client.get(f"/chambers/{chamber_id}")
     final.raise_for_status()
     body: dict[str, Any] = final.json()

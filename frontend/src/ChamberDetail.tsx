@@ -3,6 +3,7 @@ import * as api from "./api";
 import {
   canResume,
   canRun,
+  canStep,
   groupTurnsByRound,
   mergeTurns,
   outcomeLabel,
@@ -42,6 +43,8 @@ export function ChamberDetail({
   const [metrics, setMetrics] = useState<ParticipantMetrics[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
+  // A step runs synchronously on the server: hold the controls until it returns.
+  const [stepping, setStepping] = useState(false);
   const [settingsForm, setSettingsForm] = useState<DebateSettings | null>(null);
   const [note, setNote] = useState("");
   // null = unknown (config not loaded); the checkbox stays usable then.
@@ -169,6 +172,22 @@ export function ChamberDetail({
     }
   }
 
+  async function onStep() {
+    setError(null);
+    setStepping(true);
+    try {
+      const updated = await api.stepDebate(chamberId);
+      setChamber(updated);
+      if (updated.status === "concluded") {
+        await api.getMetrics(chamberId).then(setMetrics).catch(() => undefined);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to step the debate");
+    } finally {
+      setStepping(false);
+    }
+  }
+
   async function onStop() {
     try {
       await api.stopDebate(chamberId);
@@ -217,6 +236,7 @@ export function ChamberDetail({
   const consensus = stream.consensus ?? chamber.consensus;
   const runnable = canRun(chamber.status, chamber.participants.length);
   const resumable = canResume(chamber.status, chamber.participants.length);
+  const steppable = canStep(chamber.status, chamber.participants.length);
 
   return (
     <div>
@@ -442,14 +462,25 @@ export function ChamberDetail({
           <h2>Debate</h2>
           <div className="row">
             {resumable ? (
-              <button className="primary" onClick={onResume} disabled={streaming}>
+              <button className="primary" onClick={onResume} disabled={streaming || stepping}>
                 Resume
               </button>
             ) : (
-              <button className="primary" onClick={onStart} disabled={!runnable || streaming}>
+              <button
+                className="primary"
+                onClick={onStart}
+                disabled={!runnable || streaming || stepping}
+              >
                 Start
               </button>
             )}
+            <button
+              onClick={onStep}
+              disabled={!steppable || streaming || stepping}
+              title="Run a single turn, then pause"
+            >
+              {stepping ? "Stepping…" : "Step"}
+            </button>
             <button onClick={onStop} disabled={!streaming} title="Pauses the debate; resumable">
               Pause
             </button>

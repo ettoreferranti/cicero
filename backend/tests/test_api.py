@@ -740,10 +740,15 @@ def test_blank_auth_token_leaves_the_api_open() -> None:
     # .env files inject when nothing was supplied) used to enable auth with a
     # token nobody could send, 401-ing everything except /health.
     app = create_app(Settings(api_auth_token="", _env_file=None))  # type: ignore[call-arg]
+    # This test writes, so it must own its storage: without the override it
+    # resolves the real repository and persists into whatever DATABASE_URL
+    # points at. (The session fixture in conftest is the backstop.)
+    app.dependency_overrides[get_repository] = lambda: InMemoryChamberRepository()
     with TestClient(app) as anon:
         assert anon.get("/health").status_code == 200
         assert anon.get("/chambers").status_code == 200
         assert anon.post("/chambers", json={"topic": "Open?"}).status_code == 201
+    app.dependency_overrides.clear()
 
 
 def test_rate_limit_returns_429() -> None:

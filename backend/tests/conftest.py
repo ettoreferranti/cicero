@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
 from uuid import UUID
+
+import pytest
 
 from cicero.domain.enums import ProviderType, Stance
 from cicero.domain.models import Chamber, Participant
@@ -14,6 +18,38 @@ from cicero.providers.base import (
 )
 
 _POLL_MARKER = "reply with exactly one word"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _never_touch_the_real_database(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[None]:
+    """Point the whole session at a throwaway database.
+
+    Most API tests override ``get_repository``, but any test that builds an app
+    without doing so silently resolves the *real* singleton — which reads
+    ``DATABASE_URL``, defaulting to the working ``cicero.db``. One such test
+    wrote junk chambers into a developer's actual database before this existed.
+    Isolating it here makes that impossible rather than a rule every future test
+    has to remember.
+    """
+    from cicero.api.dependencies import reset_dependency_caches
+    from cicero.config import get_settings
+
+    database = tmp_path_factory.mktemp("cicero-db") / "test.db"
+    previous = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = f"sqlite:///{database}"
+    get_settings.cache_clear()
+    reset_dependency_caches()
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = previous
+        get_settings.cache_clear()
+        reset_dependency_caches()
 
 
 class ScriptedProvider(Provider):

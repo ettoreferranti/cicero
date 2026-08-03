@@ -9,6 +9,8 @@ lives in ``prompts.py``. This logic module is part of the mutation-testing gate.
 
 from __future__ import annotations
 
+import re
+
 from cicero.core import prompts
 from cicero.core.prompts import TRANSCRIPT_CLOSE, TRANSCRIPT_OPEN
 from cicero.domain.enums import Stance
@@ -39,6 +41,29 @@ def system_speaker_label(turn: Turn) -> str:
     """The speaker label for a turn without a participant (note/evidence)."""
     kind = turn.metadata.get("kind")
     return _SYSTEM_SPEAKERS.get(str(kind), prompts.SYSTEM_SPEAKER)
+
+
+#: A speaker label the model copied out of the transcript and into its own turn
+#: — observed as a reply literally beginning "[You (pro)]: I appreciate...".
+#: Anchored on the "(stance)]:" shape so ordinary bracketed prose is untouched.
+_ECHOED_LABEL = re.compile(
+    r"^\s*\[[^\]\n]{1,80}\((?:pro|con|neutral)\)\]\s*:\s*", re.IGNORECASE
+)
+
+
+def strip_echoed_speaker_label(content: str) -> str:
+    """Drop a transcript speaker label the model prefixed to its own turn.
+
+    The prompt asks models not to do this, and most do not; the ones that do
+    would otherwise have it persisted, exported and shown as if they had said
+    it. Repeated because a model that imitates the format once often does it
+    twice.
+    """
+    previous = None
+    while previous != content:
+        previous = content
+        content = _ECHOED_LABEL.sub("", content, count=1)
+    return content
 
 
 def _visible_turns(chamber: Chamber, viewer: Participant | None = None) -> list[tuple[str, str]]:

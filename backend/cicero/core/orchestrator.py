@@ -29,6 +29,7 @@ from cicero.core.prompt_builder import (
     KIND_EVIDENCE,
     KIND_MODERATOR_NOTE,
     build_turn_messages,
+    strip_echoed_speaker_label,
 )
 from cicero.core.repetition import (
     REPEATED,
@@ -383,7 +384,9 @@ class DebateEngine:
             citations: list[Citation] = []
             try:
                 result = await self._generate_turn(provider, messages, options, session)
-                content = result.content
+                # Models sometimes imitate the transcript and prefix their reply
+                # with a speaker label; that is formatting, not argument.
+                content = strip_echoed_speaker_label(result.content)
                 metadata: dict[str, object] = {
                     "provider": participant.provider.value,
                     "prompt_tokens": result.prompt_tokens,

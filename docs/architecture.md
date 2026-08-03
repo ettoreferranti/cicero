@@ -522,6 +522,28 @@ in this poll but measured earlier keeps its vote — that value is real evidence
 merely stale. As with muting, the tally falls back to the wider set rather than
 emptying.
 
+**Repetition as a stop condition (FR-16).** Models converge, and then they
+restate: qwen3 was observed re-emitting its previous turn nearly word for word
+on a settled transcript, and byte for byte on a long one. Those rounds cost full
+price and add no argument. `core/repetition.py` compares each new turn with that
+speaker's previous one and records `repeated` in the turn's metadata; when
+**every active debater** repeats in the same round, the debate ends with
+`StopReason.REPETITION`.
+
+Three deliberate details. Matching is *near*-identity (`difflib` ratio over
+case- and whitespace-normalised text), because a model that rewords one clause
+is still repeating itself — the threshold is per-chamber, and 1.0 demands
+byte-identity. One debater still making progress keeps the debate alive; the
+stop needs unanimity. And an **empty** turn is never a repeat: it is a provider
+failure already recorded as an error, and reading it as "nothing left to say"
+would end debates on an outage.
+
+The flag is recorded whether or not `stop_on_repetition` is set, so switching
+the stop off leaves the diagnosis intact. It fires sooner than
+`STANCES_STABLE`, which needs two matching polls inside the convergence phase;
+consensus and stability take precedence when both apply, being the more
+informative reasons.
+
 **Stance history (FR-25).** The engine already polls every participant's stance
 after a round to decide convergence; that measurement used to be discarded, with
 only the final poll surviving as `consensus.final_stances`. Each poll is now

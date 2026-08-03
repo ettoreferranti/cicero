@@ -80,6 +80,14 @@ class DebateSettings(_Base):
     convergence_rounds: int = Field(default=2, ge=0, le=100)
     #: Per-chamber opt-in for web evidence (also needs the global flag, FR-26).
     web_evidence: bool = False
+    #: End the debate when every active debater merely restates their previous
+    #: turn. Models converge and then repeat; those rounds cost full price and
+    #: add no argument.
+    stop_on_repetition: bool = True
+    #: How alike two turns must be to count as a repeat. 1.0 means byte-identical
+    #: (after case/whitespace normalisation); lower catches a model that reworded
+    #: one clause and said nothing new.
+    repetition_threshold: float = Field(default=0.95, ge=0.5, le=1.0)
 
     @model_validator(mode="after")
     def _check_round_bounds(self) -> DebateSettings:

@@ -29,6 +29,8 @@ class DebateSettingsIn(BaseModel):
     decision_rule: DecisionRule = DecisionRule.JUDGE
     convergence_rounds: int = Field(default=2, ge=0, le=100)
     web_evidence: bool = False
+    stop_on_repetition: bool = True
+    repetition_threshold: float = Field(default=0.95, ge=0.5, le=1.0)
 
     @model_validator(mode="after")
     def _check_round_bounds(self) -> DebateSettingsIn:

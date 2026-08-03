@@ -34,7 +34,14 @@ from cicero.providers.base import (
     Provider,
     ProviderError,
 )
-from tests.conftest import ScriptedProvider, StubFactory, make_chamber, make_participant
+from tests.conftest import (
+    RepeatingProvider,
+    ScriptedProvider,
+    StubFactory,
+    _new_point,
+    make_chamber,
+    make_participant,
+)
 
 MOD_OPTS = GenerateOptions(model="mod")
 
@@ -57,13 +64,19 @@ class CyclingProvider(Provider):
     def __init__(self, stance_sequence: list[str]) -> None:
         self._seq = stance_sequence
         self._i = 0
+        self._turns = 0
 
     async def generate(self, messages: list[Message], options: GenerateOptions) -> GenerateResult:
         if "reply with exactly one word" in messages[-1].content.lower():
             word = self._seq[self._i % len(self._seq)]
             self._i += 1
             return GenerateResult(content=word, prompt_tokens=1, completion_tokens=1)
-        return GenerateResult(content="argument", prompt_tokens=5, completion_tokens=5)
+        # Distinct each turn: a debater repeating itself now ends the debate,
+        # and this fixture exists to test the *stance* stop, not that one.
+        self._turns += 1
+        return GenerateResult(
+            content=f"argument {_new_point(self._turns)}", prompt_tokens=5, completion_tokens=5
+        )
 
     async def list_models(self) -> list[str]:
         return ["cycling"]
@@ -750,6 +763,97 @@ async def test_round_completion_ignores_muted_debaters_on_resume() -> None:
     b.muted = False
     assert not round_complete(chamber, 0)
     assert resume_round(chamber) == 0
+
+
+async def test_debate_ends_when_everyone_starts_repeating() -> None:
+    # Both debaters make one fresh point, then restate it forever. Without this
+    # stop the debate burns its remaining rounds at full price saying nothing —
+    # observed with qwen3 re-emitting its previous turn verbatim.
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    repo = InMemoryChamberRepository()
+    providers = {
+        a.id: RepeatingProvider(stance_word="pro", fresh_turns=1),
+        b.id: RepeatingProvider(stance_word="con", fresh_turns=1),
+    }
+    engine = _engine(StubFactory(providers), repo)
+
+    budget = DebateBudget(max_rounds=8, max_total_tokens=100_000, min_rounds=8)
+    result = await engine.run(chamber, budget)
+
+    assert result.config["stop_reason"] == "repetition"
+    # Round 0 was fresh, round 1 repeated it: stopped there, not at round 8.
+    assert result.config["rounds_completed"] == 2
+    assert len(result.turns) == 4
+    # The repeated turns say so; the first ones do not.
+    assert [turn.metadata.get("repeated") for turn in result.turns] == [None, None, True, True]
+
+
+async def test_one_debater_still_making_progress_keeps_the_debate_alive() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    repo = InMemoryChamberRepository()
+    providers = {
+        a.id: RepeatingProvider(stance_word="pro", fresh_turns=1),  # gives up at once
+        b.id: RepeatingProvider(stance_word="con", fresh_turns=99),  # keeps arguing
+    }
+    engine = _engine(StubFactory(providers), repo)
+
+    budget = DebateBudget(max_rounds=3, max_total_tokens=100_000, min_rounds=3)
+    result = await engine.run(chamber, budget)
+
+    # A repeats from round 1, but B is still adding points, so the debate runs.
+    assert result.config["stop_reason"] == "max_rounds"
+    assert result.config["rounds_completed"] == 3
+
+
+async def test_repetition_stop_can_be_switched_off() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    chamber.settings.stop_on_repetition = False
+    repo = InMemoryChamberRepository()
+    providers = {
+        a.id: RepeatingProvider(stance_word="pro", fresh_turns=1),
+        b.id: RepeatingProvider(stance_word="con", fresh_turns=1),
+    }
+    engine = _engine(StubFactory(providers), repo)
+
+    budget = DebateBudget(max_rounds=3, max_total_tokens=100_000, min_rounds=3)
+    result = await engine.run(chamber, budget)
+
+    assert result.config["stop_reason"] == "max_rounds"
+    assert result.config["rounds_completed"] == 3
+    # Still *recorded*, just not acted on: the flag is diagnostic either way.
+    assert any(turn.metadata.get("repeated") for turn in result.turns)
+
+
+async def test_a_strict_threshold_ignores_a_reworded_turn() -> None:
+    # threshold 1.0 means byte-identical only. RepeatingProvider's turns differ
+    # by a whole sentence while it still has fresh points, so nothing is flagged
+    # until it genuinely starts restating.
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.settings.repetition_threshold = 1.0
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    repo = InMemoryChamberRepository()
+    providers = {
+        a.id: RepeatingProvider(stance_word="pro", fresh_turns=2),
+        b.id: RepeatingProvider(stance_word="con", fresh_turns=2),
+    }
+    engine = _engine(StubFactory(providers), repo)
+
+    budget = DebateBudget(max_rounds=6, max_total_tokens=100_000, min_rounds=6)
+    result = await engine.run(chamber, budget)
+
+    assert result.config["stop_reason"] == "repetition"
+    assert result.config["rounds_completed"] == 3  # two fresh rounds, then a repeat
 
 
 def test_round_complete_requires_every_participant() -> None:

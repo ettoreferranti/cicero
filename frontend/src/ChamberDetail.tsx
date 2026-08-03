@@ -428,6 +428,39 @@ export function ChamberDetail({
                   ))}
                 </select>
               </label>
+              <label title="Stop once every debater is only restating themselves — those rounds cost full price and add no argument">
+                <input
+                  type="checkbox"
+                  checked={settingsForm.stop_on_repetition}
+                  onChange={(e) =>
+                    setSettingsForm({
+                      ...settingsForm,
+                      stop_on_repetition: e.target.checked,
+                    })
+                  }
+                />{" "}
+                Stop on repetition
+              </label>
+              {settingsForm.stop_on_repetition && (
+                <label>
+                  Repeat similarity{" "}
+                  <input
+                    type="number"
+                    min={0.5}
+                    max={1}
+                    step={0.01}
+                    style={{ width: "5rem" }}
+                    title="How alike two turns must be to count as a repeat. 1.00 means word-for-word only."
+                    value={settingsForm.repetition_threshold}
+                    onChange={(e) =>
+                      setSettingsForm({
+                        ...settingsForm,
+                        repetition_threshold: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+              )}
               <label
                 className={webAccessEnabled === false ? "muted" : undefined}
                 title={
@@ -627,6 +660,11 @@ export function ChamberDetail({
                     {turnSpeaker(chamber.participants, t)}
                   </strong>
                   <div>{t.content}</div>
+                  {t.metadata.repeated === true && (
+                    <div className="muted" style={{ fontSize: "0.85rem" }}>
+                      ♻ restates this debater's previous turn
+                    </div>
+                  )}
                   {Array.isArray(t.metadata.searches) && t.metadata.searches.length > 0 && (
                     <div className="muted" style={{ fontSize: "0.85rem" }}>
                       🔎 searched: {t.metadata.searches.join(" · ")}

@@ -30,6 +30,12 @@ from cicero.core.prompt_builder import (
     KIND_MODERATOR_NOTE,
     build_turn_messages,
 )
+from cicero.core.repetition import (
+    REPEATED,
+    is_repeat,
+    previous_turn_content,
+    round_all_repeated,
+)
 from cicero.core.research import (
     MAX_SEARCHES_PER_TURN,
     EvidenceGatherer,
@@ -267,6 +273,13 @@ class DebateEngine:
                     converge_start = round_index + 1
                 previous_poll = poll
 
+            # Checked after consensus/stability, which are more informative
+            # reasons when both apply: this one fires as soon as a single round
+            # produces nothing new, without waiting for two matching polls.
+            if settings.stop_on_repetition and round_all_repeated(chamber, round_index):
+                stop_reason = StopReason.REPETITION
+                break
+
             if tracker.rounds_exhausted():
                 stop_reason = StopReason.MAX_ROUNDS
                 break
@@ -352,6 +365,7 @@ class DebateEngine:
             if limit is not None and limit.reached:
                 return None
             await self._drain_notes(chamber, round_index)
+            previous = previous_turn_content(chamber, participant.id)
             session = ResearchSession(gatherer) if gatherer is not None else None
             messages = build_turn_messages(
                 chamber,
@@ -379,6 +393,10 @@ class DebateEngine:
                 if session is not None and session.queries:
                     metadata["searches"] = list(session.queries)
                     citations = list(session.citations)
+                # Recorded before the turn is appended, while `previous` still
+                # means the speaker's last turn rather than this one.
+                if is_repeat(content, previous, chamber.settings.repetition_threshold):
+                    metadata[REPEATED] = True
                 tracker.add_tokens(result.prompt_tokens, result.completion_tokens)
             except ProviderError as exc:
                 # One failing participant must not crash the debate (NFR-R-1).

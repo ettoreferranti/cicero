@@ -17,6 +17,10 @@ export interface DebateSettings {
   decision_rule: DecisionRule;
   convergence_rounds: number;
   web_evidence: boolean;
+  // End the debate once every active debater is only restating themselves.
+  stop_on_repetition: boolean;
+  // How alike two turns must be to count as a repeat; 1.0 = byte-identical.
+  repetition_threshold: number;
 }
 
 export interface Citation {

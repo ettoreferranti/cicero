@@ -23,6 +23,7 @@
 | Contract | pytest | Each provider adapter honours the `Provider` interface. |
 | Security | pytest | SSRF rejection, injection delimiting, secret non-leakage, input validation. |
 | **End-to-end** | pytest → `scripts/demo.py` | The release path over real HTTP against a real server process (§4b). |
+| **Container** | CI `docker` job | `docker compose up --build --wait`, then health, UI, a chamber round-trip through the nginx proxy, `/config`, and a non-root assertion (A6). |
 | Mutation | mutmut (backend), StrykerJS (frontend) | Effectiveness of the above on core modules. |
 | Frontend unit | Vitest | Components and client logic. |
 

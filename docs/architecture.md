@@ -326,6 +326,12 @@ on `http://localhost:8080` with the API behind it. Three deliberate choices:
   repository root because `backend/pyproject.toml` declares
   `readme = "../README.md"`; the root `.dockerignore` keeps the rest out.
 
+CI builds and smoke-tests this stack on every push (the `docker` job): it starts
+it with `--wait`, checks `/health` and the served UI, creates and reads back a
+chamber *through the nginx proxy*, probes `/config`, and asserts the API
+container is not running as root. So the container path is covered by the same
+gate as the code, rather than resting on someone having tried it once.
+
 ## 10. Approved decisions (2026-07-16)
 - **D-1 Stack:** ✅ **Python (3.11+) / FastAPI backend + React/TypeScript frontend.**
 - **D-2 Consensus:** ✅ **Hybrid** — deterministic stance-stability signal + LLM

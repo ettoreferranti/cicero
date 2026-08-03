@@ -22,7 +22,7 @@
 | A3 | As an operator, CI runs lint, type-check, tests, secret scanning, and dependency (SCA) scanning on every push. | NFR-Q-1/4, NFR-SEC-1/7 | M | 5 | ✅ done |
 | A4 | As a developer, mutation testing is wired up with a configured threshold on core modules and runs in CI. | NFR-Q-2 | M | 5 | ✅ done |
 | A5 | As a maintainer, `SECURITY.md`, threat model, and a CONTRIBUTING guide exist. | NFR-SEC-10, NFR-M-2 | M | 2 | ✅ done |
-| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | ✅ done — `uv`+`uvicorn` quickstart plus `docker compose up --build` (API image runs non-root with no baked secrets; nginx serves the SPA and reverse-proxies the API same-origin so SSE works without CORS; both ports published to `127.0.0.1` only). ⚠️ *Image build not yet executed — see the note below* |
+| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | ✅ done — `uv`+`uvicorn` quickstart plus `docker compose up --build` (API image runs non-root with no baked secrets; nginx serves the SPA and reverse-proxies the API same-origin so SSE works without CORS; both ports published to `127.0.0.1` only). Built and smoke-tested by a dedicated CI job on every push — see the note below |
 
 ## Epic B — Domain Model & Persistence
 *Goal: the core entities and their storage.*
@@ -67,13 +67,15 @@
 > label, but that is an argument, not a measurement). Reopen as a new story if a
 > WCAG conformance claim is ever needed.
 
-> **A6 verification gap.** The compose stack was authored and statically checked
-> (every Dockerfile `COPY` source resolves inside its declared build context,
-> ports are localhost-bound, the nginx and vite proxy lists match, no secret is
-> baked in), but `docker compose up --build` has **not** been run — the Docker
-> CLI was unavailable in the environment the work was done in. Run it once and
-> confirm the UI answers on `http://localhost:8080` before treating A6 as
-> verified; the one thing most likely to need adjusting is the base-image tags.
+> **A6 is verified in CI, not locally.** The machine this was written on has the
+> `docker` CLI but no daemon (no Desktop/colima/OrbStack), so instead of a
+> one-off local run the stack is built and smoke-tested by a **`docker` job in
+> CI** on every push: `docker compose up --build --wait`, then a health check, a
+> UI fetch, a create-and-read-back chamber round-trip through the nginx proxy,
+> the `/config` capability probe, and an assertion that the API container is not
+> running as root. That is a stronger guarantee than a manual check, since it
+> keeps holding: a broken Dockerfile, a wrong build context, or a missing proxy
+> route now fails the build rather than the first operator to try it.
 
 > **Why D4 and D6 are separate.** The original D4 bundled FR-3 (edit while
 > `draft`) with FR-13 (remove/mute mid-debate); they are very different jobs.

@@ -92,6 +92,9 @@ and no secrets are baked into any image — compose reads them from the
 git-ignored `.env` beside `docker-compose.yml`. To use an Ollama running on your
 host, leave `OLLAMA_HOST` at its default (`http://host.docker.internal:11434`).
 
+CI builds this stack and smoke-tests it (health, UI, a chamber round-trip
+through the proxy, non-root check) on every push, so it does not rot.
+
 ### Quickstart (backend)
 
 ```bash

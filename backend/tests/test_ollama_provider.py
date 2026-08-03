@@ -70,6 +70,53 @@ async def test_list_models() -> None:
     assert await _provider(handler).list_models() == ["llama3", "mistral"]
 
 
+async def test_reasoning_is_disabled_on_request() -> None:
+    # A thinking model asked for one word can spend its whole token budget in
+    # `message.thinking` and return empty content — observed with qwen3 on a
+    # stance poll (512 tokens, done_reason "length", content "").
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": "con"}})
+
+    quiet = GenerateOptions(model="qwen3", max_tokens=64, allow_reasoning=False)
+    await _provider(handler).generate([Message(role=Role.USER, content="poll")], quiet)
+    assert captured["think"] is False
+
+
+async def test_reasoning_is_left_alone_by_default() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": "an argument"}})
+
+    await _provider(handler).generate([Message(role=Role.USER, content="go")], OPTS)
+    # Absent, not False: ordinary turns should still get the model's best work.
+    assert "think" not in captured
+
+
+async def test_truncated_empty_response_is_an_error_not_silence() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"message": {"content": ""}, "done_reason": "length"}
+        )
+
+    with pytest.raises(ProviderError, match="truncated before any content"):
+        await _provider(handler).generate([Message(role=Role.USER, content="go")], OPTS)
+
+
+async def test_a_genuinely_empty_reply_is_not_an_error() -> None:
+    # Empty because the model had nothing to add is different from empty
+    # because it was cut off mid-thought.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"message": {"content": ""}, "done_reason": "stop"})
+
+    result = await _provider(handler).generate([Message(role=Role.USER, content="go")], OPTS)
+    assert result.content == ""
+
+
 async def test_transient_failure_is_retried_then_succeeds() -> None:
     calls = []
 

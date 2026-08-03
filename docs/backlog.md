@@ -233,6 +233,28 @@ The tests missed it because `ScriptedProvider` only ever returned exactly
 `"pro"`/`"con"`/`"neutral"` — the one input shape that worked. Regression tests
 now use the reply shapes real models produce.
 
+### Bug — reasoning models never answered the stance poll (2026-08-03)
+Follow-on from the above, found once the `(?)` markers made it visible: a second
+debate showed **every** poll for the qwen3 debater flagged unreadable, so its
+recorded stance was pure fallback for all three rounds.
+
+Measured against the live model: Ollama keeps reasoning in a separate
+`message.thinking` field, and qwen3 asked for one word spent the entire 512-token
+budget there — `done_reason: "length"`, `content: ""`. Nothing to parse.
+
+Fixed: `GenerateOptions.allow_reasoning`, set `False` for the poll and mapped to
+Ollama's `"think": false` — the same model then answers in **2 tokens**.
+Verified end-to-end through the engine: 0 unparsed where it was previously 3 of
+3, with qwen3 correctly reporting a stance *against* its assigned role. The
+adapter now also errors instead of returning `""` when a response is truncated
+before producing content.
+
+Related fix in the same pass: a stance that was **never** successfully measured
+no longer carries a vote (`deciding_stances`). Its value bottoms out in the
+participant's assigned starting role, so counting it let the setup decide the
+outcome — the same "fabricated data reaching the tally" failure as the parsing
+bug above, one layer down.
+
 ## Cross-cutting "Definition of Done" (every story)
 1. Code + tests (unit/integration) with providers mocked.
 2. Mutation score on touched core logic meets threshold (or justified exclusion).

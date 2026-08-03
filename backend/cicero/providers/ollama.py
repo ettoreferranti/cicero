@@ -41,7 +41,7 @@ class OllamaProvider(Provider):
     async def generate(
         self, messages: list[Message], options: GenerateOptions
     ) -> GenerateResult:
-        payload = {
+        payload: dict[str, Any] = {
             "model": options.model,
             "messages": [{"role": m.role.value, "content": m.content} for m in messages],
             "stream": False,
@@ -50,11 +50,24 @@ class OllamaProvider(Provider):
                 "num_predict": options.max_tokens,
             },
         }
+        if not options.allow_reasoning:
+            # Ollama keeps reasoning in a separate `message.thinking` field. A
+            # thinking model asked for one word can burn the whole num_predict
+            # budget there and return empty content (qwen3 does exactly that on
+            # a stance poll). Models without a reasoning mode ignore this.
+            payload["think"] = False
         data = await self._post_json("/api/chat", payload)
         try:
             content = data["message"]["content"]
         except (KeyError, TypeError) as exc:
             raise ProviderError("unexpected Ollama response shape") from exc
+        if not content.strip() and data.get("done_reason") == "length":
+            # Silence caused by truncation is a failure, not an empty opinion —
+            # say so instead of handing back "" for the caller to misread.
+            raise ProviderError(
+                "Ollama response truncated before any content was produced "
+                f"(model {options.model!r} spent its token budget reasoning)"
+            )
         return GenerateResult(
             content=content,
             prompt_tokens=int(data.get("prompt_eval_count", 0)),

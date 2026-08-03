@@ -503,6 +503,25 @@ Two rules follow from that failure:
 same reason: the echo used to be "parsed" by matching pro/con out of the quoted
 transcript, so offline debates were resolving on parser noise.
 
+**Reasoning models are told not to reason for the poll.** `GenerateOptions`
+carries `allow_reasoning`, and `poll_stances` sets it `False`; the Ollama
+adapter maps that to `"think": false`. Without it a thinking model asked for one
+word spends its whole token budget in Ollama's separate `message.thinking`
+field and returns **empty content** — measured on qwen3: 512 tokens,
+`done_reason: "length"`, `content: ""`, every round unparsed. With it, the same
+model answers in 2 tokens. Models with no reasoning mode ignore the flag. The
+adapter also raises rather than returning `""` when a response is truncated
+before producing content, because silence caused by truncation is a failure, not
+an empty opinion.
+
+**A stance that was never read does not vote.** `deciding_stances()` drops a
+participant whose position was never successfully measured: their recorded value
+is a carried-forward assumption that bottoms out in the *assigned starting
+role*, and counting it lets the setup decide the outcome. A debater unreadable
+in this poll but measured earlier keeps its vote — that value is real evidence,
+merely stale. As with muting, the tally falls back to the wider set rather than
+emptying.
+
 **Stance history (FR-25).** The engine already polls every participant's stance
 after a round to decide convergence; that measurement used to be discarded, with
 only the final poll surviving as `consensus.final_stances`. Each poll is now

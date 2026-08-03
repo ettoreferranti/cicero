@@ -134,6 +134,48 @@ async def test_poll_reports_unparseable_replies_instead_of_hiding_them() -> None
     assert set(report.unparsed) == {str(pt.id) for pt in chamber.participants}
 
 
+async def test_poll_disables_reasoning() -> None:
+    # The poll wants one word. A thinking model left to reason can spend the
+    # whole budget and answer nothing at all (qwen3 does).
+    seen: list[GenerateOptions] = []
+
+    class Recording(ScriptedProvider):
+        async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+            seen.append(options)
+            return await super().generate(messages, options)
+
+    p = make_participant("P", Stance.PRO)
+    chamber = make_chamber(p, make_participant("Q", Stance.CON))
+    factory = StubFactory({pt.id: Recording(stance_word="pro") for pt in chamber.participants})
+    engine = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+
+    await engine.poll_stances(chamber)
+
+    assert seen and all(options.allow_reasoning is False for options in seen)
+
+
+async def test_a_never_measured_stance_does_not_decide_the_outcome() -> None:
+    # Two debaters: A measured PRO, B never readable so carrying its assigned
+    # CON. Counting B's phantom vote would make this a tie and send it to the
+    # judge; only A's real vote should decide it.
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    factory = StubFactory({pt.id: ScriptedProvider() for pt in chamber.participants})
+    engine = ConsensusEngine(factory, ScriptedProvider(moderator_reply="S."), MOD_OPTS)
+
+    result = await engine.finalize(
+        chamber,
+        {str(a.id): Stance.PRO, str(b.id): Stance.CON},
+        unparsed=[str(b.id)],
+    )
+
+    assert result.outcome is ConsensusOutcome.CONSENSUS
+    assert result.winning_stance is Stance.PRO
+    # Every stance is still recorded, including the one that did not vote.
+    assert result.final_stances[str(b.id)] is Stance.CON
+
+
 async def test_poll_carries_the_previous_measurement_not_the_declared_role() -> None:
     # A debater who already crossed the floor must not be silently reset to the
     # stance they were assigned at the start just because one reply was unclear.

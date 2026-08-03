@@ -36,7 +36,7 @@ from cicero.core.research import (
     ResearchSession,
     parse_search_request,
 )
-from cicero.core.roster import active_participants, active_stances
+from cicero.core.roster import active_participants, deciding_stances
 from cicero.core.state_machine import transition
 from cicero.domain.enums import ChamberStatus, Stance
 from cicero.domain.models import Chamber, Citation, StancePoll, Turn
@@ -222,6 +222,7 @@ class DebateEngine:
 
         previous_poll: dict[str, Stance] | None = None
         final_stances: dict[str, Stance] | None = None
+        final_unparsed: tuple[str, ...] = ()
         stop_reason = StopReason.MAX_ROUNDS
         budget_hit = tracker.hard_budget_hit()  # a resumed debate may be spent
         if budget_hit is not None:
@@ -250,14 +251,16 @@ class DebateEngine:
                 report = await self._consensus.poll_stances(chamber)
                 poll = report.stances
                 self._record_poll(chamber, round_index, report)
-                # Everyone is polled, but only active debaters decide whether
-                # the debate has converged (FR-13).
-                if is_consensus(active_stances(chamber, poll)):
+                # Everyone is polled, but only measured, unmuted debaters decide
+                # whether the debate has converged (FR-13).
+                if is_consensus(deciding_stances(chamber, poll, report.unparsed)):
                     stop_reason, final_stances = StopReason.CONSENSUS, poll
+                    final_unparsed = report.unparsed
                     break
                 if previous_poll is not None and poll == previous_poll:
                     if converge or settings.convergence_rounds == 0:
                         stop_reason, final_stances = StopReason.STANCES_STABLE, poll
+                        final_unparsed = report.unparsed
                         break
                     # Stalemate in the adversarial phase: move the convergence
                     # phase forward instead of burning more rounds on it.
@@ -273,9 +276,10 @@ class DebateEngine:
         if final_stances is None:
             final_report = await self._consensus.poll_stances(chamber)
             final_stances = final_report.stances
+            final_unparsed = final_report.unparsed
             self._record_poll(chamber, max(tracker.rounds_completed - 1, 0), final_report)
 
-        result = await self._consensus.finalize(chamber, final_stances)
+        result = await self._consensus.finalize(chamber, final_stances, final_unparsed)
         chamber.consensus = result
         chamber.config = {
             **chamber.config,

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from cicero.core import prompts
@@ -26,7 +27,7 @@ from cicero.core.prompt_builder import (
     build_stance_poll_messages,
 )
 from cicero.core.prompts import EMPTY_MODERATOR_STATEMENT, VERDICT_WINNER_PREFIX
-from cicero.core.roster import active_stances
+from cicero.core.roster import deciding_stances
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
 from cicero.domain.models import Chamber, ConsensusResult
 from cicero.providers.base import GenerateOptions, Provider, ProviderError
@@ -211,7 +212,10 @@ class ConsensusEngine:
             provider = self._factory.get(participant)
             messages = build_stance_poll_messages(chamber, participant)
             options = GenerateOptions(
-                model=participant.model, max_tokens=_POLL_MAX_TOKENS, temperature=0.0
+                model=participant.model,
+                max_tokens=_POLL_MAX_TOKENS,
+                temperature=0.0,
+                allow_reasoning=False,
             )
             try:
                 result = await provider.generate(messages, options)
@@ -226,16 +230,21 @@ class ConsensusEngine:
         return StanceReport(stances=stances, unparsed=tuple(unparsed))
 
     async def finalize(
-        self, chamber: Chamber, stances: dict[str, Stance]
+        self,
+        chamber: Chamber,
+        stances: dict[str, Stance],
+        unparsed: Iterable[str] = (),
     ) -> ConsensusResult:
         """Apply the chamber's decision rule and draft the final artifact.
 
-        Muted debaters keep their recorded stance but no longer carry a vote
-        (FR-13), so the rule is applied to the active subset only — muting is
-        deliberately an outcome-changing act.
+        The rule sees only the stances that carry a vote: muted debaters are
+        excluded by design (FR-13), and so are debaters whose position was never
+        actually read — their value is a carried-forward assumption, and letting
+        it vote would count the setup as a result. Every stance is still
+        recorded on the result.
         """
         outcome, winner = decide_outcome(
-            active_stances(chamber, stances), chamber.settings.decision_rule
+            deciding_stances(chamber, stances, unparsed), chamber.settings.decision_rule
         )
         task = _moderator_task(outcome, winner)
         messages = build_moderator_messages(chamber, stances, task)

@@ -41,6 +41,12 @@ class GenerateOptions(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=800, gt=0, le=32768)
     stop: list[str] = Field(default_factory=list)
+    #: Whether a reasoning model may "think" before answering. Set ``False`` for
+    #: calls that want a short literal answer: a thinking model can otherwise
+    #: spend its entire token budget reasoning and return **empty content**
+    #: (observed with qwen3 on a one-word stance poll). Providers without a
+    #: reasoning mode ignore it.
+    allow_reasoning: bool = True
 
 
 class GenerateResult(BaseModel):

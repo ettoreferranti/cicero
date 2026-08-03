@@ -29,8 +29,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
+import re
 import socket
 import sys
 import tempfile
@@ -114,16 +116,27 @@ class ParticipantSpec:
 
     @classmethod
     def parse(cls, raw: str) -> ParticipantSpec:
-        parts = [part.strip() for part in raw.split(":")]
-        if len(parts) != 4 or not all(parts[:3]):
+        # Split the ends off, not on every colon: Ollama model names carry a tag
+        # ("mistral:latest", "llama3.1:8b"), so the model is whatever is left in
+        # the middle. A plain 4-way split cannot express those at all.
+        head, _, rest = raw.partition(":")
+        provider, _, rest = rest.partition(":")
+        model, _, stance = rest.rpartition(":")
+        name, provider, model, stance = (
+            head.strip(),
+            provider.strip(),
+            model.strip(),
+            stance.strip(),
+        )
+        if not all((name, provider, model, stance)):
             raise argparse.ArgumentTypeError(
                 f"expected NAME:PROVIDER:MODEL:STANCE, got {raw!r}"
             )
-        if parts[3] not in _STANCES:
+        if stance not in _STANCES:
             raise argparse.ArgumentTypeError(
-                f"stance must be one of {', '.join(_STANCES)}, got {parts[3]!r}"
+                f"stance must be one of {', '.join(_STANCES)}, got {stance!r}"
             )
-        return cls(parts[0], parts[1], parts[2], parts[3])
+        return cls(name, provider, model, stance)
 
     def payload(self) -> dict[str, str]:
         return {
@@ -429,6 +442,134 @@ def _decide(stances: dict[str, str], rule: str) -> tuple[str, str | None]:
     return "majority", ranked[0][0]
 
 
+_JUDGE_WORDS = {
+    "pro": "pro",
+    "for": "pro",
+    "yes": "pro",
+    "support": "pro",
+    "con": "con",
+    "against": "con",
+    "no": "con",
+    "oppose": "con",
+    "opposed": "con",
+    "neutral": "neutral",
+    "undecided": "neutral",
+    "unsure": "neutral",
+}
+
+
+def _read_one_word(reply: str) -> str | None:
+    """Minimal local parser, kept independent of cicero.core.consensus.
+
+    An acceptance check that calls the parser under test cannot disagree with
+    it, and disagreement is the entire point of this check.
+    """
+    words = [word for word in re.findall(r"[a-z]+", reply.lower()) if word in _JUDGE_WORDS]
+    return _JUDGE_WORDS[words[0]] if words else None
+
+
+def _judge_stances(
+    body: dict[str, Any], roster: list[ParticipantSpec], report: Report
+) -> None:
+    """Ask an impartial model what each debater ended up arguing (opt-in).
+
+    Every other check verifies the record is *self-consistent*. This is the only
+    one that asks whether it is *true*: a tally can agree with itself perfectly
+    while describing a debate that did not happen. It is non-deterministic —
+    models disagree about genuinely ambiguous positions — so it fails only on
+    systematic divergence (a strict majority of debaters), and never runs unless
+    asked for.
+    """
+    try:
+        from cicero.config import get_settings
+        from cicero.core.export import to_markdown
+        from cicero.domain.enums import ProviderType
+        from cicero.domain.models import Chamber
+        from cicero.providers import GenerateOptions, Message, ProviderError, Role
+        from cicero.providers.factory import SettingsProviderFactory
+    except ImportError as exc:  # pragma: no cover - only when run outside the repo
+        report.skip("§9", "stance record judged by an impartial model", f"import failed: {exc}")
+        return
+
+    chamber = Chamber.model_validate(body)
+    transcript = to_markdown(chamber)
+    judge_spec = roster[0]
+    factory = SettingsProviderFactory(get_settings())
+    recorded = {
+        str(pid): str(value)
+        for pid, value in ((body.get("consensus") or {}).get("final_stances") or {}).items()
+    }
+
+    provider = factory.get_for_type(ProviderType(judge_spec.provider))
+
+    async def ask(name: str) -> str | None:
+        messages = [
+            Message(
+                role=Role.SYSTEM,
+                content=(
+                    "You are an impartial reader of a debate transcript. You take "
+                    "no side; you only report what a named debater ended up arguing."
+                ),
+            ),
+            Message(
+                role=Role.USER,
+                content=(
+                    f"{transcript}\n\nMotion: {chamber.topic}\n\n"
+                    f"Reading only the transcript above, what position did "
+                    f"{name} hold by the end? Reply with exactly one word - pro, "
+                    f"con, or neutral - where pro means they supported the "
+                    f"motion and con means they opposed it. Reply with only that word."
+                ),
+            ),
+        ]
+        options = GenerateOptions(
+            model=judge_spec.model,
+            max_tokens=512,
+            temperature=0.0,
+            allow_reasoning=False,
+        )
+        try:
+            result = await provider.generate(messages, options)
+        except ProviderError:
+            return None
+        return _read_one_word(result.content)
+
+    async def judge_everyone() -> list[str | None]:
+        # One event loop for the whole pass: the provider holds a shared HTTP
+        # client, and a fresh asyncio.run() per call closes the loop underneath
+        # it ("Event loop is closed" on the second participant).
+        try:
+            return [await ask(p.display_name) for p in chamber.participants]
+        finally:
+            aclose = getattr(provider, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+    verdicts = asyncio.run(judge_everyone())
+
+    disagreements: list[str] = []
+    unreadable = 0
+    for participant, verdict in zip(chamber.participants, verdicts, strict=True):
+        mine = recorded.get(str(participant.id))
+        if verdict is None:
+            unreadable += 1
+            continue
+        if mine is not None and verdict != mine:
+            disagreements.append(f"{participant.display_name}: said {mine}, reads as {verdict}")
+
+    if unreadable == len(chamber.participants):
+        report.skip("§9", "stance record judged by an impartial model", "judge unavailable")
+        return
+
+    total = len(chamber.participants) - unreadable
+    report.check(
+        "§9",
+        "stance record matches what an impartial reader sees",
+        len(disagreements) <= total // 2,
+        "; ".join(disagreements) or f"agreed on all {total}",
+    )
+
+
 def _check_stances_were_actually_measured(body: dict[str, Any], report: Report) -> None:
     """Guard the class of bug where the tally is not evidence at all.
 
@@ -696,6 +837,14 @@ def run_demo(
         f"{len(history)} poll(s) across rounds {rounds_polled}, {len(movers)} debater(s) moved",
     )
     _check_stances_were_actually_measured(body, report)
+    if args.judge_stances:
+        _judge_stances(body, roster, report)
+    else:
+        report.skip(
+            "§9",
+            "stance record judged by an impartial model",
+            "pass --judge-stances (non-deterministic, so never gates CI)",
+        )
 
     stop_reason = (body.get("config") or {}).get("stop_reason")
     report.check("FR-16", "a stop condition ended the debate", bool(stop_reason), str(stop_reason))
@@ -781,6 +930,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict-providers",
         action="store_true",
         help="Fail unless the debate spans >=2 distinct providers (release sign-off).",
+    )
+    parser.add_argument(
+        "--judge-stances",
+        action="store_true",
+        help=(
+            "Have an impartial model re-read the transcript and independently "
+            "report each debater's final position, then compare that with what "
+            "the debaters self-reported. Catches a stance record that is "
+            "internally consistent but unfaithful to the argument. Off by "
+            "default: it is non-deterministic, so it must never gate CI."
+        ),
     )
     parser.add_argument(
         "--out", default="demo-output", help="Directory for exports (default: demo-output)."

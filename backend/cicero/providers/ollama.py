@@ -22,6 +22,18 @@ from cicero.providers.base import (
 from cicero.providers.retry import RetryPolicy, call_with_retry
 
 
+def _content_of(data: dict[str, Any]) -> str:
+    try:
+        return cast(str, data["message"]["content"])
+    except (KeyError, TypeError) as exc:
+        raise ProviderError("unexpected Ollama response shape") from exc
+
+
+def _thought_itself_silent(data: dict[str, Any], content: str) -> bool:
+    """Truncated before saying anything — all budget spent in `message.thinking`."""
+    return not content.strip() and data.get("done_reason") == "length"
+
+
 class OllamaProvider(Provider):
     """Generate turns using a local Ollama server (default ``localhost:11434``)."""
 
@@ -57,16 +69,23 @@ class OllamaProvider(Provider):
             # a stance poll). Models without a reasoning mode ignore this.
             payload["think"] = False
         data = await self._post_json("/api/chat", payload)
-        try:
-            content = data["message"]["content"]
-        except (KeyError, TypeError) as exc:
-            raise ProviderError("unexpected Ollama response shape") from exc
-        if not content.strip() and data.get("done_reason") == "length":
+        content = _content_of(data)
+
+        if _thought_itself_silent(data, content) and options.allow_reasoning:
+            # The model spent its whole budget thinking and said nothing. Rather
+            # than lose the turn, ask again without reasoning: a plainer answer
+            # beats no answer, and the caller still gets *something* to record.
+            payload["think"] = False
+            data = await self._post_json("/api/chat", payload)
+            content = _content_of(data)
+
+        if _thought_itself_silent(data, content):
             # Silence caused by truncation is a failure, not an empty opinion —
             # say so instead of handing back "" for the caller to misread.
             raise ProviderError(
                 "Ollama response truncated before any content was produced "
-                f"(model {options.model!r} spent its token budget reasoning)"
+                f"(model {options.model!r} spent its token budget reasoning); "
+                "raise this participant's max tokens"
             )
         return GenerateResult(
             content=content,

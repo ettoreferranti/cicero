@@ -54,7 +54,9 @@ PERSONA_LABEL = "Persona: {persona}"
 TURN_GUIDANCE = (
     "Respond with a concise, substantive argument (a few sentences). Address the "
     "strongest points others have made and try to persuade them. Be honest; you may "
-    "concede a point if it is well made."
+    "concede a point if it is well made. Write only the argument itself: do not "
+    "prefix it with your name or a speaker label, and do not imitate the "
+    "transcript's format."
 )
 TURN_USER_INSTRUCTION = "Give your next contribution to the debate now."
 RESEARCH_INSTRUCTION = (

@@ -50,6 +50,22 @@ def test_participant_name_is_stripped() -> None:
     assert _participant(display_name="  Athena  ").display_name == "Athena"
 
 
+def test_turn_budget_leaves_room_for_a_reasoning_model() -> None:
+    # Measured: a debate answer costs 150-500 tokens, but a reasoning model
+    # spends its budget on hidden thinking first (qwen3: 510-1019, worst
+    # observed total 1460). Anything under ~1500 truncates it mid-thought.
+    assert ParticipantTuning().max_tokens >= 1500
+
+
+def test_api_and_domain_tuning_defaults_agree() -> None:
+    # Two copies of this number drift, and the drift is invisible until a turn
+    # truncates in production.
+    from cicero.api.schemas import TuningIn
+
+    assert TuningIn().max_tokens == ParticipantTuning().max_tokens
+    assert TuningIn().temperature == ParticipantTuning().temperature
+
+
 def test_tuning_rejects_out_of_range_temperature() -> None:
     with pytest.raises(ValidationError):
         ParticipantTuning(temperature=2.5)

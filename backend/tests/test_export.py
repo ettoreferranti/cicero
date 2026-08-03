@@ -58,6 +58,21 @@ def test_markdown_renders_the_stance_history_as_a_table() -> None:
     assert "| 2 | pro | neutral |" in md  # Zeno moved
 
 
+def test_markdown_marks_stances_that_could_not_be_read() -> None:
+    chamber = _chamber_with_debate()
+    ada, zeno = chamber.participants
+    chamber.stance_history = [
+        StancePoll(
+            round_index=0,
+            stances={str(ada.id): Stance.PRO, str(zeno.id): Stance.CON},
+            unparsed=[str(zeno.id)],
+        )
+    ]
+    md = to_markdown(chamber)
+    assert "| 1 | pro | con (?) |" in md
+    assert "could not be read" in md
+
+
 def test_markdown_omits_the_stance_history_when_there_is_none() -> None:
     assert "## Stance history" not in to_markdown(_chamber_with_debate())
 

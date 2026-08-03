@@ -75,7 +75,8 @@ export function App() {
         <div className="row">
           <input
             aria-label="topic"
-            placeholder="Debate topic / question"
+            aria-describedby="topic-hint"
+            placeholder="Motion — e.g. “Model weights should be published openly”"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             style={{ flex: 1, minWidth: 240 }}
@@ -91,6 +92,15 @@ export function App() {
             Create chamber
           </button>
         </div>
+        {/* Debaters take a pro/con stance on the motion, so a topic with no
+            side to take (an either/or question) leaves the stance record
+            meaningless. Advice, not validation — plenty of good motions are
+            phrased as questions. */}
+        <p id="topic-hint" className="muted" style={{ fontSize: "0.85rem", margin: "0.5rem 0 0" }}>
+          Phrase the topic as something debaters can agree or disagree with. An
+          either/or question (“do X, or do Y?”) gives them no side to take, so
+          their recorded stances will not mean much.
+        </p>
       </form>
 
       {chambers.length === 0 ? (

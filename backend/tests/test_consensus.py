@@ -13,6 +13,7 @@ from cicero.core.consensus import (
     parse_verdict,
 )
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
+from cicero.domain.models import StancePoll
 from cicero.providers.base import GenerateOptions
 from tests.conftest import ScriptedProvider, StubFactory, make_chamber, make_participant
 
@@ -28,11 +29,52 @@ MOD_OPTS = GenerateOptions(model="mod")
         ("I am pro this idea", Stance.PRO),
         ("My position: neutral for now", Stance.NEUTRAL),
         ("", None),
-        ("undecided maybe", None),
+        ("undecided maybe", Stance.NEUTRAL),
+        # Punctuation and markdown around a one-word answer.
+        ("Con.", Stance.CON),
+        ("**pro**", Stance.PRO),
+        ("  NEUTRAL  ", Stance.NEUTRAL),
+        # Words the poll never names but models reach for when they concede.
+        ("against", Stance.CON),
+        ("Against the motion.", Stance.CON),
+        ("opposed", Stance.CON),
+        ("no", Stance.CON),
+        ("yes", Stance.PRO),
+        ("support", Stance.PRO),
     ],
 )
 def test_parse_stance(text: str, expected: Stance | None) -> None:
     assert parse_stance(text) is expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The bug this replaced: substring matching read a debater arguing to
+        # *prohibit* the motion as being *pro* it, exactly inverting a
+        # concession. Same for "protect"/"propose", and "con" in "context",
+        # "concede", "concern", "conflating".
+        "prohibit",
+        "Prohibited",
+        "I now support prohibiting the shirt.",
+        "My position is that we should protect this speech.",
+        "The workplace context changes things.",
+        "I concede.",
+        "That is a serious concern.",
+        "I have been persuaded to change my position.",
+    ],
+)
+def test_parse_stance_never_guesses_from_a_substring(text: str) -> None:
+    # Unreadable is the honest answer; a wrong stance is worse than no stance.
+    assert parse_stance(text) is None
+
+
+def test_parse_stance_ignores_reasoning_narration() -> None:
+    # Reasoning models argue both sides before answering; scanning that would
+    # score whichever side they happened to consider first.
+    reply = "<think>They want one word. Is it pro? No, I am against now.</think>\ncon"
+    assert parse_stance(reply) is Stance.CON
+    assert parse_stance("<think>pro pro pro</think> neutral") is Stance.NEUTRAL
 
 
 def test_parse_stance_prefers_earliest_keyword() -> None:
@@ -58,8 +100,9 @@ async def test_poll_stances_parses_each_participant() -> None:
         }
     )
     engine = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
-    stances = await engine.poll_stances(chamber)
-    assert stances == {str(pro.id): Stance.PRO, str(con.id): Stance.CON}
+    report = await engine.poll_stances(chamber)
+    assert report.stances == {str(pro.id): Stance.PRO, str(con.id): Stance.CON}
+    assert report.unparsed == ()
 
 
 async def test_poll_uses_parsed_stance_over_declared_stance() -> None:
@@ -71,20 +114,85 @@ async def test_poll_uses_parsed_stance_over_declared_stance() -> None:
         {pt.id: ScriptedProvider(stance_word="pro") for pt in chamber.participants}
     )
     engine = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
-    stances = await engine.poll_stances(chamber)
-    assert stances[str(p.id)] is Stance.PRO
+    report = await engine.poll_stances(chamber)
+    assert report.stances[str(p.id)] is Stance.PRO
 
 
-async def test_poll_falls_back_to_prior_stance_when_unparseable() -> None:
+async def test_poll_reports_unparseable_replies_instead_of_hiding_them() -> None:
     p = make_participant("P", Stance.CON)
     chamber = make_chamber(p, make_participant("Q", Stance.PRO))
     factory = StubFactory(
         {pid: ScriptedProvider(stance_word="???") for pid in [pt.id for pt in chamber.participants]}
     )
     engine = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
-    stances = await engine.poll_stances(chamber)
-    # Unparseable → keep the participant's declared stance.
-    assert stances[str(p.id)] is Stance.CON
+    report = await engine.poll_stances(chamber)
+
+    # A value is still supplied so the tally is complete...
+    assert report.stances[str(p.id)] is Stance.CON
+    # ...but it is flagged as carried over, not measured. Without this, a run
+    # where every poll failed is indistinguishable from one where nobody moved.
+    assert set(report.unparsed) == {str(pt.id) for pt in chamber.participants}
+
+
+async def test_poll_disables_reasoning() -> None:
+    # The poll wants one word. A thinking model left to reason can spend the
+    # whole budget and answer nothing at all (qwen3 does).
+    seen: list[GenerateOptions] = []
+
+    class Recording(ScriptedProvider):
+        async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+            seen.append(options)
+            return await super().generate(messages, options)
+
+    p = make_participant("P", Stance.PRO)
+    chamber = make_chamber(p, make_participant("Q", Stance.CON))
+    factory = StubFactory({pt.id: Recording(stance_word="pro") for pt in chamber.participants})
+    engine = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+
+    await engine.poll_stances(chamber)
+
+    assert seen and all(options.allow_reasoning is False for options in seen)
+
+
+async def test_a_never_measured_stance_does_not_decide_the_outcome() -> None:
+    # Two debaters: A measured PRO, B never readable so carrying its assigned
+    # CON. Counting B's phantom vote would make this a tie and send it to the
+    # judge; only A's real vote should decide it.
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    factory = StubFactory({pt.id: ScriptedProvider() for pt in chamber.participants})
+    engine = ConsensusEngine(factory, ScriptedProvider(moderator_reply="S."), MOD_OPTS)
+
+    result = await engine.finalize(
+        chamber,
+        {str(a.id): Stance.PRO, str(b.id): Stance.CON},
+        unparsed=[str(b.id)],
+    )
+
+    assert result.outcome is ConsensusOutcome.CONSENSUS
+    assert result.winning_stance is Stance.PRO
+    # Every stance is still recorded, including the one that did not vote.
+    assert result.final_stances[str(b.id)] is Stance.CON
+
+
+async def test_poll_carries_the_previous_measurement_not_the_declared_role() -> None:
+    # A debater who already crossed the floor must not be silently reset to the
+    # stance they were assigned at the start just because one reply was unclear.
+    p = make_participant("Mover", Stance.PRO)
+    other = make_participant("Other", Stance.CON)
+    chamber = make_chamber(p, other)
+    chamber.stance_history.append(
+        StancePoll(round_index=0, stances={str(p.id): Stance.CON, str(other.id): Stance.CON})
+    )
+    factory = StubFactory(
+        {pt.id: ScriptedProvider(stance_word="???") for pt in chamber.participants}
+    )
+    engine = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+    report = await engine.poll_stances(chamber)
+
+    assert report.stances[str(p.id)] is Stance.CON  # kept, not reverted to PRO
+    assert str(p.id) in report.unparsed
 
 
 async def test_finalize_consensus_outcome() -> None:

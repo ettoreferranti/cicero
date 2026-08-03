@@ -10,6 +10,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cicero.domain.enums import DecisionRule, ProviderType, Stance
+from cicero.domain.models import DEFAULT_MAX_TOKENS
 
 
 class DebateSettingsIn(BaseModel):
@@ -28,6 +29,8 @@ class DebateSettingsIn(BaseModel):
     decision_rule: DecisionRule = DecisionRule.JUDGE
     convergence_rounds: int = Field(default=2, ge=0, le=100)
     web_evidence: bool = False
+    stop_on_repetition: bool = True
+    repetition_threshold: float = Field(default=0.95, ge=0.5, le=1.0)
 
     @model_validator(mode="after")
     def _check_round_bounds(self) -> DebateSettingsIn:
@@ -71,7 +74,9 @@ class TuningIn(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=800, gt=0, le=32768)
+    # Shares the domain default rather than restating it: two copies of a
+    # number like this drift, and the drift is invisible until a turn truncates.
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0, le=32768)
     persona: str = Field(default="", max_length=2000)
     style: str = Field(default="", max_length=500)
 

@@ -17,6 +17,8 @@ gate.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from cicero.domain.enums import Stance
 from cicero.domain.models import Chamber, Participant
 
@@ -36,3 +38,38 @@ def active_stances(chamber: Chamber, stances: dict[str, Stance]) -> dict[str, St
     active = {str(participant.id) for participant in active_participants(chamber)}
     deciding = {pid: stance for pid, stance in stances.items() if pid in active}
     return deciding or stances
+
+
+def _ever_measured(chamber: Chamber, participant_id: str) -> bool:
+    """Whether any recorded poll actually read this debater's position."""
+    return any(
+        participant_id in poll.stances and participant_id not in poll.unparsed
+        for poll in chamber.stance_history
+    )
+
+
+def deciding_stances(
+    chamber: Chamber,
+    stances: dict[str, Stance],
+    unparsed: Iterable[str] = (),
+) -> dict[str, Stance]:
+    """The stances that actually decide the outcome.
+
+    Two exclusions, for the same underlying reason — only real evidence should
+    vote:
+
+    - **Muted** debaters, by design (FR-13).
+    - Debaters whose position was **never successfully read**. Their entry is a
+      carried-forward assumption (ultimately their assigned starting role), and
+      counting that is counting the *setup* as though it were a *result*.
+
+    A debater unreadable in this poll but measured earlier still counts: the
+    carried value is then genuine evidence, just stale.
+
+    Falls back to the wider set rather than returning an empty tally, which
+    would resolve as "no agreement" for a reason unrelated to the debate.
+    """
+    candidates = active_stances(chamber, stances)
+    phantom = {pid for pid in unparsed if not _ever_measured(chamber, pid)}
+    measured = {pid: stance for pid, stance in candidates.items() if pid not in phantom}
+    return measured or candidates

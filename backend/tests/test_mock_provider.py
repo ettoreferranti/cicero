@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from cicero.domain.enums import ProviderType
+from cicero.core import prompts
+from cicero.core.consensus import parse_stance
+from cicero.domain.enums import ProviderType, Stance
 from cicero.providers import (
     GenerateOptions,
     Message,
@@ -12,6 +14,7 @@ from cicero.providers import (
     ProviderError,
     Role,
 )
+from cicero.providers.mock import POLL_MARKER
 
 OPTS = GenerateOptions(model="mock-small")
 
@@ -92,3 +95,43 @@ async def test_list_models_custom() -> None:
 
 def test_provider_type() -> None:
     assert MockProvider().provider_type is ProviderType.MOCK
+
+
+async def test_stance_poll_gets_an_answer_not_an_echo() -> None:
+    # Regression: the mock used to echo the prompt, and the (substring) parser
+    # matched pro/con out of the quoted transcript — so an offline debate's
+    # stance poll was reading the transcript, never an actual position.
+    poll = _msgs(
+        "<<<TRANSCRIPT>>> [Ada (pro)]: I am for it. [Zeno (con)]: I am not.\n\n"
+        "In light of the debate so far, reply with exactly one word — pro, con, "
+        "or neutral — giving your current position on the motion."
+    )
+    result = await MockProvider().generate(poll, OPTS)
+    assert result.content == "neutral"
+    assert parse_stance(result.content) is Stance.NEUTRAL
+
+
+async def test_stance_poll_answer_is_configurable() -> None:
+    result = await MockProvider(poll_answer="con").generate(
+        _msgs("reply with exactly one word — pro, con, or neutral"), OPTS
+    )
+    assert parse_stance(result.content) is Stance.CON
+
+
+async def test_scripted_replies_still_win_over_the_poll_answer() -> None:
+    provider = MockProvider(scripted=["pro"])
+    result = await provider.generate(
+        _msgs("reply with exactly one word — pro, con, or neutral"), OPTS
+    )
+    assert result.content == "pro"
+
+
+async def test_ordinary_turns_are_unaffected() -> None:
+    result = await MockProvider().generate(_msgs("Make your case."), OPTS)
+    assert result.content.startswith("[mock:mock-small] response to:")
+
+
+def test_poll_marker_still_matches_the_real_poll_prompt() -> None:
+    # The marker is duplicated to keep the provider layer independent of
+    # core.prompts; this is what stops the two drifting apart.
+    assert POLL_MARKER in prompts.POLL_USER_INSTRUCTION.lower()

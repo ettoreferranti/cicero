@@ -46,6 +46,7 @@ from cicero.core.prompt_builder import KIND_MODERATOR_NOTE
 from cicero.core.roster import active_participants
 from cicero.domain.enums import ChamberStatus, ProviderType
 from cicero.domain.models import (
+    DEFAULT_MAX_TOKENS,
     Chamber,
     DebateSettings,
     Participant,
@@ -65,7 +66,10 @@ ManagerDep = Annotated[DebateManager, Depends(get_debate_manager)]
 EvidenceDep = Annotated[EvidenceService | None, Depends(get_evidence_service)]
 
 MIN_PARTICIPANTS = 2
-_MODERATOR_MAX_TOKENS = 1024
+# The moderator is the first participant's model, so it can be a reasoning model
+# too — and then its hidden thinking eats the same budget as the statement it is
+# supposed to write. Matches the per-turn default for the same reason.
+_MODERATOR_MAX_TOKENS = DEFAULT_MAX_TOKENS
 _MODERATOR_TEMPERATURE = 0.3
 # Spelled as a literal: Starlette renamed HTTP_422_UNPROCESSABLE_ENTITY to
 # ..._CONTENT, and the constant we can rely on across the supported range is the

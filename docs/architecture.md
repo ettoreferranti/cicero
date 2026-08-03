@@ -472,6 +472,78 @@ provider server-side before the roster changes: unreachable or unconfigured →
 → `422` naming what it *can* serve. Without this the mistake only surfaces
 mid-debate, as an empty turn with an `error` in its metadata.
 
+**Reading a stance report.** `parse_stance` matches **whole words**, and this is
+load-bearing. The original substring match read `prohibit` as *pro* and
+`context`/`concede` as *con* — so a debater conceding "we should prohibit it"
+was recorded as supporting the motion, exactly inverting them. Because the
+result feeds `decide_outcome`, that could hand a debate to the losing side while
+the moderator (which reads the transcript, not the tally) wrote an honest
+summary of the opposite result: a chamber whose `winning_stance` contradicted
+its own statement.
+
+Two rules follow from that failure:
+
+- **A one-word reply is matched generously; prose is matched narrowly.** The
+  poll asks for a single word, and when it gets one, synonyms
+  (`against`, `oppose`, `yes`, `no`, `support`, …) are safe because there is no
+  surrounding text to misread. Inside a longer reply only unambiguous tokens are
+  scanned — `agree`/`support` usually take a *person* as their object ("I agree
+  with SanePerson that we should ban it"), and reading those is guessing.
+  `<think>` blocks are stripped first: reasoning models argue both sides before
+  answering, and scanning that scores whichever side they considered first.
+- **An unreadable reply is reported, never laundered.** `poll_stances` returns a
+  `StanceReport` carrying `unparsed` ids alongside the stances. The previous
+  measurement is carried forward so the tally stays complete, but the id is
+  flagged, and `StancePoll.unparsed` persists it into the history, the exports
+  and the UI. The old code silently substituted the participant's *declared
+  starting stance*, which made a run where every poll failed look identical to a
+  debate where nobody was persuaded.
+
+`MockProvider` answers a stance poll rather than echoing the prompt, for the
+same reason: the echo used to be "parsed" by matching pro/con out of the quoted
+transcript, so offline debates were resolving on parser noise.
+
+**Reasoning models are told not to reason for the poll.** `GenerateOptions`
+carries `allow_reasoning`, and `poll_stances` sets it `False`; the Ollama
+adapter maps that to `"think": false`. Without it a thinking model asked for one
+word spends its whole token budget in Ollama's separate `message.thinking`
+field and returns **empty content** — measured on qwen3: 512 tokens,
+`done_reason: "length"`, `content: ""`, every round unparsed. With it, the same
+model answers in 2 tokens. Models with no reasoning mode ignore the flag. The
+adapter also raises rather than returning `""` when a response is truncated
+before producing content, because silence caused by truncation is a failure, not
+an empty opinion.
+
+**A stance that was never read does not vote.** `deciding_stances()` drops a
+participant whose position was never successfully measured: their recorded value
+is a carried-forward assumption that bottoms out in the *assigned starting
+role*, and counting it lets the setup decide the outcome. A debater unreadable
+in this poll but measured earlier keeps its vote — that value is real evidence,
+merely stale. As with muting, the tally falls back to the wider set rather than
+emptying.
+
+**Repetition as a stop condition (FR-16).** Models converge, and then they
+restate: qwen3 was observed re-emitting its previous turn nearly word for word
+on a settled transcript, and byte for byte on a long one. Those rounds cost full
+price and add no argument. `core/repetition.py` compares each new turn with that
+speaker's previous one and records `repeated` in the turn's metadata; when
+**every active debater** repeats in the same round, the debate ends with
+`StopReason.REPETITION`.
+
+Three deliberate details. Matching is *near*-identity (`difflib` ratio over
+case- and whitespace-normalised text), because a model that rewords one clause
+is still repeating itself — the threshold is per-chamber, and 1.0 demands
+byte-identity. One debater still making progress keeps the debate alive; the
+stop needs unanimity. And an **empty** turn is never a repeat: it is a provider
+failure already recorded as an error, and reading it as "nothing left to say"
+would end debates on an outage.
+
+The flag is recorded whether or not `stop_on_repetition` is set, so switching
+the stop off leaves the diagnosis intact. It fires sooner than
+`STANCES_STABLE`, which needs two matching polls inside the convergence phase;
+consensus and stability take precedence when both apply, being the more
+informative reasons.
+
 **Stance history (FR-25).** The engine already polls every participant's stance
 after a round to decide convergence; that measurement used to be discarded, with
 only the final poll surviving as `consensus.final_stances`. Each poll is now

@@ -45,11 +45,20 @@ class Citation(_Base):
     excerpt: str = Field(default="", max_length=4096)
 
 
+#: Default per-turn generation cap. Measured, not guessed: a debate *answer*
+#: costs 150-500 tokens across every model tried, but a reasoning model spends
+#: its budget on hidden thinking first — qwen3 used 510-1019 tokens thinking
+#: before writing anything, 1460 in the worst observation. At the old default of
+#: 800 its turns were being truncated mid-thought or lost entirely. This is a
+#: cap and not a target: a model that finishes in 200 tokens still costs 200.
+DEFAULT_MAX_TOKENS = 2048
+
+
 class ParticipantTuning(_Base):
     """Per-participant generation settings (see FR-11)."""
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=800, gt=0, le=32768)
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0, le=32768)
     persona: str = Field(default="", max_length=2000)
     style: str = Field(default="", max_length=500)
 
@@ -71,6 +80,14 @@ class DebateSettings(_Base):
     convergence_rounds: int = Field(default=2, ge=0, le=100)
     #: Per-chamber opt-in for web evidence (also needs the global flag, FR-26).
     web_evidence: bool = False
+    #: End the debate when every active debater merely restates their previous
+    #: turn. Models converge and then repeat; those rounds cost full price and
+    #: add no argument.
+    stop_on_repetition: bool = True
+    #: How alike two turns must be to count as a repeat. 1.0 means byte-identical
+    #: (after case/whitespace normalisation); lower catches a model that reworded
+    #: one clause and said nothing new.
+    repetition_threshold: float = Field(default=0.95, ge=0.5, le=1.0)
 
     @model_validator(mode="after")
     def _check_round_bounds(self) -> DebateSettings:
@@ -119,6 +136,9 @@ class StancePoll(_Base):
     round_index: int = Field(ge=0)
     #: Stance per participant id (as a string), matching ``ConsensusResult``.
     stances: dict[str, Stance] = Field(default_factory=dict)
+    #: Ids whose reply could not be read; their stance here is carried over from
+    #: the previous poll rather than measured, so it is not evidence of anything.
+    unparsed: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
 

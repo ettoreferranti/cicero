@@ -111,13 +111,23 @@ export function liveStatusMessage(
 export function stanceTrajectories(
   participants: Participant[],
   history: StancePoll[],
-): { participant: Participant; stances: Stance[]; moved: boolean }[] {
+): {
+  participant: Participant;
+  stances: Stance[];
+  unread: boolean[];
+  moved: boolean;
+}[] {
   return participants.map((participant) => {
     const stances = history.map((poll) => poll.stances[participant.id] ?? participant.stance);
+    // A carried-over value is not a measurement, so it cannot be evidence that
+    // someone held their ground.
+    const unread = history.map((poll) => (poll.unparsed ?? []).includes(participant.id));
+    const measured = stances.filter((_, index) => !unread[index]);
     return {
       participant,
       stances,
-      moved: stances.some((stance) => stance !== stances[0]),
+      unread,
+      moved: measured.some((stance) => stance !== measured[0]),
     };
   });
 }

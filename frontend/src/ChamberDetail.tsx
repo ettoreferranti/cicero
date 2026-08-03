@@ -428,6 +428,39 @@ export function ChamberDetail({
                   ))}
                 </select>
               </label>
+              <label title="Stop once every debater is only restating themselves — those rounds cost full price and add no argument">
+                <input
+                  type="checkbox"
+                  checked={settingsForm.stop_on_repetition}
+                  onChange={(e) =>
+                    setSettingsForm({
+                      ...settingsForm,
+                      stop_on_repetition: e.target.checked,
+                    })
+                  }
+                />{" "}
+                Stop on repetition
+              </label>
+              {settingsForm.stop_on_repetition && (
+                <label>
+                  Repeat similarity{" "}
+                  <input
+                    type="number"
+                    min={0.5}
+                    max={1}
+                    step={0.01}
+                    style={{ width: "5rem" }}
+                    title="How alike two turns must be to count as a repeat. 1.00 means word-for-word only."
+                    value={settingsForm.repetition_threshold}
+                    onChange={(e) =>
+                      setSettingsForm({
+                        ...settingsForm,
+                        repetition_threshold: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+              )}
               <label
                 className={webAccessEnabled === false ? "muted" : undefined}
                 title={
@@ -627,6 +660,11 @@ export function ChamberDetail({
                     {turnSpeaker(chamber.participants, t)}
                   </strong>
                   <div>{t.content}</div>
+                  {t.metadata.repeated === true && (
+                    <div className="muted" style={{ fontSize: "0.85rem" }}>
+                      ♻ restates this debater's previous turn
+                    </div>
+                  )}
                   {Array.isArray(t.metadata.searches) && t.metadata.searches.length > 0 && (
                     <div className="muted" style={{ fontSize: "0.85rem" }}>
                       🔎 searched: {t.metadata.searches.join(" · ")}
@@ -670,6 +708,9 @@ export function ChamberDetail({
           <h2>Stance history</h2>
           <p className="muted" style={{ fontSize: "0.85rem" }} id="stance-history-hint">
             Where each debater stood after each round, and whether they moved.
+            {chamber.stance_history.some((poll) => (poll.unparsed ?? []).length > 0) &&
+              " (?) marks a reply that could not be read — that value was carried" +
+                " forward, not measured."}
           </p>
           <div style={{ overflowX: "auto" }}>
             <table aria-describedby="stance-history-hint">
@@ -686,7 +727,7 @@ export function ChamberDetail({
               </thead>
               <tbody>
                 {stanceTrajectories(chamber.participants, chamber.stance_history).map(
-                  ({ participant, stances, moved }) => (
+                  ({ participant, stances, unread, moved }) => (
                     <tr key={participant.id}>
                       <th scope="row" style={{ fontWeight: "normal" }}>
                         <span
@@ -704,6 +745,15 @@ export function ChamberDetail({
                       {stances.map((stance, index) => (
                         <td key={chamber.stance_history[index].round_index}>
                           <span className={`stance ${stance}`}>{stanceLabel(stance)}</span>
+                          {unread[index] && (
+                            <span
+                              className="muted"
+                              title="This debater's reply could not be read; the previous value was carried forward."
+                            >
+                              {" "}
+                              (?)
+                            </span>
+                          )}
                         </td>
                       ))}
                       {/* Spelled out rather than a tick: a bare ✓ reads as

@@ -52,6 +52,10 @@ UI with exports and metrics). Milestone 3 adds:
 - **Stance history (F4)** — every convergence poll is kept, so you can see where
   each debater stood after each round and who actually moved (API, both exports,
   and a table in the UI).
+- **Repetition stop** — a turn that merely restates the speaker's previous one is
+  flagged, and once every debater is doing it the debate ends rather than paying
+  for rounds that add no argument. Per-chamber: toggle it off, or tighten the
+  similarity threshold to 1.0 for word-for-word only.
 - **Draft editing (D4)** — while a chamber is a draft, its topic/category/
   description and its participant roster (add, edit, remove) are all editable,
   API + UI. A clone is a fresh draft, so this is how a rerun changes exactly one

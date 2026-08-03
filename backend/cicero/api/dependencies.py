@@ -25,6 +25,17 @@ def _debate_manager_singleton() -> DebateManager:
     return DebateManager()
 
 
+def reset_dependency_caches() -> None:
+    """Drop the memoised singletons so new settings take effect.
+
+    Only useful at a process boundary — chiefly the test suite, which points
+    ``DATABASE_URL`` at a throwaway file and must not inherit a repository
+    already bound to the real one.
+    """
+    _repository_singleton.cache_clear()
+    _debate_manager_singleton.cache_clear()
+
+
 def get_repository() -> ChamberRepository:
     """The process-wide chamber repository."""
     return _repository_singleton()

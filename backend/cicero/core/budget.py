@@ -18,6 +18,9 @@ class StopReason(StrEnum):
 
     CONSENSUS = "consensus"
     STANCES_STABLE = "stances_stable"
+    #: Every active debater restated their previous turn — nothing new is being
+    #: said, so further rounds would cost full price for no argument.
+    REPETITION = "repetition"
     MAX_ROUNDS = "max_rounds"
     TOKEN_BUDGET = "token_budget"  # noqa: S105 (enum label, not a secret)
     TIME_BUDGET = "time_budget"

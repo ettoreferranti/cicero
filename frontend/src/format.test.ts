@@ -221,9 +221,14 @@ describe("stanceTrajectories", () => {
     muted: false,
   };
   const zeno: Participant = { ...ada, id: "p2", display_name: "Zeno", stance: "con" };
-  const poll = (round: number, stances: Record<string, Stance>): StancePoll => ({
+  const poll = (
+    round: number,
+    stances: Record<string, Stance>,
+    unparsed: string[] = [],
+  ): StancePoll => ({
     round_index: round,
     stances,
+    unparsed,
     created_at: "2026-01-01T00:00:00Z",
   });
 
@@ -233,12 +238,39 @@ describe("stanceTrajectories", () => {
       poll(1, { p1: "pro", p2: "neutral" }),
     ];
     const rows = stanceTrajectories([ada, zeno], history);
-    expect(rows[0]).toEqual({ participant: ada, stances: ["pro", "pro"], moved: false });
+    expect(rows[0]).toEqual({
+      participant: ada,
+      stances: ["pro", "pro"],
+      unread: [false, false],
+      moved: false,
+    });
     expect(rows[1]).toEqual({
       participant: zeno,
       stances: ["con", "neutral"],
+      unread: [false, false],
       moved: true,
     });
+  });
+
+  it("does not treat a carried-over value as evidence of holding firm", () => {
+    // p1 looks steady across both polls, but the second was never measured —
+    // calling that "did not move" would be inventing a finding.
+    const history = [poll(0, { p1: "pro" }), poll(1, { p1: "pro" }, ["p1"])];
+    const [row] = stanceTrajectories([ada], history);
+    expect(row.unread).toEqual([false, true]);
+    expect(row.moved).toBe(false);
+    expect(row.stances).toEqual(["pro", "pro"]);
+  });
+
+  it("ignores unreadable polls when deciding whether someone moved", () => {
+    // Measured pro then con: that is movement, whatever the unreadable middle
+    // poll carried forward.
+    const history = [
+      poll(0, { p1: "pro" }),
+      poll(1, { p1: "pro" }, ["p1"]),
+      poll(2, { p1: "con" }),
+    ];
+    expect(stanceTrajectories([ada], history)[0].moved).toBe(true);
   });
 
   it("falls back to the declared stance when a poll omits someone", () => {
@@ -251,7 +283,7 @@ describe("stanceTrajectories", () => {
 
   it("returns an empty trajectory when nothing was polled", () => {
     expect(stanceTrajectories([ada], [])).toEqual([
-      { participant: ada, stances: [], moved: false },
+      { participant: ada, stances: [], unread: [], moved: false },
     ]);
   });
 

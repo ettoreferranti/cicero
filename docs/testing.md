@@ -36,7 +36,8 @@
 - **Current scope (Milestone 3):** the modules named in `paths_to_mutate` are the
   debate core — `core/budget`, `core/state_machine`, `core/prompt_builder`,
   `core/consensus`, `core/orchestrator`, `core/compare`, `core/research`,
-  `core/recovery`, `core/roster`, `core/metrics`, `core/export` — plus `api/rate_limit`,
+  `core/recovery`, `core/roster`, `core/repetition`, `core/metrics`,
+  `core/export` — plus `api/rate_limit`,
   `providers/retry`, `providers/availability`, `providers/mock` and
   `persistence/memory`. A small number of documented
   *equivalent* mutants are accepted (type-annotation `|`→`&` under
@@ -79,6 +80,7 @@ validation unit tests:
 | `core/research.py` — evidence brief assembly | |
 | `core/recovery.py` — restart recovery rules | |
 | `core/roster.py` — who is active, and whose stance still votes (muting) | |
+| `core/repetition.py` — near-identity matching + the all-repeated stop rule | |
 | `api/rate_limit.py` — fixed-window limiter | |
 | `providers/retry.py` — transient-failure classification + backoff schedule | |
 | `providers/availability.py` — model-name matching for add/edit validation | |

@@ -24,11 +24,18 @@ from uuid import UUID
 
 from cicero.core import prompts
 from cicero.core.budget import BudgetTracker, DebateBudget, StopReason
-from cicero.core.consensus import ConsensusEngine, is_consensus
+from cicero.core.consensus import ConsensusEngine, StanceReport, is_consensus
 from cicero.core.prompt_builder import (
     KIND_EVIDENCE,
     KIND_MODERATOR_NOTE,
     build_turn_messages,
+    strip_echoed_speaker_label,
+)
+from cicero.core.repetition import (
+    REPEATED,
+    is_repeat,
+    previous_turn_content,
+    round_all_repeated,
 )
 from cicero.core.research import (
     MAX_SEARCHES_PER_TURN,
@@ -36,7 +43,7 @@ from cicero.core.research import (
     ResearchSession,
     parse_search_request,
 )
-from cicero.core.roster import active_participants, active_stances
+from cicero.core.roster import active_participants, deciding_stances
 from cicero.core.state_machine import transition
 from cicero.domain.enums import ChamberStatus, Stance
 from cicero.domain.models import Chamber, Citation, StancePoll, Turn
@@ -222,6 +229,7 @@ class DebateEngine:
 
         previous_poll: dict[str, Stance] | None = None
         final_stances: dict[str, Stance] | None = None
+        final_unparsed: tuple[str, ...] = ()
         stop_reason = StopReason.MAX_ROUNDS
         budget_hit = tracker.hard_budget_hit()  # a resumed debate may be spent
         if budget_hit is not None:
@@ -247,21 +255,31 @@ class DebateEngine:
                 break
 
             if tracker.may_stop_early():
-                poll = await self._consensus.poll_stances(chamber)
-                self._record_poll(chamber, round_index, poll)
-                # Everyone is polled, but only active debaters decide whether
-                # the debate has converged (FR-13).
-                if is_consensus(active_stances(chamber, poll)):
+                report = await self._consensus.poll_stances(chamber)
+                poll = report.stances
+                self._record_poll(chamber, round_index, report)
+                # Everyone is polled, but only measured, unmuted debaters decide
+                # whether the debate has converged (FR-13).
+                if is_consensus(deciding_stances(chamber, poll, report.unparsed)):
                     stop_reason, final_stances = StopReason.CONSENSUS, poll
+                    final_unparsed = report.unparsed
                     break
                 if previous_poll is not None and poll == previous_poll:
                     if converge or settings.convergence_rounds == 0:
                         stop_reason, final_stances = StopReason.STANCES_STABLE, poll
+                        final_unparsed = report.unparsed
                         break
                     # Stalemate in the adversarial phase: move the convergence
                     # phase forward instead of burning more rounds on it.
                     converge_start = round_index + 1
                 previous_poll = poll
+
+            # Checked after consensus/stability, which are more informative
+            # reasons when both apply: this one fires as soon as a single round
+            # produces nothing new, without waiting for two matching polls.
+            if settings.stop_on_repetition and round_all_repeated(chamber, round_index):
+                stop_reason = StopReason.REPETITION
+                break
 
             if tracker.rounds_exhausted():
                 stop_reason = StopReason.MAX_ROUNDS
@@ -270,10 +288,12 @@ class DebateEngine:
                 return self._park(chamber)  # step landed on a round boundary
 
         if final_stances is None:
-            final_stances = await self._consensus.poll_stances(chamber)
-            self._record_poll(chamber, max(tracker.rounds_completed - 1, 0), final_stances)
+            final_report = await self._consensus.poll_stances(chamber)
+            final_stances = final_report.stances
+            final_unparsed = final_report.unparsed
+            self._record_poll(chamber, max(tracker.rounds_completed - 1, 0), final_report)
 
-        result = await self._consensus.finalize(chamber, final_stances)
+        result = await self._consensus.finalize(chamber, final_stances, final_unparsed)
         chamber.consensus = result
         chamber.config = {
             **chamber.config,
@@ -346,6 +366,7 @@ class DebateEngine:
             if limit is not None and limit.reached:
                 return None
             await self._drain_notes(chamber, round_index)
+            previous = previous_turn_content(chamber, participant.id)
             session = ResearchSession(gatherer) if gatherer is not None else None
             messages = build_turn_messages(
                 chamber,
@@ -363,7 +384,9 @@ class DebateEngine:
             citations: list[Citation] = []
             try:
                 result = await self._generate_turn(provider, messages, options, session)
-                content = result.content
+                # Models sometimes imitate the transcript and prefix their reply
+                # with a speaker label; that is formatting, not argument.
+                content = strip_echoed_speaker_label(result.content)
                 metadata: dict[str, object] = {
                     "provider": participant.provider.value,
                     "prompt_tokens": result.prompt_tokens,
@@ -373,6 +396,10 @@ class DebateEngine:
                 if session is not None and session.queries:
                     metadata["searches"] = list(session.queries)
                     citations = list(session.citations)
+                # Recorded before the turn is appended, while `previous` still
+                # means the speaker's last turn rather than this one.
+                if is_repeat(content, previous, chamber.settings.repetition_threshold):
+                    metadata[REPEATED] = True
                 tracker.add_tokens(result.prompt_tokens, result.completion_tokens)
             except ProviderError as exc:
                 # One failing participant must not crash the debate (NFR-R-1).
@@ -474,7 +501,7 @@ class DebateEngine:
         self._persist(chamber)
 
     def _record_poll(
-        self, chamber: Chamber, round_index: int, stances: dict[str, Stance]
+        self, chamber: Chamber, round_index: int, report: StanceReport
     ) -> None:
         """Persist a stance snapshot so the debate's trajectory survives (FR-25).
 
@@ -487,7 +514,11 @@ class DebateEngine:
         if chamber.stance_history and chamber.stance_history[-1].round_index >= round_index:
             return
         chamber.stance_history.append(
-            StancePoll(round_index=round_index, stances=dict(stances))
+            StancePoll(
+                round_index=round_index,
+                stances=dict(report.stances),
+                unparsed=list(report.unparsed),
+            )
         )
         self._persist(chamber)
 

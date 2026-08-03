@@ -17,6 +17,10 @@ export interface DebateSettings {
   decision_rule: DecisionRule;
   convergence_rounds: number;
   web_evidence: boolean;
+  // End the debate once every active debater is only restating themselves.
+  stop_on_repetition: boolean;
+  // How alike two turns must be to count as a repeat; 1.0 = byte-identical.
+  repetition_threshold: number;
 }
 
 export interface Citation {
@@ -34,9 +38,11 @@ export interface ParticipantTuning {
   style: string;
 }
 
+// Must match ParticipantTuning's defaults in the backend: tuningSummary() marks
+// anyone who differs, so a stale value here labels every participant "tuned".
 export const DEFAULT_TUNING: ParticipantTuning = {
   temperature: 0.7,
-  max_tokens: 800,
+  max_tokens: 2048,
   persona: "",
   style: "",
 };
@@ -70,6 +76,9 @@ export interface Turn {
 export interface StancePoll {
   round_index: number;
   stances: Record<string, Stance>;
+  // Ids whose reply could not be read: their stance here was carried over from
+  // the previous poll, not measured, so it is not evidence of a position.
+  unparsed: string[];
   created_at: string;
 }
 

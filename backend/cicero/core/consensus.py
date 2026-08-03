@@ -16,7 +16,10 @@ provider-driven parts are covered by tests with mock providers.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass
 
 from cicero.core import prompts
 from cicero.core.prompt_builder import (
@@ -24,29 +27,92 @@ from cicero.core.prompt_builder import (
     build_stance_poll_messages,
 )
 from cicero.core.prompts import EMPTY_MODERATOR_STATEMENT, VERDICT_WINNER_PREFIX
-from cicero.core.roster import active_stances
+from cicero.core.roster import deciding_stances
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
 from cicero.domain.models import Chamber, ConsensusResult
 from cicero.providers.base import GenerateOptions, Provider, ProviderError
 from cicero.providers.factory import ProviderFactory
 
-# Longest-first so "neutral" is matched before a substring could shadow it.
-_STANCE_KEYWORDS: tuple[tuple[str, Stance], ...] = (
-    ("neutral", Stance.NEUTRAL),
-    ("con", Stance.CON),
-    ("pro", Stance.PRO),
-)
+# Reasoning models (qwen3 and friends) narrate before answering, and that
+# narration argues *both* sides — scanning it would score whichever side the
+# model happened to muse about first.
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_WORDS = re.compile(r"[a-z]+")
+
+#: Accepted when the reply *is* a single word, which is what the poll asks for.
+#: Safe here precisely because there is no surrounding prose to misread.
+_EXACT_STANCE_WORDS: dict[str, Stance] = {
+    "pro": Stance.PRO,
+    "for": Stance.PRO,
+    "yes": Stance.PRO,
+    "support": Stance.PRO,
+    "agree": Stance.PRO,
+    "affirmative": Stance.PRO,
+    "favour": Stance.PRO,
+    "favor": Stance.PRO,
+    "con": Stance.CON,
+    "against": Stance.CON,
+    "no": Stance.CON,
+    "oppose": Stance.CON,
+    "opposed": Stance.CON,
+    "disagree": Stance.CON,
+    "negative": Stance.CON,
+    "neutral": Stance.NEUTRAL,
+    "undecided": Stance.NEUTRAL,
+    "unsure": Stance.NEUTRAL,
+    "abstain": Stance.NEUTRAL,
+}
+
+#: Scanned inside a longer reply. Deliberately narrower: "agree" and "support"
+#: usually take a *person* as their object ("I agree with SanePerson that we
+#: should ban it"), and "for"/"yes"/"no" open sentences that go on to say the
+#: opposite. Reading those in prose is guessing, and a wrong stance is worse
+#: than an unparsed one.
+_SCANNED_STANCE_WORDS: dict[str, Stance] = {
+    "pro": Stance.PRO,
+    "con": Stance.CON,
+    "against": Stance.CON,
+    "oppose": Stance.CON,
+    "opposed": Stance.CON,
+    "neutral": Stance.NEUTRAL,
+    "undecided": Stance.NEUTRAL,
+    "abstain": Stance.NEUTRAL,
+}
+
+
+#: A one-word answer needs very few tokens, but reasoning models spend some on
+#: a <think> block first; too tight a cap truncates the answer itself.
+_POLL_MAX_TOKENS = 512
+
+
+@dataclass(frozen=True)
+class StanceReport:
+    """The result of one stance poll: the stances, and whose reply was unreadable."""
+
+    stances: dict[str, Stance]
+    #: Participant ids (as strings) whose reply could not be parsed. Their entry
+    #: in ``stances`` is carried over, not measured.
+    unparsed: tuple[str, ...] = ()
 
 
 def parse_stance(text: str) -> Stance | None:
-    """Extract a stance from a free-text self-report, or ``None`` if unclear."""
-    lowered = text.lower()
-    found: tuple[int, Stance] | None = None
-    for keyword, stance in _STANCE_KEYWORDS:
-        index = lowered.find(keyword)
-        if index != -1 and (found is None or index < found[0]):
-            found = (index, stance)
-    return found[1] if found is not None else None
+    """Extract a stance from a free-text self-report, or ``None`` if unclear.
+
+    Matching is **whole-word**. Substring matching is how "prohibit" gets read
+    as *pro* and "context" as *con* — silently inverting a debater who has just
+    conceded. Returning ``None`` when the reply cannot be read is the honest
+    answer; the caller decides what to do about it.
+    """
+    words = _WORDS.findall(_THINK_BLOCK.sub(" ", text).lower())
+    if not words:
+        return None
+    if len(words) == 1:
+        return _EXACT_STANCE_WORDS.get(words[0])
+    for word in words:
+        stance = _SCANNED_STANCE_WORDS.get(word)
+        if stance is not None:
+            return stance
+    return None
 
 
 def is_consensus(stances: dict[str, Stance]) -> bool:
@@ -129,32 +195,56 @@ class ConsensusEngine:
         self._moderator = moderator
         self._moderator_options = moderator_options
 
-    async def poll_stances(self, chamber: Chamber) -> dict[str, Stance]:
-        """Ask each participant for its current stance; fall back to the last known."""
+    async def poll_stances(self, chamber: Chamber) -> StanceReport:
+        """Ask each participant for its current stance.
+
+        An unreadable reply is *reported*, not hidden. The previous poll is
+        carried forward so the tally still has a value for everyone, but the id
+        is listed in ``unparsed`` — otherwise a run where every poll failed
+        looks exactly like a debate where nobody changed their mind, which is
+        how an inverted stance can reach the final tally unnoticed.
+        """
+        previous = chamber.stance_history[-1].stances if chamber.stance_history else {}
         stances: dict[str, Stance] = {}
+        unparsed: list[str] = []
         for participant in chamber.participants:
+            key = str(participant.id)
             provider = self._factory.get(participant)
             messages = build_stance_poll_messages(chamber, participant)
-            options = GenerateOptions(model=participant.model, max_tokens=8, temperature=0.0)
+            options = GenerateOptions(
+                model=participant.model,
+                max_tokens=_POLL_MAX_TOKENS,
+                temperature=0.0,
+                allow_reasoning=False,
+            )
             try:
                 result = await provider.generate(messages, options)
                 parsed = parse_stance(result.content)
             except ProviderError:
                 parsed = None
-            stances[str(participant.id)] = parsed if parsed is not None else participant.stance
-        return stances
+            if parsed is None:
+                unparsed.append(key)
+                stances[key] = previous.get(key, participant.stance)
+            else:
+                stances[key] = parsed
+        return StanceReport(stances=stances, unparsed=tuple(unparsed))
 
     async def finalize(
-        self, chamber: Chamber, stances: dict[str, Stance]
+        self,
+        chamber: Chamber,
+        stances: dict[str, Stance],
+        unparsed: Iterable[str] = (),
     ) -> ConsensusResult:
         """Apply the chamber's decision rule and draft the final artifact.
 
-        Muted debaters keep their recorded stance but no longer carry a vote
-        (FR-13), so the rule is applied to the active subset only — muting is
-        deliberately an outcome-changing act.
+        The rule sees only the stances that carry a vote: muted debaters are
+        excluded by design (FR-13), and so are debaters whose position was never
+        actually read — their value is a carried-forward assumption, and letting
+        it vote would count the setup as a result. Every stance is still
+        recorded on the result.
         """
         outcome, winner = decide_outcome(
-            active_stances(chamber, stances), chamber.settings.decision_rule
+            deciding_stances(chamber, stances, unparsed), chamber.settings.decision_rule
         )
         task = _moderator_task(outcome, winner)
         messages = build_moderator_messages(chamber, stances, task)

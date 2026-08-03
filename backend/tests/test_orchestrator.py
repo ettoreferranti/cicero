@@ -638,6 +638,120 @@ async def test_stepping_does_not_double_record_stance_polls() -> None:
     assert rounds == sorted(set(rounds))
 
 
+class OneShotMutes:
+    """Mute source that yields its changes on the first drain only."""
+
+    def __init__(self, changes):  # type: ignore[no-untyped-def]
+        self._changes = changes
+
+    def drain(self):  # type: ignore[no-untyped-def]
+        changes, self._changes = self._changes, {}
+        return changes
+
+
+async def test_muted_participant_stops_taking_turns() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    c = make_participant("C", Stance.CON)
+    chamber = make_chamber(a, b, c)
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    repo = InMemoryChamberRepository()
+    providers = {
+        a.id: ScriptedProvider(stance_word="pro"),
+        b.id: ScriptedProvider(stance_word="con"),
+        c.id: ScriptedProvider(stance_word="con"),
+    }
+    factory = StubFactory(providers)
+    consensus = ConsensusEngine(factory, ScriptedProvider(moderator_reply="S."), MOD_OPTS)
+    engine = DebateEngine(
+        factory, repo, consensus, mutes=OneShotMutes({b.id: True})
+    )
+
+    budget = DebateBudget(max_rounds=2, max_total_tokens=100_000, min_rounds=2)
+    result = await engine.run(chamber, budget)
+
+    # B was muted before round 0 ran, so it never spoke...
+    assert providers[b.id].turn_calls == 0
+    assert not any(turn.participant_id == b.id for turn in result.turns)
+    # ...but it is still on the roster, and still polled for its stance.
+    assert result.participant_by_id(b.id) is not None
+    assert providers[b.id].poll_calls > 0
+    assert str(b.id) in result.stance_history[-1].stances
+    # The rounds still complete: two active debaters x two rounds.
+    assert len(result.turns) == 4
+    assert result.config["rounds_completed"] == 2
+
+
+async def test_muting_changes_the_decision_rule_tally() -> None:
+    # A pro, B and C con. Unmuted that is a 1-2 split; muting both con debaters
+    # leaves a single pro voter, which is unanimous.
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    c = make_participant("C", Stance.CON)
+    chamber = make_chamber(a, b, c)
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {
+            a.id: ScriptedProvider(stance_word="pro"),
+            b.id: ScriptedProvider(stance_word="con"),
+            c.id: ScriptedProvider(stance_word="con"),
+        }
+    )
+    consensus = ConsensusEngine(factory, ScriptedProvider(moderator_reply="S."), MOD_OPTS)
+    engine = DebateEngine(
+        factory, repo, consensus, mutes=OneShotMutes({b.id: True, c.id: True})
+    )
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=2, max_total_tokens=100_000))
+
+    assert result.consensus is not None
+    assert result.consensus.outcome is ConsensusOutcome.CONSENSUS
+    assert result.consensus.winning_stance is Stance.PRO
+    # The muted debaters' stances are still on the record, just not counted.
+    assert set(result.consensus.final_stances) == {str(a.id), str(b.id), str(c.id)}
+    assert result.consensus.final_stances[str(b.id)] is Stance.CON
+
+
+async def test_unmuting_brings_a_debater_back() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    b.muted = True  # started muted
+    repo = InMemoryChamberRepository()
+    providers = {
+        a.id: ScriptedProvider(stance_word="pro"),
+        b.id: ScriptedProvider(stance_word="pro"),
+    }
+    factory = StubFactory(providers)
+    consensus = ConsensusEngine(factory, ScriptedProvider(moderator_reply="S."), MOD_OPTS)
+    engine = DebateEngine(
+        factory, repo, consensus, mutes=OneShotMutes({b.id: False})
+    )
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000))
+
+    assert result.participant_by_id(b.id) is not None
+    assert result.participant_by_id(b.id).muted is False  # type: ignore[union-attr]
+    assert providers[b.id].turn_calls == 1
+
+
+async def test_round_completion_ignores_muted_debaters_on_resume() -> None:
+    # Round 0 has only A's turn, and B is muted: the round is complete, so the
+    # resume point is round 1 rather than "finish round 0".
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.turns.append(_turn(a.id, 0))
+    b.muted = True
+    assert round_complete(chamber, 0)
+    assert resume_round(chamber) == 1
+
+    b.muted = False
+    assert not round_complete(chamber, 0)
+    assert resume_round(chamber) == 0
+
+
 def test_round_complete_requires_every_participant() -> None:
     a = make_participant("A", Stance.PRO)
     b = make_participant("B", Stance.CON)

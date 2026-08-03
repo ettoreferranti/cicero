@@ -8,7 +8,12 @@ from cicero.api.debate_manager import DebateManager
 from cicero.api.events import DebateEventType
 from cicero.core.budget import DebateBudget
 from cicero.core.consensus import ConsensusEngine
-from cicero.core.orchestrator import DebateEngine, NoteSource, TurnListener
+from cicero.core.orchestrator import (
+    DebateEngine,
+    MuteSource,
+    NoteSource,
+    TurnListener,
+)
 from cicero.domain.enums import ProviderType, Stance
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers.base import GenerateOptions, GenerateResult, Message, Provider
@@ -31,11 +36,15 @@ class BlockingProvider(Provider):
 
 def _build(factory: StubFactory, repo: InMemoryChamberRepository, moderator_reply: str = "AGREED"):  # type: ignore[no-untyped-def]
     def build(
-        listener: TurnListener | None, notes: NoteSource | None
+        listener: TurnListener | None,
+        notes: NoteSource | None,
+        mutes: MuteSource | None = None,
     ) -> tuple[DebateEngine, DebateBudget]:
         moderator = ScriptedProvider(moderator_reply=moderator_reply)
         consensus = ConsensusEngine(factory, moderator, MOD_OPTS)
-        engine = DebateEngine(factory, repo, consensus, listener=listener, notes=notes)
+        engine = DebateEngine(
+            factory, repo, consensus, listener=listener, notes=notes, mutes=mutes
+        )
         return engine, BUDGET
 
     return build
@@ -135,6 +144,40 @@ async def test_note_queued_for_running_debate_and_rejected_otherwise() -> None:
     finally:
         await manager.stop(chamber.id)
     assert manager.add_note(chamber.id, "too late") is False  # finished
+
+
+async def test_mute_queued_for_running_debate_and_rejected_otherwise() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    factory = StubFactory({a.id: BlockingProvider(), b.id: BlockingProvider()})
+    manager = DebateManager()
+
+    assert manager.set_muted(chamber.id, b.id, True) is False  # nothing running
+
+    manager.start(chamber, _build(factory, repo))
+    await asyncio.sleep(0)
+    try:
+        assert manager.set_muted(chamber.id, b.id, True) is True
+    finally:
+        await manager.stop(chamber.id)
+    assert manager.set_muted(chamber.id, b.id, False) is False  # finished
+
+
+async def test_mute_queue_keeps_only_the_latest_state_per_participant() -> None:
+    from cicero.api.debate_manager import _MuteQueue
+
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.PRO)
+    queue = _MuteQueue()
+    assert queue.drain() == {}
+
+    queue.set(a.id, True)
+    queue.set(b.id, True)
+    queue.set(a.id, False)  # muted then unmuted before the boundary: a no-op
+    assert queue.drain() == {a.id: False, b.id: True}
+    assert queue.drain() == {}  # draining clears
 
 
 async def test_cannot_start_two_debates_for_same_chamber() -> None:

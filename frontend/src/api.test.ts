@@ -12,6 +12,7 @@ import {
   listModels,
   removeParticipant,
   resumeDebate,
+  setParticipantMuted,
   startDebate,
   stepDebate,
   updateChamber,
@@ -109,6 +110,18 @@ describe("api client", () => {
 
     await updateParticipant("c1", "p9", { tuning });
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ tuning });
+  });
+
+  it("setParticipantMuted POSTs to the mute sub-resource", async () => {
+    const fetchMock = mockFetch(200, { status: "queued" });
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await setParticipantMuted("c1", "p9", true);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/chambers/c1/participants/p9/mute");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ muted: true });
+    // A running debate queues the change for the next round boundary.
+    expect(res.status).toBe("queued");
   });
 
   it("removeParticipant DELETEs and returns the updated chamber", async () => {

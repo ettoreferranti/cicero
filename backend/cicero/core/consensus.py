@@ -24,6 +24,7 @@ from cicero.core.prompt_builder import (
     build_stance_poll_messages,
 )
 from cicero.core.prompts import EMPTY_MODERATOR_STATEMENT, VERDICT_WINNER_PREFIX
+from cicero.core.roster import active_stances
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
 from cicero.domain.models import Chamber, ConsensusResult
 from cicero.providers.base import GenerateOptions, Provider, ProviderError
@@ -146,8 +147,15 @@ class ConsensusEngine:
     async def finalize(
         self, chamber: Chamber, stances: dict[str, Stance]
     ) -> ConsensusResult:
-        """Apply the chamber's decision rule and draft the final artifact."""
-        outcome, winner = decide_outcome(stances, chamber.settings.decision_rule)
+        """Apply the chamber's decision rule and draft the final artifact.
+
+        Muted debaters keep their recorded stance but no longer carry a vote
+        (FR-13), so the rule is applied to the active subset only — muting is
+        deliberately an outcome-changing act.
+        """
+        outcome, winner = decide_outcome(
+            active_stances(chamber, stances), chamber.settings.decision_rule
+        )
         task = _moderator_task(outcome, winner)
         messages = build_moderator_messages(chamber, stances, task)
         result = await self._moderator.generate(messages, self._moderator_options)

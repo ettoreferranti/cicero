@@ -36,6 +36,7 @@ from cicero.core.research import (
     ResearchSession,
     parse_search_request,
 )
+from cicero.core.roster import active_participants, active_stances
 from cicero.core.state_machine import transition
 from cicero.domain.enums import ChamberStatus, Stance
 from cicero.domain.models import Chamber, Citation, StancePoll, Turn
@@ -67,6 +68,12 @@ class NoteSource(Protocol):
     def drain(self) -> list[str]: ...
 
 
+class MuteSource(Protocol):
+    """Yields queued mute/unmute changes, applied between rounds (FR-13)."""
+
+    def drain(self) -> dict[UUID, bool]: ...
+
+
 def tokens_spent(chamber: Chamber) -> int:
     """Tokens recorded on persisted turns — seeds the budget on resume (NFR-R-3)."""
     total = 0
@@ -88,9 +95,9 @@ def participants_spoken(chamber: Chamber, round_index: int) -> set[UUID]:
 
 
 def round_complete(chamber: Chamber, round_index: int) -> bool:
-    """Whether every participant has spoken in ``round_index``."""
+    """Whether every *active* participant has spoken in ``round_index``."""
     spoken = participants_spoken(chamber, round_index)
-    return all(participant.id in spoken for participant in chamber.participants)
+    return all(participant.id in spoken for participant in active_participants(chamber))
 
 
 def resume_round(chamber: Chamber) -> int:
@@ -153,6 +160,7 @@ class DebateEngine:
         listener: TurnListener | None = None,
         evidence: EvidenceGatherer | None = None,
         notes: NoteSource | None = None,
+        mutes: MuteSource | None = None,
     ) -> None:
         self._factory = provider_factory
         self._repo = repository
@@ -161,6 +169,7 @@ class DebateEngine:
         self._listener = listener
         self._evidence = evidence
         self._notes = notes
+        self._mutes = mutes
 
     async def run(
         self,
@@ -221,6 +230,10 @@ class DebateEngine:
         for round_index in range(start_round, budget.max_rounds):
             if budget_hit is not None:
                 break
+            # Mutes land at the round boundary, never mid-round: a debater's
+            # muted state is then constant for a whole round, which is what
+            # keeps round completion (and so resume and step) coherent.
+            self._apply_mutes(chamber)
             converge = round_index >= converge_start
             budget_hit = await self._run_round(chamber, round_index, tracker, converge, limit)
             # A spent step allowance parks the debate — unless a budget was hit
@@ -236,7 +249,9 @@ class DebateEngine:
             if tracker.may_stop_early():
                 poll = await self._consensus.poll_stances(chamber)
                 self._record_poll(chamber, round_index, poll)
-                if is_consensus(poll):
+                # Everyone is polled, but only active debaters decide whether
+                # the debate has converged (FR-13).
+                if is_consensus(active_stances(chamber, poll)):
                     stop_reason, final_stances = StopReason.CONSENSUS, poll
                     break
                 if previous_poll is not None and poll == previous_poll:
@@ -325,7 +340,7 @@ class DebateEngine:
         gatherer = self._evidence if chamber.settings.web_evidence else None
         # On resume, a partially completed round is finished, not repeated.
         spoken = participants_spoken(chamber, round_index)
-        for participant in chamber.participants:
+        for participant in active_participants(chamber):
             if participant.id in spoken:
                 continue
             if limit is not None and limit.reached:
@@ -445,6 +460,18 @@ class DebateEngine:
             completion_tokens=completion_tokens,
             metadata=result.metadata,
         )
+
+    def _apply_mutes(self, chamber: Chamber) -> None:
+        """Apply any queued mute/unmute changes to the roster (FR-13)."""
+        if self._mutes is None:
+            return
+        changes = self._mutes.drain()
+        if not changes:
+            return
+        for participant in chamber.participants:
+            if participant.id in changes:
+                participant.muted = changes[participant.id]
+        self._persist(chamber)
 
     def _record_poll(
         self, chamber: Chamber, round_index: int, stances: dict[str, Stance]

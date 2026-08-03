@@ -380,6 +380,7 @@ streaming path:
   | `POST /chambers/{id}/participants` | Add a debater (FR-6/7) |
   | `PATCH /chambers/{id}/participants/{pid}` | Edit a debater while `draft` (FR-3) |
   | `DELETE /chambers/{id}/participants/{pid}` | Remove a debater while `draft` (FR-3) |
+  | `POST /chambers/{id}/participants/{pid}/mute` | Mute/unmute, incl. mid-debate (FR-13) |
   | `POST /chambers/{id}/run` | Start — async → 202, or `?wait=true` (FR-19) |
   | `POST /chambers/{id}/step` | Run one turn, then park as `paused` (FR-19) |
   | `POST /chambers/{id}/resume` | Continue a paused debate (FR-19, J3) |
@@ -416,9 +417,34 @@ controlled comparison rather than a repeat. Removing a debater may take a draft
 below two participants; `/run` is the single place that enforces the minimum, so
 a roster can be rebuilt freely before the debate starts.
 
-Editing a participant *mid-debate* (FR-13, backlog D6) is deliberately **not**
-covered by this: it would invalidate the fixed-roster assumption in
-`participants_spoken()` / `round_complete()` that resume and step both rely on.
+Editing a participant *mid-debate* is deliberately **not** covered by this: it
+would invalidate the fixed-roster assumption in `participants_spoken()` /
+`round_complete()` that resume and step both rely on. **Muting** is the
+supported mid-debate control instead (see below).
+
+**Muting (FR-13, backlog D6).** `POST /chambers/{id}/participants/{pid}/mute`
+takes a debater out of the argument without taking it out of the chamber. Four
+decisions define the semantics, and `core/roster.py` encodes them:
+
+- **Mute, not remove.** Removal mid-debate would leave a transcript whose
+  speakers are no longer on the roster. Mute is reversible and expresses what an
+  operator wants: "stop arguing", not "stop existing".
+- **Applied at the next round boundary**, never mid-round. While a debate runs,
+  the change goes through a `_MuteQueue` on the `DebateManager` — the same
+  out-of-band pattern as moderator notes, and necessary for the same reason: the
+  engine holds its own `Chamber` instance, so an API write to the repository
+  would not reach it. Boundary application keeps a debater's muted state
+  constant for a whole round, which is exactly the invariant `round_complete()`
+  (and therefore resume and step) depends on.
+- **Still polled for its stance.** Otherwise the stance history (FR-25) would
+  gain a hole precisely where the interesting thing happened.
+- **No longer counted by the decision rule.** `active_stances()` restricts the
+  tally, so muting can turn a split into a consensus, or a clean majority into a
+  judge's verdict. That is the power of the control, stated rather than hidden.
+
+Two guards follow: muting is refused (`409`) when it would leave fewer than two
+active debaters, and a fully muted chamber falls back to counting everyone
+rather than resolving an empty tally as "no agreement".
 
 **Provider failure handling (NFR-R-1).** Two layers, deliberately separate:
 

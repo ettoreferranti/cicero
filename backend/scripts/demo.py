@@ -466,6 +466,23 @@ def run_demo(
         f"HTTP {rejected.status_code}",
     )
 
+    # Muting is refused when it would leave fewer than two active debaters —
+    # the guard that keeps a "debate" from becoming a monologue (FR-13).
+    roster_now = client.get(f"/chambers/{chamber_id}").json()["participants"]
+    if len(roster_now) == 2:
+        refused = client.post(
+            f"/chambers/{chamber_id}/participants/{roster_now[0]['id']}/mute",
+            json={"muted": True},
+        )
+        report.check(
+            "FR-13",
+            "muting refused when it would leave one debater",
+            refused.status_code == 409,
+            f"HTTP {refused.status_code}",
+        )
+    else:
+        report.skip("FR-13", "mute guard", "needs a two-debater roster")
+
     providers_used = sorted({spec.provider for spec in roster})
     report.check(
         "FR-6/7",

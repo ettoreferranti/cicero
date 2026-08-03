@@ -26,6 +26,7 @@ from cicero.api.schemas import (
     ChamberUpdate,
     DebateSettingsIn,
     ModeratorNoteIn,
+    MuteIn,
     ParticipantCreate,
     ParticipantUpdate,
 )
@@ -34,8 +35,15 @@ from cicero.core.compare import compare_chambers
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.metrics import ParticipantMetrics, compute_participant_metrics
-from cicero.core.orchestrator import DebateEngine, NoteSource, TurnLimit, TurnListener
+from cicero.core.orchestrator import (
+    DebateEngine,
+    MuteSource,
+    NoteSource,
+    TurnLimit,
+    TurnListener,
+)
 from cicero.core.prompt_builder import KIND_MODERATOR_NOTE
+from cicero.core.roster import active_participants
 from cicero.domain.enums import ChamberStatus, ProviderType
 from cicero.domain.models import (
     Chamber,
@@ -124,6 +132,7 @@ def _build_engine(
     listener: TurnListener | None,
     evidence: EvidenceService | None = None,
     notes: NoteSource | None = None,
+    mutes: MuteSource | None = None,
 ) -> tuple[DebateEngine, DebateBudget]:
     """Assemble the engine + budget for a debate. May raise ProviderError."""
     moderator_source = chamber.participants[0]
@@ -135,7 +144,13 @@ def _build_engine(
     )
     consensus = ConsensusEngine(factory, moderator, moderator_options)
     engine = DebateEngine(
-        factory, repo, consensus, listener=listener, evidence=evidence, notes=notes
+        factory,
+        repo,
+        consensus,
+        listener=listener,
+        evidence=evidence,
+        notes=notes,
+        mutes=mutes,
     )
     settings = chamber.settings  # per-chamber tuning (FR-16/FR-11)
     budget = DebateBudget(
@@ -290,6 +305,50 @@ async def update_participant(
     return repo.update(chamber)
 
 
+@router.post("/{chamber_id}/participants/{participant_id}/mute")
+def set_participant_muted(
+    chamber_id: UUID,
+    participant_id: UUID,
+    payload: MuteIn,
+    repo: RepoDep,
+    manager: ManagerDep,
+) -> dict[str, str]:
+    """Mute or unmute a debater, including mid-debate (D6/FR-13).
+
+    A muted debater stops taking turns and stops counting toward the decision
+    rule, but stays in the chamber and is still polled for its stance, so the
+    stance history keeps a continuous record. Because it changes the tally,
+    muting can change the outcome — that is the point of the control.
+
+    While a debate is running the change is queued and applied at the **next
+    round boundary**, never mid-round: a debater's muted state stays constant
+    for a whole round, which is what keeps round completion — and so resume and
+    step — coherent. On a draft or paused chamber it applies immediately.
+    """
+    chamber = _require_chamber(repo, chamber_id)
+    participant = _require_participant(chamber, participant_id)
+
+    if payload.muted:
+        remaining = [p for p in active_participants(chamber) if p.id != participant_id]
+        if len(remaining) < MIN_PARTICIPANTS:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "a debate needs at least two unmuted participants",
+            )
+
+    if manager.set_muted(chamber_id, participant_id, payload.muted):
+        return {"status": "queued"}
+    if chamber.status is ChamberStatus.RUNNING:
+        # Running, but no live task owns it (e.g. after a restart) — the change
+        # would be silently lost, so say so rather than pretend.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "no running debate for this chamber"
+        )
+    participant.muted = payload.muted
+    repo.update(chamber)
+    return {"status": "muted" if payload.muted else "unmuted"}
+
+
 @router.delete("/{chamber_id}/participants/{participant_id}", response_model=Chamber)
 def remove_participant(
     chamber_id: UUID, participant_id: UUID, repo: RepoDep
@@ -406,9 +465,11 @@ async def _launch_debate(
         )
 
     def build(
-        listener: TurnListener | None, notes: NoteSource | None
+        listener: TurnListener | None,
+        notes: NoteSource | None,
+        mutes: MuteSource | None = None,
     ) -> tuple[DebateEngine, DebateBudget]:
-        return _build_engine(chamber, repo, factory, listener, evidence, notes)
+        return _build_engine(chamber, repo, factory, listener, evidence, notes, mutes)
 
     if wait:
         try:

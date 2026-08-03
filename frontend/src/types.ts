@@ -50,6 +50,9 @@ export interface Participant {
   model: string;
   stance: Stance;
   tuning: ParticipantTuning;
+  // A muted debater stops taking turns and stops counting toward the decision
+  // rule, but stays in the chamber and is still polled for its stance (FR-13).
+  muted: boolean;
 }
 
 export interface Turn {

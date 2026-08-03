@@ -86,6 +86,14 @@ class ParticipantCreate(BaseModel):
     tuning: TuningIn | None = None
 
 
+class MuteIn(BaseModel):
+    """Mute or unmute a debater (FR-13)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    muted: bool
+
+
 class ParticipantUpdate(BaseModel):
     """Editable participant fields while the chamber is a `draft` (FR-3).
 

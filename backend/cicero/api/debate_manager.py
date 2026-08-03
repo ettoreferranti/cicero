@@ -14,11 +14,14 @@ from uuid import UUID
 
 from cicero.api.events import DebateEvent, DebateEventType
 from cicero.core.budget import DebateBudget
-from cicero.core.orchestrator import DebateEngine, NoteSource, TurnListener
+from cicero.core.orchestrator import DebateEngine, MuteSource, NoteSource, TurnListener
 from cicero.domain.models import Chamber, Turn
 
-# Builds the engine (wired with the manager's listener + note queue) and its budget.
-BuildEngine = Callable[[TurnListener, NoteSource], tuple[DebateEngine, DebateBudget]]
+# Builds the engine (wired with the manager's listener, note and mute queues)
+# and its budget.
+BuildEngine = Callable[
+    [TurnListener, NoteSource, MuteSource], tuple[DebateEngine, DebateBudget]
+]
 
 
 class _NoteQueue:
@@ -35,6 +38,25 @@ class _NoteQueue:
         return notes
 
 
+class _MuteQueue:
+    """Mute/unmute changes queued for the next round boundary (FR-13).
+
+    Applied between rounds rather than immediately, so a debater's muted state
+    is constant for a whole round — which is what keeps round completion (and
+    therefore resume and step) coherent.
+    """
+
+    def __init__(self) -> None:
+        self._changes: dict[UUID, bool] = {}
+
+    def set(self, participant_id: UUID, muted: bool) -> None:
+        self._changes[participant_id] = muted
+
+    def drain(self) -> dict[UUID, bool]:
+        changes, self._changes = self._changes, {}
+        return changes
+
+
 class _RunningDebate:
     def __init__(self) -> None:
         self.history: list[DebateEvent] = []
@@ -42,6 +64,7 @@ class _RunningDebate:
         self.task: asyncio.Task[None] | None = None
         self.done: bool = False
         self.notes = _NoteQueue()
+        self.mutes = _MuteQueue()
 
 
 class _PublishingListener:
@@ -82,7 +105,7 @@ class DebateManager:
         debate = _RunningDebate()
         # Build before registering so a build failure (e.g. missing API key) does
         # not leave a broken entry behind.
-        engine, budget = build_engine(listener, debate.notes)
+        engine, budget = build_engine(listener, debate.notes, debate.mutes)
         self._debates[chamber.id] = debate
         debate.task = asyncio.create_task(self._run(chamber, engine, budget))
 
@@ -92,6 +115,14 @@ class DebateManager:
         if debate is None or debate.done:
             return False
         debate.notes.add(content)
+        return True
+
+    def set_muted(self, chamber_id: UUID, participant_id: UUID, muted: bool) -> bool:
+        """Queue a mute/unmute for a running debate. False if none is running."""
+        debate = self._debates.get(chamber_id)
+        if debate is None or debate.done:
+            return False
+        debate.mutes.set(participant_id, muted)
         return True
 
     async def stop(self, chamber_id: UUID) -> bool:

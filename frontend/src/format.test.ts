@@ -77,6 +77,7 @@ describe("speakerName", () => {
       model: "m",
       stance: "pro",
       tuning: DEFAULT_TUNING,
+      muted: false,
     },
   ];
   it("returns the display name for a known participant", () => {
@@ -96,6 +97,7 @@ describe("turnSpeaker", () => {
       model: "m",
       stance: "pro",
       tuning: DEFAULT_TUNING,
+      muted: false,
     },
   ];
   it("uses the participant name for normal turns", () => {
@@ -119,6 +121,7 @@ describe("participantColor", () => {
     model: "m",
     stance: "neutral",
     tuning: DEFAULT_TUNING,
+    muted: false,
   });
 
   it("assigns each debater a distinct, stable palette colour", () => {
@@ -179,6 +182,7 @@ describe("liveStatusMessage", () => {
     model: "m",
     stance: "pro",
     tuning: DEFAULT_TUNING,
+    muted: false,
   };
 
   it("names the latest speaker and round", () => {
@@ -214,6 +218,7 @@ describe("stanceTrajectories", () => {
     model: "m",
     stance: "pro",
     tuning: DEFAULT_TUNING,
+    muted: false,
   };
   const zeno: Participant = { ...ada, id: "p2", display_name: "Zeno", stance: "con" };
   const poll = (round: number, stances: Record<string, Stance>): StancePoll => ({

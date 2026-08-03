@@ -88,6 +88,9 @@ class Participant(_Base):
     model: str = Field(min_length=1, max_length=200)
     stance: Stance = Stance.NEUTRAL
     tuning: ParticipantTuning = Field(default_factory=ParticipantTuning)
+    #: A muted debater stops taking turns and stops counting toward the decision
+    #: rule, but stays in the chamber and is still polled for its stance (FR-13).
+    muted: bool = False
 
 
 class Turn(_Base):

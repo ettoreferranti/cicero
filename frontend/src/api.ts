@@ -133,6 +133,22 @@ export function updateParticipant(
   });
 }
 
+/**
+ * Mute or unmute a debater (FR-13). While a debate is running the change is
+ * queued and lands at the next round boundary, so the response says `queued`
+ * rather than `muted`.
+ */
+export function setParticipantMuted(
+  id: string,
+  participantId: string,
+  muted: boolean,
+): Promise<{ status: string }> {
+  return request<{ status: string }>(`/chambers/${id}/participants/${participantId}/mute`, {
+    method: "POST",
+    body: JSON.stringify({ muted }),
+  });
+}
+
 /** Remove a debater while the chamber is a draft; resolves with the new roster. */
 export function removeParticipant(id: string, participantId: string): Promise<Chamber> {
   return request<Chamber>(`/chambers/${id}/participants/${participantId}`, {

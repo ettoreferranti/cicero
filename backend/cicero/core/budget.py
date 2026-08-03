@@ -47,14 +47,29 @@ class DebateBudget:
 
 
 class BudgetTracker:
-    """Mutable running totals checked against a :class:`DebateBudget`."""
+    """Mutable running totals checked against a :class:`DebateBudget`.
 
-    def __init__(self, budget: DebateBudget, clock: Callable[[], float] = time.monotonic) -> None:
+    ``initial_tokens`` / ``initial_rounds`` seed the totals when a debate is
+    resumed after a restart (NFR-R-3), so budgets keep counting across runs.
+    """
+
+    def __init__(
+        self,
+        budget: DebateBudget,
+        clock: Callable[[], float] = time.monotonic,
+        *,
+        initial_tokens: int = 0,
+        initial_rounds: int = 0,
+    ) -> None:
+        if initial_tokens < 0:
+            raise ValueError("initial_tokens cannot be negative")
+        if initial_rounds < 0:
+            raise ValueError("initial_rounds cannot be negative")
         self._budget = budget
         self._clock = clock
         self._started_at = clock()
-        self.tokens_used = 0
-        self.rounds_completed = 0
+        self.tokens_used = initial_tokens
+        self.rounds_completed = initial_rounds
 
     def add_tokens(self, prompt_tokens: int, completion_tokens: int) -> None:
         self.tokens_used += prompt_tokens + completion_tokens

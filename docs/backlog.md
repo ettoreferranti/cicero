@@ -65,7 +65,7 @@
 | E2 | As a developer, prompt construction injects topic, stance, persona, transcript window, and rules, with clear delimiting of untrusted content. | FR-15, NFR-SEC-5 | M | 5 | ✅ done |
 | E3 | As a user, stop conditions (max rounds / token / time budget) end the debate safely. | FR-16, NFR-SEC-8 | M | 3 | ✅ done |
 | E4 | As a user, every turn is persisted with metadata (participant, timestamp, tokens, tools). | FR-17 | M | 3 | ✅ done |
-| E5 | As a user, I can start, pause, resume, step, and stop a debate. | FR-19 | S | 5 | 🟡 partial |
+| E5 | As a user, I can start, pause, resume, step, and stop a debate. | FR-19 | S | 5 | 🟡 partial — start ✅, pause ✅ (stop now parks as `paused`), resume ✅ (continues mid-round); step still todo |
 | E6 | As a user, turns stream live as they generate. | FR-18, NFR-R-2 | S | 5 | ✅ done |
 | E7 | As an observer, I can inject a moderator note between turns. | FR-21 | C | 3 | ✅ done |
 
@@ -117,7 +117,7 @@
 |----|-------|--------|-----|-----|--------|
 | J1 | As an operator, security headers, CORS, and (optional) authn/authz are in place before non-localhost use. | NFR-SEC-9 | S | 5 | ✅ done — headers + CORS since M0; optional bearer-token auth via `API_AUTH_TOKEN` |
 | J2 | As an operator, rate limiting and resource budgets prevent runaway cost/loops. | NFR-SEC-8 | S | 3 | ✅ done — per-IP rate limiter + per-chamber round/token/time budgets |
-| J3 | As an operator, debates can resume after a restart. | NFR-R-3 | C | 5 | todo |
+| J3 | As an operator, debates can resume after a restart. | NFR-R-3 | C | 5 | ✅ done — startup recovery parks interrupted `running` chambers as `paused`; `POST /chambers/{id}/resume` continues from the first missing turn with budgets counting prior spend |
 | J4 | As a maintainer, all docs are verified in sync at release; end-to-end demo passes. | NFR-M-2, §9 | M | 3 | 🟡 partial — docs synced with Milestone 3; release demo pending |
 
 ---
@@ -136,7 +136,7 @@ Epics **A**, **B1/B2**, **C1/C6**. Deliverable: scaffold, CI (lint/type/test/sec
 
 ### Milestone 3 — Web Evidence (v1 feature) & Hardening ← **mostly done**
 Epic **G** (SSRF-sandboxed web search + fetch + citations), **J1/J2**, **H4**, **E7**, **I5**, **J3**, **J4**. Deliverable: safe web evidence with citations wired into the debate loop, security hardening, release.
-Also delivered here (user-driven): per-chamber **debate settings** (rounds, token budget, wall-clock duration, convergence rounds, decision rule) via API + UI, and the **convergence redesign** (two-phase prompting + unanimous/majority/judge decision rules with a recorded winning stance) so debates end with one position winning. Remaining: J3 (resume after restart), release demo (J4), full a11y audit (I5).
+Also delivered here (user-driven): per-chamber **debate settings** (rounds, token budget, wall-clock duration, convergence rounds, decision rule) via API + UI, and the **convergence redesign** (two-phase prompting + unanimous/majority/judge decision rules with a recorded winning stance) so debates end with one position winning. **J3 landed** (restart recovery + pause/resume). Remaining: release demo (J4), full a11y audit (I5), step control (E5).
 
 ---
 

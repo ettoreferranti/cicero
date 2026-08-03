@@ -10,6 +10,7 @@ import {
   exportUrl,
   listChambers,
   listModels,
+  resumeDebate,
   startDebate,
   updateSettings,
 } from "./api";
@@ -101,6 +102,14 @@ describe("api client", () => {
     vi.stubGlobal("fetch", fetchMock);
     const res = await startDebate("c1");
     expect(fetchMock.mock.calls[0][0]).toBe("/chambers/c1/run");
+    expect(res.status).toBe("running");
+  });
+
+  it("resumeDebate POSTs to /resume", async () => {
+    const fetchMock = mockFetch(202, { status: "running" });
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await resumeDebate("c1");
+    expect(fetchMock.mock.calls[0][0]).toBe("/chambers/c1/resume");
     expect(res.status).toBe("running");
   });
 

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "./api";
 import {
+  canResume,
   canRun,
   groupTurnsByRound,
+  mergeTurns,
   outcomeLabel,
   participantColor,
   stanceLabel,
@@ -157,6 +159,16 @@ export function ChamberDetail({
     }
   }
 
+  async function onResume() {
+    setError(null);
+    try {
+      await api.resumeDebate(chamberId);
+      setStreaming(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to resume debate");
+    }
+  }
+
   async function onStop() {
     try {
       await api.stopDebate(chamberId);
@@ -197,10 +209,14 @@ export function ChamberDetail({
     );
   }
 
-  const liveTurns: Turn[] = streaming && stream.liveTurns.length > 0 ? stream.liveTurns : chamber.turns;
+  // On resume, earlier persisted turns stay visible under the live stream.
+  const liveTurns: Turn[] = streaming
+    ? mergeTurns(chamber.turns, stream.liveTurns)
+    : chamber.turns;
   const rounds = groupTurnsByRound(liveTurns);
   const consensus = stream.consensus ?? chamber.consensus;
   const runnable = canRun(chamber.status, chamber.participants.length);
+  const resumable = canResume(chamber.status, chamber.participants.length);
 
   return (
     <div>
@@ -425,11 +441,17 @@ export function ChamberDetail({
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h2>Debate</h2>
           <div className="row">
-            <button className="primary" onClick={onStart} disabled={!runnable || streaming}>
-              Start
-            </button>
-            <button onClick={onStop} disabled={!streaming}>
-              Stop
+            {resumable ? (
+              <button className="primary" onClick={onResume} disabled={streaming}>
+                Resume
+              </button>
+            ) : (
+              <button className="primary" onClick={onStart} disabled={!runnable || streaming}>
+                Start
+              </button>
+            )}
+            <button onClick={onStop} disabled={!streaming} title="Pauses the debate; resumable">
+              Pause
             </button>
           </div>
         </div>

@@ -49,8 +49,12 @@ UI with exports and metrics). Milestone 3 adds:
 Fully runnable end-to-end with the deterministic mock provider — no keys required.
 See [`docs/backlog.md`](./docs/backlog.md) for milestone progress.
 
-> Controls note: **start** and **stop** are implemented; pause/resume/step are a
-> planned follow-up. The participant form's **model selector** lists the models
+> Controls note: **start**, **pause** (stop parks the debate as resumable), and
+> **resume** are implemented — including after a server restart: interrupted
+> debates are recovered as `paused` and `POST /chambers/{id}/resume` continues
+> from the exact turn they stopped at, with token/round budgets counting the
+> prior spend. A **step** control is a planned follow-up. The participant
+> form's **model selector** lists the models
 > actually available from the chosen provider (e.g. those loaded in your local
 > Ollama, via `GET /providers/{provider}/models`), falling back to free-text when
 > the provider is unreachable. Server-side model validation on add is still todo.

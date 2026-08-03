@@ -6,6 +6,7 @@ from functools import lru_cache
 
 from cicero.api.debate_manager import DebateManager
 from cicero.config import get_settings
+from cicero.core.recovery import recover_interrupted_debates
 from cicero.persistence import ChamberRepository, create_repository
 from cicero.providers import ProviderFactory, SettingsProviderFactory
 from cicero.tools.web import DuckDuckGoBackend, EvidenceService, SafeWebClient
@@ -13,7 +14,10 @@ from cicero.tools.web import DuckDuckGoBackend, EvidenceService, SafeWebClient
 
 @lru_cache
 def _repository_singleton() -> ChamberRepository:
-    return create_repository(get_settings().database_url)
+    repo = create_repository(get_settings().database_url)
+    # Debates interrupted by the previous shutdown become resumable (J3).
+    recover_interrupted_debates(repo)
+    return repo
 
 
 @lru_cache

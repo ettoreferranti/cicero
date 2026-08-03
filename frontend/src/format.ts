@@ -86,6 +86,20 @@ export function canRun(status: string, participantCount: number): boolean {
   return status === "draft" && participantCount >= 2;
 }
 
+/** A paused debate (stopped, or interrupted by a restart) can be resumed. */
+export function canResume(status: string, participantCount: number): boolean {
+  return status === "paused" && participantCount >= 2;
+}
+
+/**
+ * Persisted turns followed by any live-streamed turns not yet persisted
+ * (deduplicated by id) — so resuming a debate keeps its earlier transcript.
+ */
+export function mergeTurns(persisted: Turn[], live: Turn[]): Turn[] {
+  const seen = new Set(persisted.map((t) => t.id));
+  return [...persisted, ...live.filter((t) => !seen.has(t.id))];
+}
+
 export function isRunning(status: string): boolean {
   return status === "running";
 }

@@ -105,6 +105,10 @@ export function stopDebate(id: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/chambers/${id}/stop`, { method: "POST" });
 }
 
+export function resumeDebate(id: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/chambers/${id}/resume`, { method: "POST" });
+}
+
 export function getMetrics(id: string): Promise<ParticipantMetrics[]> {
   return request<ParticipantMetrics[]>(`/chambers/${id}/metrics`);
 }

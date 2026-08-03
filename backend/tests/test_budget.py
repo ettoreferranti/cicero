@@ -89,6 +89,26 @@ def test_hard_budget_hit_prefers_tokens_over_time() -> None:
     assert tracker.hard_budget_hit() is StopReason.TOKEN_BUDGET
 
 
+def test_tracker_seeds_prior_spend_for_resume() -> None:
+    budget = DebateBudget(max_rounds=3, max_total_tokens=100)
+    tracker = BudgetTracker(budget, initial_tokens=95, initial_rounds=2)
+    assert tracker.tokens_used == 95
+    assert tracker.rounds_completed == 2
+    assert tracker.token_budget_exhausted() is False
+    tracker.add_tokens(3, 2)  # 100 >= 100
+    assert tracker.token_budget_exhausted() is True
+    tracker.complete_round()
+    assert tracker.rounds_exhausted() is True
+
+
+def test_tracker_rejects_negative_seeds() -> None:
+    budget = DebateBudget(max_rounds=1, max_total_tokens=1)
+    with pytest.raises(ValueError, match=r"^initial_tokens cannot be negative$"):
+        BudgetTracker(budget, initial_tokens=-1)
+    with pytest.raises(ValueError, match=r"^initial_rounds cannot be negative$"):
+        BudgetTracker(budget, initial_rounds=-1)
+
+
 def test_may_stop_early_respects_min_rounds() -> None:
     tracker = BudgetTracker(DebateBudget(max_rounds=5, max_total_tokens=100, min_rounds=2))
     assert tracker.may_stop_early() is False

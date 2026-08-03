@@ -331,6 +331,62 @@ def test_clone_chamber_copies_setup_but_not_the_run(client: TestClient) -> None:
     assert client.post(f"/chambers/{clone['id']}/run", params={"wait": "true"}).status_code == 200
 
 
+def test_resume_requires_paused_chamber(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "A", "pro")
+    _add_participant(client, cid, "B", "pro")
+    assert client.post(f"/chambers/{cid}/resume").status_code == 409  # still a draft
+
+
+def test_resume_continues_an_interrupted_debate() -> None:
+    from uuid import UUID
+
+    from cicero.core.state_machine import transition
+    from cicero.domain.enums import ChamberStatus
+    from cicero.domain.models import Turn
+
+    repo = InMemoryChamberRepository()
+    factory = ConstantFactory(ScriptedProvider(stance_word="pro", moderator_reply="We agree."))
+    manager = DebateManager()
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: manager
+    with TestClient(app) as client:
+        cid = _create_chamber(client)
+        _add_participant(client, cid, "A", "pro")
+        _add_participant(client, cid, "B", "pro")
+
+        # Simulate a debate interrupted after A's opening turn, then recovered.
+        chamber = repo.get(UUID(cid))
+        assert chamber is not None
+        transition(chamber, ChamberStatus.RUNNING)
+        chamber.turns.append(
+            Turn(
+                participant_id=chamber.participants[0].id,
+                round_index=0,
+                content="Opening argument.",
+                metadata={"prompt_tokens": 5, "completion_tokens": 5},
+            )
+        )
+        transition(chamber, ChamberStatus.PAUSED)
+        repo.update(chamber)
+
+        # /run refuses a paused chamber; /resume picks it up.
+        assert client.post(f"/chambers/{cid}/run", params={"wait": "true"}).status_code == 409
+        resp = client.post(f"/chambers/{cid}/resume", params={"wait": "true"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "concluded"
+        # A's interrupted turn was kept, not repeated.
+        a_id = body["participants"][0]["id"]
+        a_turns = [t for t in body["turns"] if t["participant_id"] == a_id]
+        assert len(a_turns) == 1 and a_turns[0]["content"] == "Opening argument."
+        # Resuming a concluded chamber is refused.
+        assert client.post(f"/chambers/{cid}/resume").status_code == 409
+    app.dependency_overrides.clear()
+
+
 def test_clone_missing_chamber_404(client: TestClient) -> None:
     assert client.post("/chambers/00000000-0000-0000-0000-000000000000/clone").status_code == 404
 

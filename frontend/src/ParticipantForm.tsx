@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import * as api from "./api";
-import { stanceLabel } from "./format";
-import type { Provider, Stance } from "./types";
+import { stanceLabel, tuningSummary } from "./format";
+import { DEFAULT_TUNING } from "./types";
+import type { ParticipantTuning, Provider, Stance } from "./types";
 
 const PROVIDERS: Provider[] = ["mock", "ollama", "anthropic"];
 const STANCES: Stance[] = ["neutral", "pro", "con"];
@@ -11,6 +12,7 @@ export interface ParticipantDraft {
   provider: Provider;
   model: string;
   stance: Stance;
+  tuning: ParticipantTuning;
 }
 
 const BLANK: ParticipantDraft = {
@@ -18,6 +20,7 @@ const BLANK: ParticipantDraft = {
   provider: "mock",
   model: "mock-small",
   stance: "neutral",
+  tuning: DEFAULT_TUNING,
 };
 
 /**
@@ -80,8 +83,15 @@ export function ParticipantForm({
     }
   }
 
+  function setTuning(patch: Partial<ParticipantTuning>) {
+    setDraft({ ...draft, tuning: { ...draft.tuning, ...patch } });
+  }
+
+  const summary = tuningSummary(draft.tuning);
+
   return (
-    <form className="row" aria-label={formLabel} onSubmit={handleSubmit}>
+    <form aria-label={formLabel} onSubmit={handleSubmit}>
+      <div className="row">
       <input
         aria-label="participant name"
         placeholder="Name"
@@ -140,6 +150,54 @@ export function ParticipantForm({
           Cancel
         </button>
       )}
+      </div>
+
+      {/* Tuning is opt-in detail (FR-11): collapsed unless it differs from
+          the defaults, so the common case stays a single compact row. */}
+      <details open={summary !== ""} style={{ marginTop: "0.4rem" }}>
+        <summary className="muted" style={{ cursor: "pointer", fontSize: "0.85rem" }}>
+          Tuning{summary && ` — ${summary}`}
+        </summary>
+        <div className="row" style={{ marginTop: "0.4rem" }}>
+          <label className="muted" style={{ fontSize: "0.85rem" }}>
+            Temperature{" "}
+            <input
+              type="number"
+              min={0}
+              max={2}
+              step={0.1}
+              style={{ width: "5rem" }}
+              value={draft.tuning.temperature}
+              onChange={(e) => setTuning({ temperature: Number(e.target.value) })}
+            />
+          </label>
+          <label className="muted" style={{ fontSize: "0.85rem" }}>
+            Max tokens{" "}
+            <input
+              type="number"
+              min={1}
+              max={32768}
+              style={{ width: "6rem" }}
+              value={draft.tuning.max_tokens}
+              onChange={(e) => setTuning({ max_tokens: Number(e.target.value) })}
+            />
+          </label>
+          <input
+            aria-label="persona"
+            placeholder="Persona (e.g. a cautious economist)"
+            value={draft.tuning.persona}
+            onChange={(e) => setTuning({ persona: e.target.value })}
+            style={{ flex: 1, minWidth: "14rem" }}
+          />
+          <input
+            aria-label="style"
+            placeholder="Style (e.g. terse, cite numbers)"
+            value={draft.tuning.style}
+            onChange={(e) => setTuning({ style: e.target.value })}
+            style={{ flex: 1, minWidth: "12rem" }}
+          />
+        </div>
+      </details>
     </form>
   );
 }

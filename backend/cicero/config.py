@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # Secret: supplied only via env; never committed or logged.
     anthropic_api_key: SecretStr | None = None
     ollama_host: str = "http://localhost:11434"
+    # Transient provider failures (timeouts, 429s, 5xx) are retried with
+    # exponential backoff before a turn is given up on (NFR-R-1).
+    # 1 attempt disables retrying.
+    provider_max_attempts: int = Field(default=3, ge=1, le=10)
+    provider_retry_base_delay_seconds: float = Field(default=0.5, ge=0, le=60)
 
     # --- API surface (localhost by default — NFR-SEC-9) ------------------
     api_host: str = "127.0.0.1"

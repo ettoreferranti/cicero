@@ -36,10 +36,12 @@
   debate core — `core/budget`, `core/state_machine`, `core/prompt_builder`,
   `core/consensus`, `core/orchestrator`, `core/compare`, `core/research`,
   `core/recovery`, `core/metrics`, `core/export` — plus `api/rate_limit`,
-  `providers/mock` and `persistence/memory`. A small number of documented
+  `providers/retry`, `providers/availability`, `providers/mock` and
+  `persistence/memory`. A small number of documented
   *equivalent* mutants are accepted (type-annotation `|`→`&` under
   `from __future__ import annotations`; generation `options` that mock providers
-  ignore; dead initial defaults always reassigned before use).
+  ignore; dead initial defaults always reassigned before use; the *name string*
+  passed to `TypeVar(...)`, which has no runtime effect).
 - **Excluded by marker:** the per-mutant runner is
   `pytest … -m "not e2e"`, which drops `tests/test_demo_e2e.py`. That test
   spawns a real API process (§4b) and would otherwise be paid for once per
@@ -76,6 +78,8 @@ validation unit tests:
 | `core/research.py` — evidence brief assembly | |
 | `core/recovery.py` — restart recovery rules | |
 | `api/rate_limit.py` — fixed-window limiter | |
+| `providers/retry.py` — transient-failure classification + backoff schedule | |
+| `providers/availability.py` — model-name matching for add/edit validation | |
 | _(new logic modules as they land)_ | |
 
 > **Note:** mutmut only mutates **git-tracked** files, so new modules must be

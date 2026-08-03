@@ -126,6 +126,7 @@ providers/DB/UI swappable (NFR-M-3).
 erDiagram
   CHAMBER ||--o{ PARTICIPANT : has
   CHAMBER ||--o{ TURN : records
+  CHAMBER ||--o{ STANCE_POLL : tracks
   CHAMBER ||--o| CONSENSUS_RESULT : concludes
   PARTICIPANT ||--o{ TURN : authors
   TURN ||--o{ CITATION : cites
@@ -154,6 +155,11 @@ erDiagram
     int round_index
     text content
     json metadata
+    datetime created_at
+  }
+  STANCE_POLL {
+    int round_index
+    json stances "stance per participant id (FR-25)"
     datetime created_at
   }
   CONSENSUS_RESULT {
@@ -377,6 +383,54 @@ a roster can be rebuilt freely before the debate starts.
 Editing a participant *mid-debate* (FR-13, backlog D6) is deliberately **not**
 covered by this: it would invalidate the fixed-roster assumption in
 `participants_spoken()` / `round_complete()` that resume and step both rely on.
+
+**Provider failure handling (NFR-R-1).** Two layers, deliberately separate:
+
+1. **`providers/retry.py`** — the HTTP adapters retry *transient* failures with
+   capped exponential backoff: transport errors (connect/read timeouts) and
+   status codes 408, 425, 429, the 5xx family, and Anthropic's 529. A
+   server-supplied `Retry-After` overrides the schedule but is still capped, so
+   a mistaken or hostile header cannot stall a debate. Permanent 4xx — a bad
+   model name, a rejected key, a malformed request — are **never** retried;
+   they fail identically on a second attempt and retrying only doubles the cost
+   of the mistake. Tunable via `PROVIDER_MAX_ATTEMPTS` and
+   `PROVIDER_RETRY_BASE_DELAY_SECONDS` (1 attempt disables retrying).
+2. **Per-turn containment in the engine** — if a provider is genuinely down,
+   `_run_round` still records an empty turn carrying `error` metadata and the
+   debate continues with the other participants, rather than the whole run
+   dying with one debater.
+
+The delay schedule is pure and the sleep is injected, so `retry.py` is
+deterministic under test and sits in the mutation gate; the adapters around it
+stay excluded as I/O plumbing.
+
+**Participant validation (FR-12).** Adding or editing a debater checks the
+provider server-side before the roster changes: unreachable or unconfigured →
+`502` (the connectivity half of FR-12), reachable but unable to serve the model
+→ `422` naming what it *can* serve. Without this the mistake only surfaces
+mid-debate, as an empty turn with an `error` in its metadata.
+
+**Stance history (FR-25).** The engine already polls every participant's stance
+after a round to decide convergence; that measurement used to be discarded, with
+only the final poll surviving as `consensus.final_stances`. Each poll is now
+persisted as a `StancePoll` on `chamber.stance_history`, which is what makes
+"who moved, and when" answerable — and gives run-vs-run comparison something
+richer than two end states. A round is recorded exactly once: the closing poll
+is skipped when the round it measures is already in the history, which also
+stops a *stepped* debate (where every step is its own engine run) from
+double-recording. When `min_rounds` suppresses the per-round poll entirely, the
+final measurement is still recorded, so the history is never empty for a
+concluded debate.
+
+`providers/availability.py` holds the matching, and is deliberately forgiving in
+one direction: providers report tagged identifiers (`llama3:latest`) while
+people type the bare name, and casing varies, so both sides are normalised and a
+bare name matches its `:latest` tag. A *different* tag (`mistral:7b` vs
+`mistral:latest`) is a different model and is still rejected. An **empty**
+listing never rejects — that means "the provider told us nothing useful", not
+"no models exist", and blocking on it would be pure obstruction. Editing only
+re-validates when the provider or model actually changes, so a rename is not
+gated on provider uptime.
 
 ## 12. Human controls: start, step, pause, resume & restart recovery (J3 / E5)
 

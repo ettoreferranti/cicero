@@ -9,6 +9,8 @@ import {
   outcomeLabel,
   participantColor,
   stanceLabel,
+  stanceTrajectories,
+  tuningSummary,
   turnSpeaker,
 } from "./format";
 import { ParticipantForm, type ParticipantDraft } from "./ParticipantForm";
@@ -449,6 +451,7 @@ export function ChamberDetail({
                 provider: p.provider,
                 model: p.model,
                 stance: p.stance,
+                tuning: p.tuning,
               }}
               onSubmit={(draft) => onEditParticipant(p.id, draft)}
               onCancel={() => setEditingParticipant(null)}
@@ -465,6 +468,18 @@ export function ChamberDetail({
               <span className="muted">
                 {p.provider} / {p.model}
               </span>
+              {tuningSummary(p.tuning) && (
+                <span
+                  className="muted"
+                  style={{ fontSize: "0.85rem" }}
+                  title={
+                    [p.tuning.persona, p.tuning.style].filter(Boolean).join(" — ") ||
+                    undefined
+                  }
+                >
+                  ⚙ {tuningSummary(p.tuning)}
+                </span>
+              )}
               {chamber.status === "draft" && (
                 <>
                   <button
@@ -598,6 +613,55 @@ export function ChamberDetail({
             </p>
           )}
           <p style={{ whiteSpace: "pre-wrap" }}>{consensus.statement}</p>
+        </div>
+      )}
+
+      {chamber.stance_history.length > 0 && (
+        <div className="card">
+          <h2>Stance history</h2>
+          <p className="muted" style={{ fontSize: "0.85rem" }}>
+            Where each debater stood after each round — a ✓ marks anyone who moved.
+          </p>
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Debater</th>
+                  {chamber.stance_history.map((poll) => (
+                    <th key={poll.round_index}>R{poll.round_index + 1}</th>
+                  ))}
+                  <th>Moved</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stanceTrajectories(chamber.participants, chamber.stance_history).map(
+                  ({ participant, stances, moved }) => (
+                    <tr key={participant.id}>
+                      <td>
+                        <span
+                          className="dot"
+                          style={{
+                            background: participantColor(
+                              chamber.participants,
+                              participant.id,
+                            ),
+                          }}
+                          aria-hidden="true"
+                        />{" "}
+                        {participant.display_name}
+                      </td>
+                      {stances.map((stance, index) => (
+                        <td key={chamber.stance_history[index].round_index}>
+                          <span className={`stance ${stance}`}>{stanceLabel(stance)}</span>
+                        </td>
+                      ))}
+                      <td>{moved ? "✓" : ""}</td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

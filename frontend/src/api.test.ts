@@ -94,6 +94,23 @@ describe("api client", () => {
     expect(JSON.parse(init.body)).toEqual({ model: "mock-large", stance: "con" });
   });
 
+  it("carries per-participant tuning through add and update", async () => {
+    const tuning = { temperature: 0.2, max_tokens: 1500, persona: "an economist", style: "terse" };
+    const fetchMock = mockFetch(201, { id: "c1" });
+    vi.stubGlobal("fetch", fetchMock);
+    await addParticipant("c1", {
+      display_name: "Ada",
+      provider: "mock",
+      model: "m",
+      stance: "pro",
+      tuning,
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).tuning).toEqual(tuning);
+
+    await updateParticipant("c1", "p9", { tuning });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ tuning });
+  });
+
   it("removeParticipant DELETEs and returns the updated chamber", async () => {
     const fetchMock = mockFetch(200, { id: "c1", participants: [] });
     vi.stubGlobal("fetch", fetchMock);

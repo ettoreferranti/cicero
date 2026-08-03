@@ -16,6 +16,12 @@ def to_export_dict(chamber: Chamber) -> dict[str, Any]:
     return chamber.model_dump(mode="json")
 
 
+def _stance_history_header(chamber: Chamber) -> str:
+    """The stance-history table header: one column per debater (FR-25)."""
+    names = " | ".join(participant.display_name for participant in chamber.participants)
+    return f"| Round | {names} |"
+
+
 def to_markdown(chamber: Chamber) -> str:
     """Render a readable Markdown transcript of the debate."""
     lines: list[str] = [f"# Debate: {chamber.topic}", ""]
@@ -50,6 +56,18 @@ def to_markdown(chamber: Chamber) -> str:
             for citation in turn.citations:
                 label = citation.title.strip() or citation.url
                 lines.append(f"- [{label}]({citation.url})")
+        lines.append("")
+
+    if chamber.stance_history:
+        lines.append("## Stance history")
+        lines.append(_stance_history_header(chamber))
+        lines.append("|---" * (len(chamber.participants) + 1) + "|")
+        for poll in chamber.stance_history:
+            cells = [
+                poll.stances.get(str(participant.id), participant.stance).value
+                for participant in chamber.participants
+            ]
+            lines.append(f"| {poll.round_index + 1} | " + " | ".join(cells) + " |")
         lines.append("")
 
     if chamber.consensus is not None:

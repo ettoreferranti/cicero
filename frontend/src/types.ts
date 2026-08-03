@@ -26,6 +26,21 @@ export interface Citation {
   excerpt: string;
 }
 
+/** Per-participant generation settings (FR-11); mirrors ParticipantTuning. */
+export interface ParticipantTuning {
+  temperature: number;
+  max_tokens: number;
+  persona: string;
+  style: string;
+}
+
+export const DEFAULT_TUNING: ParticipantTuning = {
+  temperature: 0.7,
+  max_tokens: 800,
+  persona: "",
+  style: "",
+};
+
 export interface Participant {
   id: string;
   display_name: string;
@@ -34,6 +49,7 @@ export interface Participant {
   provider: Provider;
   model: string;
   stance: Stance;
+  tuning: ParticipantTuning;
 }
 
 export interface Turn {
@@ -44,6 +60,13 @@ export interface Turn {
   content: string;
   citations?: Citation[];
   metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+/** Every participant's stance as measured after one round (FR-25). */
+export interface StancePoll {
+  round_index: number;
+  stances: Record<string, Stance>;
   created_at: string;
 }
 
@@ -63,6 +86,7 @@ export interface Chamber {
   settings: DebateSettings;
   participants: Participant[];
   turns: Turn[];
+  stance_history: StancePoll[];
   consensus: ConsensusResult | null;
   config: Record<string, unknown>;
   created_at: string;

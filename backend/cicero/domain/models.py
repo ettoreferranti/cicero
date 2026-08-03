@@ -106,6 +106,19 @@ class Turn(_Base):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class StancePoll(_Base):
+    """Every participant's stance as measured after one round (FR-25).
+
+    The engine polls stances to decide convergence; recording each poll turns
+    that throwaway signal into the debate's trajectory — who moved, and when.
+    """
+
+    round_index: int = Field(ge=0)
+    #: Stance per participant id (as a string), matching ``ConsensusResult``.
+    stances: dict[str, Stance] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class ConsensusResult(_Base):
     """The terminal artifact of a debate (see FR-23 / FR-24)."""
 
@@ -132,6 +145,8 @@ class Chamber(_Base):
     config: dict[str, object] = Field(default_factory=dict)
     participants: list[Participant] = Field(default_factory=list)
     turns: list[Turn] = Field(default_factory=list)
+    #: One entry per stance poll the engine took, oldest first (FR-25).
+    stance_history: list[StancePoll] = Field(default_factory=list)
     consensus: ConsensusResult | None = None
     created_at: datetime = Field(default_factory=_utcnow)
 

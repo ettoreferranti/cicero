@@ -12,9 +12,12 @@ import {
   participantColor,
   speakerName,
   stanceLabel,
+  stanceTrajectories,
+  tuningSummary,
   turnSpeaker,
 } from "./format";
-import type { Participant, Turn } from "./types";
+import { DEFAULT_TUNING } from "./types";
+import type { Participant, Stance, StancePoll, Turn } from "./types";
 
 function turn(
   id: string,
@@ -66,7 +69,14 @@ describe("groupTurnsByRound", () => {
 
 describe("speakerName", () => {
   const participants: Participant[] = [
-    { id: "p1", display_name: "Ada", provider: "mock", model: "m", stance: "pro" },
+    {
+      id: "p1",
+      display_name: "Ada",
+      provider: "mock",
+      model: "m",
+      stance: "pro",
+      tuning: DEFAULT_TUNING,
+    },
   ];
   it("returns the display name for a known participant", () => {
     expect(speakerName(participants, "p1")).toBe("Ada");
@@ -78,7 +88,14 @@ describe("speakerName", () => {
 
 describe("turnSpeaker", () => {
   const participants: Participant[] = [
-    { id: "p1", display_name: "Ada", provider: "mock", model: "m", stance: "pro" },
+    {
+      id: "p1",
+      display_name: "Ada",
+      provider: "mock",
+      model: "m",
+      stance: "pro",
+      tuning: DEFAULT_TUNING,
+    },
   ];
   it("uses the participant name for normal turns", () => {
     expect(turnSpeaker(participants, turn("a", 0, "x", "p1"))).toBe("Ada");
@@ -100,6 +117,7 @@ describe("participantColor", () => {
     provider: "mock",
     model: "m",
     stance: "neutral",
+    tuning: DEFAULT_TUNING,
   });
 
   it("assigns each debater a distinct, stable palette colour", () => {
@@ -149,6 +167,85 @@ describe("canResume", () => {
     expect(canResume("paused", 1)).toBe(false);
     expect(canResume("draft", 2)).toBe(false);
     expect(canResume("concluded", 2)).toBe(false);
+  });
+});
+
+describe("stanceTrajectories", () => {
+  const ada: Participant = {
+    id: "p1",
+    display_name: "Ada",
+    provider: "mock",
+    model: "m",
+    stance: "pro",
+    tuning: DEFAULT_TUNING,
+  };
+  const zeno: Participant = { ...ada, id: "p2", display_name: "Zeno", stance: "con" };
+  const poll = (round: number, stances: Record<string, Stance>): StancePoll => ({
+    round_index: round,
+    stances,
+    created_at: "2026-01-01T00:00:00Z",
+  });
+
+  it("tracks each debater across the polls and flags who moved", () => {
+    const history = [
+      poll(0, { p1: "pro", p2: "con" }),
+      poll(1, { p1: "pro", p2: "neutral" }),
+    ];
+    const rows = stanceTrajectories([ada, zeno], history);
+    expect(rows[0]).toEqual({ participant: ada, stances: ["pro", "pro"], moved: false });
+    expect(rows[1]).toEqual({
+      participant: zeno,
+      stances: ["con", "neutral"],
+      moved: true,
+    });
+  });
+
+  it("falls back to the declared stance when a poll omits someone", () => {
+    // A debater added after a poll has no entry in it.
+    const rows = stanceTrajectories([ada, zeno], [poll(0, { p1: "neutral" })]);
+    expect(rows[0].stances).toEqual(["neutral"]);
+    expect(rows[1].stances).toEqual(["con"]);
+    expect(rows[1].moved).toBe(false);
+  });
+
+  it("returns an empty trajectory when nothing was polled", () => {
+    expect(stanceTrajectories([ada], [])).toEqual([
+      { participant: ada, stances: [], moved: false },
+    ]);
+  });
+
+  it("counts a return to the starting stance as movement", () => {
+    const history = [
+      poll(0, { p1: "pro" }),
+      poll(1, { p1: "con" }),
+      poll(2, { p1: "pro" }),
+    ];
+    expect(stanceTrajectories([ada], history)[0].moved).toBe(true);
+  });
+});
+
+describe("tuningSummary", () => {
+  it("is empty when every setting is at its default", () => {
+    expect(tuningSummary(DEFAULT_TUNING)).toBe("");
+    expect(tuningSummary(undefined)).toBe("");
+  });
+
+  it("names only the settings that deviate, in a stable order", () => {
+    expect(tuningSummary({ ...DEFAULT_TUNING, temperature: 0.9 })).toBe("temp 0.9");
+    expect(tuningSummary({ ...DEFAULT_TUNING, max_tokens: 1200 })).toBe("1200 tok");
+    expect(tuningSummary({ ...DEFAULT_TUNING, persona: "an economist" })).toBe("persona");
+    expect(tuningSummary({ ...DEFAULT_TUNING, style: "terse" })).toBe("style");
+    expect(
+      tuningSummary({ temperature: 0.9, max_tokens: 1200, persona: "p", style: "s" }),
+    ).toBe("temp 0.9 · 1200 tok · persona · style");
+  });
+
+  it("treats blank persona/style as unset", () => {
+    expect(tuningSummary({ ...DEFAULT_TUNING, persona: "   ", style: "\t" })).toBe("");
+  });
+
+  it("reports a temperature of zero, which is a real deviation", () => {
+    expect(tuningSummary({ ...DEFAULT_TUNING, temperature: 0 })).toBe("temp 0");
   });
 });
 

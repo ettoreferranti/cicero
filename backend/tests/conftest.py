@@ -53,7 +53,9 @@ class ScriptedProvider(Provider):
         return GenerateResult(content=self.argument, prompt_tokens=5, completion_tokens=5)
 
     async def list_models(self) -> list[str]:
-        return ["scripted"]
+        # Two models so tests can exercise a real model *swap* against the
+        # add/edit availability check (C4/FR-12).
+        return ["scripted", "scripted-large"]
 
 
 class StubFactory:

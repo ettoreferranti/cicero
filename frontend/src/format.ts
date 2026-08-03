@@ -1,6 +1,14 @@
 // Pure presentation helpers — no I/O, no React. These are the frontend's
 // mutation-testing targets (see stryker.config.json).
-import type { Outcome, Participant, Stance, Turn } from "./types";
+import { DEFAULT_TUNING } from "./types";
+import type {
+  Outcome,
+  Participant,
+  ParticipantTuning,
+  Stance,
+  StancePoll,
+  Turn,
+} from "./types";
 
 const STANCE_LABEL: Record<Stance, string> = {
   pro: "Pro",
@@ -51,6 +59,44 @@ export function participantColor(
   const index = participants.findIndex((p) => p.id === participantId);
   if (index === -1) return SYSTEM_TURN_COLOR;
   return PARTICIPANT_COLORS[index % PARTICIPANT_COLORS.length];
+}
+
+/**
+ * Compact summary of the tuning a debater deviates from the defaults with
+ * (FR-11) — e.g. `temp 0.9 · 1200 tok · persona · style`. Empty when the
+ * participant is fully default, so the roster stays quiet in the common case.
+ */
+export function tuningSummary(tuning: ParticipantTuning | undefined): string {
+  if (!tuning) return "";
+  const parts: string[] = [];
+  if (tuning.temperature !== DEFAULT_TUNING.temperature) {
+    parts.push(`temp ${tuning.temperature}`);
+  }
+  if (tuning.max_tokens !== DEFAULT_TUNING.max_tokens) {
+    parts.push(`${tuning.max_tokens} tok`);
+  }
+  if (tuning.persona.trim() !== "") parts.push("persona");
+  if (tuning.style.trim() !== "") parts.push("style");
+  return parts.join(" · ");
+}
+
+/**
+ * Each participant's stance across the recorded polls, plus whether they ever
+ * moved (FR-25). A participant missing from a poll falls back to their declared
+ * stance, which is what the engine itself does.
+ */
+export function stanceTrajectories(
+  participants: Participant[],
+  history: StancePoll[],
+): { participant: Participant; stances: Stance[]; moved: boolean }[] {
+  return participants.map((participant) => {
+    const stances = history.map((poll) => poll.stances[participant.id] ?? participant.stance);
+    return {
+      participant,
+      stances,
+      moved: stances.some((stance) => stance !== stances[0]),
+    };
+  });
 }
 
 /** Speaker label for any turn, including system-authored ones. */

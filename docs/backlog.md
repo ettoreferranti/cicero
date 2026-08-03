@@ -41,8 +41,8 @@
 | C1 | As a developer, a `Provider` interface defines `generate()`/streaming, model listing, and capability flags. | FR-10, NFR-M-1 | M | 5 | ✅ done |
 | C2 | As a user, an **Ollama** provider connects to a local Ollama server and generates turns. | FR-8 | M | 5 | ✅ done |
 | C3 | As a user, an **Anthropic** provider generates turns using an env-supplied API key. | FR-9, NFR-SEC-1/3 | M | 5 | ✅ done |
-| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | 🟡 partial — UI model selector lists the provider's live models (`GET /providers/{p}/models`); server-side validation on add still todo |
-| C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | 🟡 partial |
+| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | ✅ done — add *and* edit check the provider server-side: unreachable → `502`, model the provider cannot serve → `422` naming what it can. Tag/case tolerant (`llama3` matches `llama3:latest`); an empty listing never rejects. UI model selector unchanged |
+| C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | ✅ done — `providers/retry.py` retries transient failures (timeouts, transport errors, 408/425/429/5xx/529) with capped exponential backoff, honouring `Retry-After`; permanent 4xx are never retried. Tunable via `PROVIDER_MAX_ATTEMPTS` / `PROVIDER_RETRY_BASE_DELAY_SECONDS`; the engine's per-turn error containment remains the backstop |
 | C6 | As a developer, a `Mock`/`Stub` provider enables deterministic tests with no live calls. | NFR-Q-1/3 | M | 2 | ✅ done |
 
 ## Epic D — Chamber & Participant Management (API)
@@ -52,7 +52,7 @@
 |----|-------|--------|-----|-----|--------|
 | D1 | As a user, I can create/list/view/delete chambers with topic, category, and description. | FR-1/2 | M | 3 | ✅ done |
 | D2 | As a user, I can add participants with provider, model, name, and stance (default `neutral`). | FR-6/7 | M | 3 | ✅ done |
-| D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | 🟡 partial — API accepts tuning on add; per-chamber debate settings (rounds/tokens/duration/decision rule) tunable via API+UI; per-participant tuning UI still todo |
+| D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | ✅ done — tuning accepted on add *and* edit (`PATCH`), with a collapsible **Tuning** panel in the participant form and a `⚙` summary on the roster for anyone off the defaults; per-chamber debate settings tunable via API+UI |
 | D4 | As a user, I can edit a chamber while it is a `draft` — its topic/category/description, and the participant roster (add, edit, remove) — including on a **clone before its rerun**, so a rerun can change one variable. | FR-3 | S | 3 | ✅ done — `PATCH /chambers/{id}`, `PATCH`/`DELETE /chambers/{id}/participants/{pid}`, plus edit/remove controls in the UI |
 | D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
 | D6 | As a user, I can remove or mute a participant **mid-debate**. | FR-13 | C | 5 | todo — split out of the original D4 (see note below) |
@@ -90,7 +90,7 @@
 | F1 | As a developer, a consensus detector decides convergence (hybrid: stance-stability signal + moderator-LLM check), with two-phase prompting (adversarial → convergence) and per-chamber decision rules (unanimous / majority / judge) so a winner can always emerge. | FR-22, OQ-1 | M | 8 | ✅ done |
 | F2 | As a user, on convergence the chamber produces a Consensus Statement (or majority Resolution / judge's Verdict, incl. the winning stance) plus each participant's final stance/agreement. | FR-23 | M | 5 | ✅ done |
 | F3 | As a user, if no consensus within budget, I get a Summary of Disagreement (positions, cruxes, open points). | FR-24 | S | 5 | ✅ done |
-| F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | todo |
+| F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | ✅ done — every convergence poll is persisted as a `StancePoll` on `chamber.stance_history` (one per round, never double-recorded across steps), surfaced in the API, both exports, and a **Stance history** table in the UI that flags who moved |
 
 ## Epic G — Evidence / Web Access (opt-in, sandboxed) — **v1 scope (approved D-3)**
 *Goal: participants can cite web evidence — safely. Built behind security controls from the start.*

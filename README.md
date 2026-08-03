@@ -43,8 +43,15 @@ UI with exports and metrics). Milestone 3 adds:
 - **Hardening (J1/J2)** — optional bearer-token auth (`API_AUTH_TOKEN`),
   per-IP rate limiting (`RATE_LIMIT_PER_MINUTE`), on top of the existing
   security headers and CORS lockdown.
+- **Provider resilience (C5)** — transient failures (timeouts, 429s, 5xx,
+  Anthropic's 529) are retried with capped exponential backoff that honours
+  `Retry-After`; permanent 4xx are never retried. A provider that stays down
+  costs one debater its turn, not the debate.
 - **Moderator notes (E7)** — inject a note between turns (API + UI) — and
   **run comparison (H4)** via `GET /chambers/{a}/compare/{b}`.
+- **Stance history (F4)** — every convergence poll is kept, so you can see where
+  each debater stood after each round and who actually moved (API, both exports,
+  and a table in the UI).
 - **Draft editing (D4)** — while a chamber is a draft, its topic/category/
   description and its participant roster (add, edit, remove) are all editable,
   API + UI. A clone is a fresh draft, so this is how a rerun changes exactly one
@@ -67,7 +74,9 @@ follow-ups carried past the milestone.
 > form's **model selector** lists the models
 > actually available from the chosen provider (e.g. those loaded in your local
 > Ollama, via `GET /providers/{provider}/models`), falling back to free-text when
-> the provider is unreachable. Server-side model validation on add is still todo.
+> the provider is unreachable. Adding or editing a debater is also validated
+> server-side: an unreachable provider is a `502`, and a model the provider
+> cannot serve is a `422` that names the ones it can.
 
 ### Quickstart (backend)
 
@@ -119,9 +128,11 @@ by the consensus/disagreement statement, metrics, and JSON/Markdown export links
 so **Resume** can pick it up where it stopped.
 
 While a chamber is still a draft you can **Edit** its topic/category/description
-and edit or remove any participant. **Clone & rerun** makes a fresh draft copy,
-so the usual way to compare runs is to clone, change one variable (say a single
-debater's model), and run it again.
+and edit or remove any participant, including each debater's **Tuning**
+(temperature, max tokens, persona, style — collapsed unless it differs from the
+defaults). **Clone & rerun** makes a fresh draft copy, so the usual way to
+compare runs is to clone, change one variable (say a single debater's model or
+temperature), and run it again.
 
 Frontend checks: `npm run typecheck`, `npm run lint`, `npm test` (Vitest).
 

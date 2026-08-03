@@ -9,13 +9,24 @@ import pytest
 
 from cicero.providers.anthropic import AnthropicProvider
 from cicero.providers.base import GenerateOptions, Message, ProviderError, Role
+from cicero.providers.retry import RetryPolicy
 
 OPTS = GenerateOptions(model="claude-x", temperature=0.5, max_tokens=100)
 
+# Retry *behaviour* is asserted here; the pacing schedule is unit-tested in
+# test_retry.py, so these run with no delay at all.
+INSTANT = RetryPolicy(max_attempts=3, base_delay_seconds=0, max_delay_seconds=0)
+NO_RETRY = RetryPolicy(max_attempts=1)
 
-def _provider(handler, api_key: str = "test-key") -> AnthropicProvider:  # type: ignore[no-untyped-def]
+
+def _provider(handler, api_key: str = "test-key", retry: RetryPolicy = NO_RETRY) -> AnthropicProvider:  # type: ignore[no-untyped-def] # noqa: E501
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return AnthropicProvider(api_key=api_key, client=client, base_url="https://api.anthropic.com")
+    return AnthropicProvider(
+        api_key=api_key,
+        client=client,
+        base_url="https://api.anthropic.com",
+        retry=retry,
+    )
 
 
 async def test_generate_splits_system_and_parses_text() -> None:
@@ -63,6 +74,44 @@ async def test_api_key_sent_as_header_but_not_leaked_in_errors() -> None:
 async def test_missing_api_key_raises() -> None:
     with pytest.raises(ProviderError, match="API key is not configured"):
         AnthropicProvider(api_key="")
+
+
+async def test_overloaded_response_is_retried() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            # 529 is Anthropic's "overloaded" — transient by definition.
+            return httpx.Response(529, json={"error": "overloaded"})
+        return httpx.Response(
+            200,
+            json={
+                "content": [{"type": "text", "text": "Retried answer."}],
+                "usage": {"input_tokens": 2, "output_tokens": 3},
+            },
+        )
+
+    result = await _provider(handler, retry=INSTANT).generate(
+        [Message(role=Role.USER, content="x")], OPTS
+    )
+    assert result.content == "Retried answer."
+    assert len(calls) == 2
+
+
+async def test_rejected_api_key_is_not_retried() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    with pytest.raises(ProviderError):
+        await _provider(handler, retry=INSTANT).generate(
+            [Message(role=Role.USER, content="x")], OPTS
+        )
+    # Hammering the API with a bad key helps nobody.
+    assert len(calls) == 1
 
 
 async def test_generate_raises_on_unexpected_shape() -> None:

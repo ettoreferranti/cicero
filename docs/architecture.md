@@ -332,6 +332,16 @@ chamber *through the nginx proxy*, probes `/config`, and asserts the API
 container is not running as root. So the container path is covered by the same
 gate as the code, rather than resting on someone having tried it once.
 
+That job earned its place immediately: the first run failed with `401` on
+`POST /chambers` while `/health` passed. `API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}`
+injects an **empty string** when the variable is unset, and an empty secret is
+not `None` — so authentication switched on with a token no caller could ever
+send, and every endpoint but `/health` was unreachable. Fixed on both sides:
+`Settings` now treats a blank secret as unset (a `.env` written from
+`.env.example`, which ships `ANTHROPIC_API_KEY=`, hits exactly the same trap),
+and compose passes the optional secrets through by name so an unset variable is
+never injected at all.
+
 ## 10. Approved decisions (2026-07-16)
 - **D-1 Stack:** ✅ **Python (3.11+) / FastAPI backend + React/TypeScript frontend.**
 - **D-2 Consensus:** ✅ **Hybrid** — deterministic stance-stability signal + LLM

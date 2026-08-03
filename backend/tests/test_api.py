@@ -673,6 +673,19 @@ def test_auth_token_required_when_configured() -> None:
         assert ok.status_code == 200
 
 
+def test_blank_auth_token_leaves_the_api_open() -> None:
+    from cicero.config import Settings
+
+    # Regression: `API_AUTH_TOKEN=` (an empty value, which is what compose and
+    # .env files inject when nothing was supplied) used to enable auth with a
+    # token nobody could send, 401-ing everything except /health.
+    app = create_app(Settings(api_auth_token="", _env_file=None))  # type: ignore[call-arg]
+    with TestClient(app) as anon:
+        assert anon.get("/health").status_code == 200
+        assert anon.get("/chambers").status_code == 200
+        assert anon.post("/chambers", json={"topic": "Open?"}).status_code == 201
+
+
 def test_rate_limit_returns_429() -> None:
     from cicero.config import Settings
 

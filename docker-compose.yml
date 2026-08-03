@@ -19,17 +19,20 @@ services:
     environment:
       # Inside the container we must bind all interfaces; the published port
       # below is what keeps it reachable from localhost only.
-      API_HOST: 0.0.0.0
-      DATABASE_URL: sqlite:////data/cicero.db
+      - API_HOST=0.0.0.0
+      - DATABASE_URL=sqlite:////data/cicero.db
       # The UI is same-origin behind nginx, so CORS stays empty by default.
-      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-[]}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-[]}
       # Reach an Ollama running on the host, not in this network.
-      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
-      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
-      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-240}
-      WEB_ACCESS_ENABLED: ${WEB_ACCESS_ENABLED:-false}
-      PROVIDER_MAX_ATTEMPTS: ${PROVIDER_MAX_ATTEMPTS:-3}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-240}
+      - WEB_ACCESS_ENABLED=${WEB_ACCESS_ENABLED:-false}
+      - PROVIDER_MAX_ATTEMPTS=${PROVIDER_MAX_ATTEMPTS:-3}
+      # Pass-through form (no `=`): these reach the container only when they are
+      # actually set. Writing `FOO=${FOO:-}` would inject an empty string, and
+      # an empty API_AUTH_TOKEN enables auth with a token nobody can send.
+      - ANTHROPIC_API_KEY
+      - API_AUTH_TOKEN
     volumes:
       - cicero-data:/data
     ports:

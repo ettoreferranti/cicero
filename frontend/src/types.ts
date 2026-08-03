@@ -34,9 +34,11 @@ export interface ParticipantTuning {
   style: string;
 }
 
+// Must match ParticipantTuning's defaults in the backend: tuningSummary() marks
+// anyone who differs, so a stale value here labels every participant "tuned".
 export const DEFAULT_TUNING: ParticipantTuning = {
   temperature: 0.7,
-  max_tokens: 800,
+  max_tokens: 2048,
   persona: "",
   style: "",
 };

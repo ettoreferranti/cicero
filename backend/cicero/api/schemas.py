@@ -10,6 +10,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cicero.domain.enums import DecisionRule, ProviderType, Stance
+from cicero.domain.models import DEFAULT_MAX_TOKENS
 
 
 class DebateSettingsIn(BaseModel):
@@ -71,7 +72,9 @@ class TuningIn(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=800, gt=0, le=32768)
+    # Shares the domain default rather than restating it: two copies of a
+    # number like this drift, and the drift is invisible until a turn truncates.
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0, le=32768)
     persona: str = Field(default="", max_length=2000)
     style: str = Field(default="", max_length=500)
 

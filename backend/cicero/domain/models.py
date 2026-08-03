@@ -45,11 +45,20 @@ class Citation(_Base):
     excerpt: str = Field(default="", max_length=4096)
 
 
+#: Default per-turn generation cap. Measured, not guessed: a debate *answer*
+#: costs 150-500 tokens across every model tried, but a reasoning model spends
+#: its budget on hidden thinking first — qwen3 used 510-1019 tokens thinking
+#: before writing anything, 1460 in the worst observation. At the old default of
+#: 800 its turns were being truncated mid-thought or lost entirely. This is a
+#: cap and not a target: a model that finishes in 200 tokens still costs 200.
+DEFAULT_MAX_TOKENS = 2048
+
+
 class ParticipantTuning(_Base):
     """Per-participant generation settings (see FR-11)."""
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=800, gt=0, le=32768)
+    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0, le=32768)
     persona: str = Field(default="", max_length=2000)
     style: str = Field(default="", max_length=500)
 

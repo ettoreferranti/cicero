@@ -14,6 +14,7 @@ from cicero.api.dependencies import (
     get_provider_factory,
     get_repository,
 )
+from cicero.domain.models import ParticipantTuning
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers import ProviderError
 from tests.conftest import ConstantFactory, ScriptedProvider
@@ -256,7 +257,8 @@ def test_edit_and_remove_participants_while_draft(client: TestClient) -> None:
     )
     tuning = next(p for p in resp.json()["participants"] if p["id"] == ada)["tuning"]
     assert tuning["temperature"] == 0.1
-    assert tuning["max_tokens"] == 800  # schema default, not the old value
+    # Reset to the schema default, not merged with the previous value.
+    assert tuning["max_tokens"] == ParticipantTuning().max_tokens
 
     # Removal returns the updated roster and is idempotent-safe (404 on repeat).
     resp = client.delete(f"/chambers/{cid}/participants/{zeno}")

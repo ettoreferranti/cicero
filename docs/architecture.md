@@ -21,10 +21,10 @@
 
 | Layer | Recommendation | Why |
 |---|---|---|
-| **Backend language** | **Python 3.12** | Best-in-class LLM ecosystem; first-class Ollama & Anthropic SDKs; strong mutation-testing tooling (`mutmut`/`cosmic-ray`); async support. |
+| **Backend language** | **Python 3.11+** (CI pins 3.11) | Best-in-class LLM ecosystem; first-class Ollama & Anthropic SDKs; strong mutation-testing tooling (`mutmut`/`cosmic-ray`); async support. |
 | **API framework** | **FastAPI** + Uvicorn | Async, typed (Pydantic) request/response, built-in OpenAPI, native WebSocket/SSE for live streaming. |
 | **Data validation** | **Pydantic v2** | Shared models across API, engine, persistence; strong input validation (NFR-SEC-6). |
-| **Persistence** | **SQLite** (default) via **SQLAlchemy 2.0** + **Alembic** migrations | Zero-setup local default; swap to Postgres via config with no code change. |
+| **Persistence** | **SQLite** (default) via **SQLAlchemy 2.0** | Zero-setup local default; swap to Postgres via config with no code change. The schema is currently created on first use (`metadata.create_all`); a migration tool (Alembic) lands when the first backward-incompatible schema change does. |
 | **Async LLM calls** | **`httpx`** for both Ollama and Anthropic (Messages API) | One async HTTP dependency; injectable client makes providers hermetically testable via `httpx.MockTransport` (no network in CI). The Anthropic SDK can replace the adapter later without touching the engine. |
 | **Frontend** | **React + TypeScript + Vite** | Live transcript streaming, componentised UI; strong mutation testing via **StrykerJS**. |
 | **Mutation testing** | **`mutmut`** (Python core) + **StrykerJS** (frontend) | Enforced quality gate on core logic (NFR-Q-2). |
@@ -136,6 +136,7 @@ erDiagram
     string category
     text description
     enum status
+    json settings
     json config
     datetime created_at
   }
@@ -149,6 +150,7 @@ erDiagram
   }
   TURN {
     uuid id
+    uuid participant_id "null for system turns"
     int round_index
     text content
     json metadata
@@ -158,6 +160,7 @@ erDiagram
     uuid id
     enum outcome
     text statement
+    enum winning_stance "null only on disagreement"
     json final_stances
   }
   CITATION {
@@ -167,6 +170,12 @@ erDiagram
     text excerpt
   }
 ```
+`CHAMBER.settings` holds the per-chamber debate tuning (round/token/time budgets,
+`min_rounds`, `convergence_rounds`, `decision_rule`, `web_evidence`);
+`CHAMBER.config` holds the *outcome* of a run (`stop_reason`, `rounds_completed`,
+`tokens_used`). A `TURN` with a null `participant_id` is system-authored — a
+moderator note or an evidence brief — distinguished by `metadata["kind"]`.
+
 Secrets (API keys) are **never** stored on entities — they live only in runtime
 config/env (NFR-SEC-1/3).
 
@@ -265,29 +274,34 @@ See [`security.md`](./security.md) for the full threat model.
   and secret non-leakage.
 - Details in [`testing.md`](./testing.md).
 
-## 9. Proposed repository layout
+## 9. Repository layout (as built)
 ```
 cicero/
 ├── docs/                  # requirements, backlog, architecture, testing, security
 ├── backend/
 │   ├── cicero/
-│   │   ├── core/          # orchestrator, prompt builder, consensus, state machine (pure)
-│   │   ├── providers/     # interface + ollama, anthropic, mock adapters
-│   │   ├── tools/         # web evidence + ssrf guard (opt-in)
-│   │   ├── persistence/   # repository interfaces + sqlalchemy impl + migrations
-│   │   ├── api/           # FastAPI routers, schemas, streaming
+│   │   ├── core/          # pure debate logic: orchestrator, prompt_builder, prompts,
+│   │   │                  #   consensus, state_machine, budget, research, recovery,
+│   │   │                  #   metrics, export, compare
+│   │   ├── providers/     # interface + ollama, anthropic, mock adapters + factory
+│   │   ├── tools/         # web evidence + SSRF guard (opt-in)
+│   │   ├── persistence/   # repository interface + in-memory and SQLAlchemy impls
+│   │   ├── api/           # FastAPI app, routers, schemas, SSE events, debate manager,
+│   │   │                  #   rate limiting, dependency wiring
 │   │   └── config.py      # env-based settings (secrets)
-│   └── tests/             # unit, integration, security, mutation config
+│   ├── scripts/           # check_mutation_score.py (quality gate), demo.py (J4 demo)
+│   └── tests/             # unit, integration, security, e2e demo; mutation config
 ├── frontend/              # React + TS + Vite (added at Milestone 2)
-├── .github/workflows/     # CI: lint, type, test, mutation, secret-scan, SCA
+├── .github/workflows/     # CI: lint, type, test, demo, mutation, secret-scan, SCA
 ├── SECURITY.md
 ├── CONTRIBUTING.md
-├── .gitignore / .env.example
-└── docker-compose.yml     # optional
+└── .gitignore / .env.example
 ```
+*Not yet present:* a `docker-compose.yml` (NFR-O-2 / backlog A6 — containerised
+runs are still an open item; the documented quickstart is `uv` + `uvicorn`).
 
 ## 10. Approved decisions (2026-07-16)
-- **D-1 Stack:** ✅ **Python 3.12 / FastAPI backend + React/TypeScript frontend.**
+- **D-1 Stack:** ✅ **Python (3.11+) / FastAPI backend + React/TypeScript frontend.**
 - **D-2 Consensus:** ✅ **Hybrid** — deterministic stance-stability signal + LLM
   moderator synthesis + participant ratification, with a Disagreement Summary
   fallback (see §6).
@@ -314,10 +328,24 @@ streaming path:
   client that connects mid-debate replays what it missed.
 - **`api/events.py`** defines the event model and its **Server-Sent Events**
   (SSE) wire format.
-- The API exposes: `POST /chambers/{id}/run` (async by default → 202; `?wait=true`
-  runs synchronously), `GET /chambers/{id}/events` (SSE stream, FR-18),
-  `POST /chambers/{id}/stop` (FR-19), `GET /chambers/{id}/export?format=…` (FR-31),
-  and `GET /chambers/{id}/metrics` (FR-33).
+- The API exposes:
+
+  | Endpoint | Purpose |
+  |---|---|
+  | `POST/GET/DELETE /chambers[/{id}]` | Chamber CRUD (FR-1/2) |
+  | `PUT /chambers/{id}/settings` | Debate tuning while `draft` (FR-11/16) |
+  | `POST /chambers/{id}/participants` | Add a debater (FR-6/7) |
+  | `POST /chambers/{id}/run` | Start — async → 202, or `?wait=true` (FR-19) |
+  | `POST /chambers/{id}/resume` | Continue a paused debate (FR-19, J3) |
+  | `POST /chambers/{id}/stop` | Park a running debate as `paused` (FR-19) |
+  | `GET /chambers/{id}/events` | SSE stream of turns/status/consensus (FR-18) |
+  | `POST /chambers/{id}/notes` | Moderator note between turns (FR-21) |
+  | `POST /chambers/{id}/clone` | Draft copy for a rerun (FR-5) |
+  | `GET /chambers/{a}/compare/{b}` | Run-vs-run comparison (FR-32) |
+  | `GET /chambers/{id}/export?format=json\|markdown` | Export (FR-31) |
+  | `GET /chambers/{id}/metrics` | Per-participant token/turn/error counts (FR-33) |
+  | `GET /providers`, `GET /providers/{p}/models` | Provider + model discovery (FR-12) |
+  | `GET /health`, `GET /config` | Liveness and non-secret capability flags |
 - **Frontend** (`frontend/`, React + TypeScript + Vite): a lightweight SPA whose
   `EventSource` consumes the SSE stream. Model/transcript text is rendered as
   React text nodes (auto-escaped) — no `innerHTML` of untrusted content, so
@@ -328,3 +356,38 @@ streaming path:
 SSE (one-directional server→client) is chosen over WebSockets because debate
 streaming is a pure fan-out of events; there is no client→server channel to
 justify a bidirectional socket.
+
+## 12. Resilience: pause, resume & restart recovery (Milestone 3 / J3)
+
+A debate is an in-memory asyncio task, but its *state* is entirely in the
+transcript, so a run is reconstructible from persistence alone (NFR-R-3):
+
+- **Stopping parks, it does not discard.** `POST /chambers/{id}/stop` cancels the
+  task and leaves the chamber `paused` with its turns intact.
+- **Restart recovery** (`core/recovery.py`) runs once when the repository is
+  first resolved: any chamber still marked `running` — i.e. one the previous
+  process was mid-debate on when it died — is moved to `paused`, so nothing is
+  stranded in a state no task backs.
+- **Resume** (`POST /chambers/{id}/resume`) restarts the engine at the first
+  round with a missing turn rather than from round 0, and seeds the budget with
+  the rounds and tokens already spent, so a resumed debate cannot exceed the
+  caps it was created with (NFR-SEC-8).
+
+## 13. Release verification (J4)
+
+`backend/scripts/demo.py` is the executable form of the release acceptance
+criteria in [`requirements.md`](./requirements.md) §9. It drives a **real API
+process over HTTP** — starting its own server on a free port against a throwaway
+database unless pointed at one with `--base-url` — through create → participants
+→ run → live SSE stream → outcome → metrics → export (→ clone/compare with
+`--compare`), recording a PASS/FAIL row per requirement and exiting non-zero on
+any failure.
+
+It picks up whichever providers actually answer (a local Ollama, Anthropic when
+`ANTHROPIC_API_KEY` is set) and falls back to the offline mock, so the same
+script serves as a zero-dependency smoke test and as multi-provider release
+sign-off (`--strict-providers` fails the run unless ≥2 distinct providers
+debated). CI runs it on mock providers on every push
+(`tests/test_demo_e2e.py` and a dedicated workflow step); the mutation gate
+excludes it via the `e2e` pytest marker so mutmut does not pay for a live server
+once per mutant.

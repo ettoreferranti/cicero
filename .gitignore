@@ -36,6 +36,9 @@ coverage/
 *.sqlite
 *.sqlite3
 
+# Release-demo exports (backend/scripts/demo.py)
+demo-output/
+
 # OS / editor
 .DS_Store
 .idea/

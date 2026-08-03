@@ -19,9 +19,10 @@
 | Layer | Tool | Scope |
 |---|---|---|
 | Unit | pytest (+ pytest-asyncio) | Pure core logic, adapters (with fakes), validation. |
-| Integration | pytest | API ↔ core ↔ repository ↔ mock provider, end to end without live models. |
+| Integration | pytest | API ↔ core ↔ repository ↔ mock provider, in-process via `TestClient`. |
 | Contract | pytest | Each provider adapter honours the `Provider` interface. |
 | Security | pytest | SSRF rejection, injection delimiting, secret non-leakage, input validation. |
+| **End-to-end** | pytest → `scripts/demo.py` | The release path over real HTTP against a real server process (§4b). |
 | Mutation | mutmut (backend), StrykerJS (frontend) | Effectiveness of the above on core modules. |
 | Frontend unit | Vitest | Components and client logic. |
 
@@ -31,12 +32,18 @@
 - **Threshold:** **≥ 80%** killed mutants on the in-scope modules, enforced in CI
   by `backend/scripts/check_mutation_score.py` (parses `mutmut junitxml`). Ratchet
   upward as the suite matures.
-- **Current status (Milestone 1):** in-scope modules are the debate core —
-  `budget`, `state_machine`, `prompt_builder`, `consensus`, `orchestrator` — plus
-  `providers/mock.py` and `persistence/memory.py`. A small number of documented
+- **Current scope (Milestone 3):** the modules named in `paths_to_mutate` are the
+  debate core — `core/budget`, `core/state_machine`, `core/prompt_builder`,
+  `core/consensus`, `core/orchestrator`, `core/compare`, `core/research`,
+  `core/recovery`, `core/metrics`, `core/export` — plus `api/rate_limit`,
+  `providers/mock` and `persistence/memory`. A small number of documented
   *equivalent* mutants are accepted (type-annotation `|`→`&` under
   `from __future__ import annotations`; generation `options` that mock providers
   ignore; dead initial defaults always reassigned before use).
+- **Excluded by marker:** the per-mutant runner is
+  `pytest … -m "not e2e"`, which drops `tests/test_demo_e2e.py`. That test
+  spawns a real API process (§4b) and would otherwise be paid for once per
+  mutant; the ordinary CI test run still executes it.
 - **Workflow:**
   1. `mutmut run` over the in-scope paths.
   2. `python scripts/check_mutation_score.py --min 80` fails the build if the
@@ -65,6 +72,10 @@ validation unit tests:
 | `persistence/memory.py` | `persistence/sqlalchemy_repo.py` — ORM table/column declarations (equivalent under SQLite) |
 | `core/metrics.py` — per-participant aggregation | `api/*` — HTTP layer + SSE transport (tested via FastAPI `TestClient` and the async `DebateManager` tests) |
 | `core/export.py` — Markdown/JSON rendering | `config.py`, `**/__init__.py` — settings & re-exports |
+| `core/compare.py` — run-vs-run summarisation | `scripts/demo.py` — the release demo itself (it *is* a test) |
+| `core/research.py` — evidence brief assembly | |
+| `core/recovery.py` — restart recovery rules | |
+| `api/rate_limit.py` — fixed-window limiter | |
 | _(new logic modules as they land)_ | |
 
 > **Note:** mutmut only mutates **git-tracked** files, so new modules must be
@@ -87,6 +98,21 @@ provider adapters have hermetic HTTP tests, and the API has `TestClient` tests.
 - `MockProvider` returns scripted, deterministic turns so consensus and
   stop-condition logic are tested exactly.
 
+## 4b. End-to-end demo test (J4)
+Everything above runs the API in-process. `tests/test_demo_e2e.py` closes the
+last gap by spawning `scripts/demo.py` as its own process: a real uvicorn server
+on a free port, a real HTTP client, a real SSE stream, and the full release path
+(create → participants → run → outcome → metrics → export → clone/compare). It
+is pinned to the offline `mock` provider, so it stays deterministic and makes no
+network calls, and it asserts both the demo's exit code and that the exports
+landed on disk. The negative cases (`--strict-providers` on a single-provider
+run, a malformed `--participant` spec) prove the demo actually *fails* when a
+criterion is not met — a demo that can only pass is not evidence.
+
+Run it by hand with `make demo` (or `make demo-release` for multi-provider
+sign-off). CI runs both the pytest wrapper and a standalone demo step so the
+acceptance checklist appears in the build log.
+
 ## 4a. Frontend testing (Milestone 2+)
 The React/TypeScript UI (`frontend/`) has its own gates:
 - **Type-check** (`tsc --noEmit`, strict) and **lint** (`eslint`).
@@ -105,5 +131,5 @@ The React/TypeScript UI (`frontend/`) has its own gates:
 4. Lint, type-check, and format pass.
 
 ## 6. CI pipeline (GitHub Actions)
-`lint → type-check → unit+integration tests → mutation (targeted) → secret scan → dependency (SCA) scan`.
+`lint → type-check → unit+integration tests → end-to-end release demo → mutation (targeted) → secret scan → dependency (SCA) scan`.
 Any stage failing fails the build.

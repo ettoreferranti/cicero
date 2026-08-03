@@ -38,7 +38,7 @@ from cicero.core.research import (
 )
 from cicero.core.state_machine import transition
 from cicero.domain.enums import ChamberStatus, Stance
-from cicero.domain.models import Chamber, Citation, Turn
+from cicero.domain.models import Chamber, Citation, StancePoll, Turn
 from cicero.persistence.repository import ChamberRepository
 from cicero.providers.base import (
     GenerateOptions,
@@ -235,6 +235,7 @@ class DebateEngine:
 
             if tracker.may_stop_early():
                 poll = await self._consensus.poll_stances(chamber)
+                self._record_poll(chamber, round_index, poll)
                 if is_consensus(poll):
                     stop_reason, final_stances = StopReason.CONSENSUS, poll
                     break
@@ -255,6 +256,7 @@ class DebateEngine:
 
         if final_stances is None:
             final_stances = await self._consensus.poll_stances(chamber)
+            self._record_poll(chamber, max(tracker.rounds_completed - 1, 0), final_stances)
 
         result = await self._consensus.finalize(chamber, final_stances)
         chamber.consensus = result
@@ -443,6 +445,24 @@ class DebateEngine:
             completion_tokens=completion_tokens,
             metadata=result.metadata,
         )
+
+    def _record_poll(
+        self, chamber: Chamber, round_index: int, stances: dict[str, Stance]
+    ) -> None:
+        """Persist a stance snapshot so the debate's trajectory survives (FR-25).
+
+        The engine polls stances anyway to decide convergence; recording each
+        poll is what makes "who moved, and when" answerable afterwards. A round
+        is recorded once — the final poll is skipped when the round it measures
+        is already in the history (which is also what keeps stepping, where each
+        step is its own run, from double-recording).
+        """
+        if chamber.stance_history and chamber.stance_history[-1].round_index >= round_index:
+            return
+        chamber.stance_history.append(
+            StancePoll(round_index=round_index, stances=dict(stances))
+        )
+        self._persist(chamber)
 
     def _park(self, chamber: Chamber) -> Chamber:
         """Pause a stepped debate so the next step (or resume) continues it."""

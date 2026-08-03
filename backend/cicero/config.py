@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # Secret: supplied only via env; never committed or logged.
     anthropic_api_key: SecretStr | None = None
     ollama_host: str = "http://localhost:11434"
+    # Transient provider failures (timeouts, 429s, 5xx) are retried with
+    # exponential backoff before a turn is given up on (NFR-R-1).
+    # 1 attempt disables retrying.
+    provider_max_attempts: int = Field(default=3, ge=1, le=10)
+    provider_retry_base_delay_seconds: float = Field(default=0.5, ge=0, le=60)
 
     # --- API surface (localhost by default — NFR-SEC-9) ------------------
     api_host: str = "127.0.0.1"
@@ -56,6 +61,22 @@ class Settings(BaseSettings):
     web_fetch_timeout_seconds: float = Field(default=10.0, gt=0)
     web_max_response_bytes: int = Field(default=2_000_000, gt=0)
     web_max_results: int = Field(default=3, gt=0, le=10)
+
+
+    @field_validator("anthropic_api_key", "api_auth_token", mode="before")
+    @classmethod
+    def _blank_secret_means_unset(cls, value: object) -> object:
+        """Treat an empty/whitespace value as "not configured" (NFR-SEC-1/3).
+
+        `.env` files and container orchestrators routinely inject a variable
+        with an empty value when nothing was supplied — `.env.example` itself
+        ships `ANTHROPIC_API_KEY=`. Reading that as a *set* secret is a footgun:
+        an empty ``API_AUTH_TOKEN`` switches authentication on with a token no
+        caller can ever send, locking every endpoint but ``/health`` to 401.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 @lru_cache

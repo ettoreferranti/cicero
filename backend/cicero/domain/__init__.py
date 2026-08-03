@@ -15,6 +15,7 @@ from cicero.domain.models import (
     Citation,
     ConsensusResult,
     Participant,
+    StancePoll,
     Turn,
 )
 
@@ -27,5 +28,6 @@ __all__ = [
     "Participant",
     "ProviderType",
     "Stance",
+    "StancePoll",
     "Turn",
 ]

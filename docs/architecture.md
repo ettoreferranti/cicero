@@ -126,6 +126,7 @@ providers/DB/UI swappable (NFR-M-3).
 erDiagram
   CHAMBER ||--o{ PARTICIPANT : has
   CHAMBER ||--o{ TURN : records
+  CHAMBER ||--o{ STANCE_POLL : tracks
   CHAMBER ||--o| CONSENSUS_RESULT : concludes
   PARTICIPANT ||--o{ TURN : authors
   TURN ||--o{ CITATION : cites
@@ -154,6 +155,11 @@ erDiagram
     int round_index
     text content
     json metadata
+    datetime created_at
+  }
+  STANCE_POLL {
+    int round_index
+    json stances "stance per participant id (FR-25)"
     datetime created_at
   }
   CONSENSUS_RESULT {
@@ -290,15 +296,51 @@ cicero/
 │   │   │                  #   rate limiting, dependency wiring
 │   │   └── config.py      # env-based settings (secrets)
 │   ├── scripts/           # check_mutation_score.py (quality gate), demo.py (J4 demo)
-│   └── tests/             # unit, integration, security, e2e demo; mutation config
+│   ├── tests/             # unit, integration, security, e2e demo; mutation config
+│   └── Dockerfile         # API image (non-root, no baked secrets)
 ├── frontend/              # React + TS + Vite (added at Milestone 2)
+│   ├── Dockerfile         # build → nginx static serve
+│   └── nginx.conf         # serves the SPA, reverse-proxies the API same-origin
+├── docker-compose.yml     # self-hosted stack, localhost-published (A6)
 ├── .github/workflows/     # CI: lint, type, test, demo, mutation, secret-scan, SCA
 ├── SECURITY.md
 ├── CONTRIBUTING.md
-└── .gitignore / .env.example
+└── .gitignore / .dockerignore / .env.example
 ```
-*Not yet present:* a `docker-compose.yml` (NFR-O-2 / backlog A6 — containerised
-runs are still an open item; the documented quickstart is `uv` + `uvicorn`).
+
+**Containerised runs (A6 / NFR-O-2).** `docker compose up --build` serves the UI
+on `http://localhost:8080` with the API behind it. Three deliberate choices:
+
+- **nginx reverse-proxies the API** (`/chambers`, `/providers`, `/health`,
+  `/config`) to the backend service, so the SPA is same-origin end to end — no
+  CORS, and `EventSource` streams without cross-origin configuration. Buffering
+  is off and the read timeout is long, because SSE must flow as it is produced
+  (FR-18). That proxy list is the deployed twin of the dev-server proxy in
+  `vite.config.ts` and the two must be kept in step.
+- **Both ports publish to `127.0.0.1` only**, matching the API's localhost
+  default (NFR-SEC-9). Exposing the stack to a network is a deliberate edit, and
+  should come with `API_AUTH_TOKEN`.
+- **No secrets in any image.** The API image runs as a non-root user and reads
+  everything from the environment at run time; compose interpolates from a
+  git-ignored root `.env` (NFR-SEC-1/3). The backend build context is the
+  repository root because `backend/pyproject.toml` declares
+  `readme = "../README.md"`; the root `.dockerignore` keeps the rest out.
+
+CI builds and smoke-tests this stack on every push (the `docker` job): it starts
+it with `--wait`, checks `/health` and the served UI, creates and reads back a
+chamber *through the nginx proxy*, probes `/config`, and asserts the API
+container is not running as root. So the container path is covered by the same
+gate as the code, rather than resting on someone having tried it once.
+
+That job earned its place immediately: the first run failed with `401` on
+`POST /chambers` while `/health` passed. `API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}`
+injects an **empty string** when the variable is unset, and an empty secret is
+not `None` — so authentication switched on with a token no caller could ever
+send, and every endpoint but `/health` was unreachable. Fixed on both sides:
+`Settings` now treats a blank secret as unset (a `.env` written from
+`.env.example`, which ships `ANTHROPIC_API_KEY=`, hits exactly the same trap),
+and compose passes the optional secrets through by name so an unset variable is
+never injected at all.
 
 ## 10. Approved decisions (2026-07-16)
 - **D-1 Stack:** ✅ **Python (3.11+) / FastAPI backend + React/TypeScript frontend.**
@@ -377,6 +419,54 @@ a roster can be rebuilt freely before the debate starts.
 Editing a participant *mid-debate* (FR-13, backlog D6) is deliberately **not**
 covered by this: it would invalidate the fixed-roster assumption in
 `participants_spoken()` / `round_complete()` that resume and step both rely on.
+
+**Provider failure handling (NFR-R-1).** Two layers, deliberately separate:
+
+1. **`providers/retry.py`** — the HTTP adapters retry *transient* failures with
+   capped exponential backoff: transport errors (connect/read timeouts) and
+   status codes 408, 425, 429, the 5xx family, and Anthropic's 529. A
+   server-supplied `Retry-After` overrides the schedule but is still capped, so
+   a mistaken or hostile header cannot stall a debate. Permanent 4xx — a bad
+   model name, a rejected key, a malformed request — are **never** retried;
+   they fail identically on a second attempt and retrying only doubles the cost
+   of the mistake. Tunable via `PROVIDER_MAX_ATTEMPTS` and
+   `PROVIDER_RETRY_BASE_DELAY_SECONDS` (1 attempt disables retrying).
+2. **Per-turn containment in the engine** — if a provider is genuinely down,
+   `_run_round` still records an empty turn carrying `error` metadata and the
+   debate continues with the other participants, rather than the whole run
+   dying with one debater.
+
+The delay schedule is pure and the sleep is injected, so `retry.py` is
+deterministic under test and sits in the mutation gate; the adapters around it
+stay excluded as I/O plumbing.
+
+**Participant validation (FR-12).** Adding or editing a debater checks the
+provider server-side before the roster changes: unreachable or unconfigured →
+`502` (the connectivity half of FR-12), reachable but unable to serve the model
+→ `422` naming what it *can* serve. Without this the mistake only surfaces
+mid-debate, as an empty turn with an `error` in its metadata.
+
+**Stance history (FR-25).** The engine already polls every participant's stance
+after a round to decide convergence; that measurement used to be discarded, with
+only the final poll surviving as `consensus.final_stances`. Each poll is now
+persisted as a `StancePoll` on `chamber.stance_history`, which is what makes
+"who moved, and when" answerable — and gives run-vs-run comparison something
+richer than two end states. A round is recorded exactly once: the closing poll
+is skipped when the round it measures is already in the history, which also
+stops a *stepped* debate (where every step is its own engine run) from
+double-recording. When `min_rounds` suppresses the per-round poll entirely, the
+final measurement is still recorded, so the history is never empty for a
+concluded debate.
+
+`providers/availability.py` holds the matching, and is deliberately forgiving in
+one direction: providers report tagged identifiers (`llama3:latest`) while
+people type the bare name, and casing varies, so both sides are normalised and a
+bare name matches its `:latest` tag. A *different* tag (`mistral:7b` vs
+`mistral:latest`) is a different model and is still rejected. An **empty**
+listing never rejects — that means "the provider told us nothing useful", not
+"no models exist", and blocking on it would be pure obstruction. Editing only
+re-validates when the provider or model actually changes, so a rename is not
+gated on provider uptime.
 
 ## 12. Human controls: start, step, pause, resume & restart recovery (J3 / E5)
 

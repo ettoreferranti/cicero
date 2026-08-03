@@ -88,6 +88,53 @@ jobs:
       - name: Build
         run: npm run build
 
+  # A6 / NFR-O-2: the self-hosted stack is only real if it actually builds and
+  # serves. This starts it exactly as an operator would and drives the same
+  # path through nginx, so a broken Dockerfile, a wrong build context, or a
+  # missing proxy route fails the build rather than the first person to try it.
+  docker:
+    name: Docker — build and smoke-test the stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: docker compose up --build --detach --wait --wait-timeout 300
+
+      - name: API is healthy behind nginx
+        run: |
+          curl --fail --silent --show-error http://localhost:8080/health | tee /dev/stderr | grep -q '"status":"ok"'
+
+      - name: UI is served
+        run: |
+          curl --fail --silent --show-error http://localhost:8080/ | grep -qi "<div id=\"root\">"
+
+      # Proves the reverse proxy carries a real API round-trip, not just /health.
+      - name: A chamber can be created and read back through the proxy
+        run: |
+          created=$(curl --fail --silent --show-error \
+            -H 'content-type: application/json' \
+            -d '{"topic":"Does the container stack work?"}' \
+            http://localhost:8080/chambers)
+          echo "$created"
+          id=$(echo "$created" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+          curl --fail --silent --show-error "http://localhost:8080/chambers/$id" | grep -q "$id"
+
+      - name: Capability probe is proxied (the /config route)
+        run: curl --fail --silent --show-error http://localhost:8080/config | grep -q web_access_enabled
+
+      - name: The API image does not run as root
+        run: |
+          test "$(docker compose exec -T backend id -u)" != "0"
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
+
   secret-scan:
     name: Secret scanning
     runs-on: ubuntu-latest

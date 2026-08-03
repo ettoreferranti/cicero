@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "./api";
-import { stanceLabel } from "./format";
-import type { Provider, Stance } from "./types";
+import { stanceLabel, tuningSummary } from "./format";
+import { DEFAULT_TUNING } from "./types";
+import type { ParticipantTuning, Provider, Stance } from "./types";
 
 const PROVIDERS: Provider[] = ["mock", "ollama", "anthropic"];
 const STANCES: Stance[] = ["neutral", "pro", "con"];
@@ -11,6 +12,7 @@ export interface ParticipantDraft {
   provider: Provider;
   model: string;
   stance: Stance;
+  tuning: ParticipantTuning;
 }
 
 const BLANK: ParticipantDraft = {
@@ -18,6 +20,7 @@ const BLANK: ParticipantDraft = {
   provider: "mock",
   model: "mock-small",
   stance: "neutral",
+  tuning: DEFAULT_TUNING,
 };
 
 /**
@@ -41,6 +44,14 @@ export function ParticipantForm({
 }) {
   const [draft, setDraft] = useState<ParticipantDraft>(initial ?? BLANK);
   const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const editing = initial !== undefined;
+
+  // An edit form replaces a roster row in place; without moving focus into it,
+  // a keyboard or screen-reader user is left where the row used to be (NFR-U-2).
+  useEffect(() => {
+    if (editing) nameRef.current?.focus();
+  }, [editing]);
   // Models available from the selected provider (e.g. loaded in Ollama).
   // null = lookup failed/unavailable -> fall back to a free-text field.
   const [availableModels, setAvailableModels] = useState<string[] | null>(null);
@@ -73,16 +84,28 @@ export function ParticipantForm({
     try {
       await onSubmit(draft);
       // Adding stays put on the same provider/model so a roster is quick to
-      // build; only the name is cleared. Editing leaves the form as-is.
-      if (!initial) setDraft((current) => ({ ...current, display_name: "" }));
+      // build; only the name is cleared, and focus returns there for the next
+      // debater. Editing leaves the form as-is (the row closes over it).
+      if (!editing) {
+        setDraft((current) => ({ ...current, display_name: "" }));
+        nameRef.current?.focus();
+      }
     } finally {
       setBusy(false);
     }
   }
 
+  function setTuning(patch: Partial<ParticipantTuning>) {
+    setDraft({ ...draft, tuning: { ...draft.tuning, ...patch } });
+  }
+
+  const summary = tuningSummary(draft.tuning);
+
   return (
-    <form className="row" aria-label={formLabel} onSubmit={handleSubmit}>
+    <form aria-label={formLabel} onSubmit={handleSubmit}>
+      <div className="row">
       <input
+        ref={nameRef}
         aria-label="participant name"
         placeholder="Name"
         value={draft.display_name}
@@ -140,6 +163,54 @@ export function ParticipantForm({
           Cancel
         </button>
       )}
+      </div>
+
+      {/* Tuning is opt-in detail (FR-11): collapsed unless it differs from
+          the defaults, so the common case stays a single compact row. */}
+      <details open={summary !== ""} style={{ marginTop: "0.4rem" }}>
+        <summary className="muted" style={{ cursor: "pointer", fontSize: "0.85rem" }}>
+          Tuning{summary && ` — ${summary}`}
+        </summary>
+        <div className="row" style={{ marginTop: "0.4rem" }}>
+          <label className="muted" style={{ fontSize: "0.85rem" }}>
+            Temperature{" "}
+            <input
+              type="number"
+              min={0}
+              max={2}
+              step={0.1}
+              style={{ width: "5rem" }}
+              value={draft.tuning.temperature}
+              onChange={(e) => setTuning({ temperature: Number(e.target.value) })}
+            />
+          </label>
+          <label className="muted" style={{ fontSize: "0.85rem" }}>
+            Max tokens{" "}
+            <input
+              type="number"
+              min={1}
+              max={32768}
+              style={{ width: "6rem" }}
+              value={draft.tuning.max_tokens}
+              onChange={(e) => setTuning({ max_tokens: Number(e.target.value) })}
+            />
+          </label>
+          <input
+            aria-label="persona"
+            placeholder="Persona (e.g. a cautious economist)"
+            value={draft.tuning.persona}
+            onChange={(e) => setTuning({ persona: e.target.value })}
+            style={{ flex: 1, minWidth: "14rem" }}
+          />
+          <input
+            aria-label="style"
+            placeholder="Style (e.g. terse, cite numbers)"
+            value={draft.tuning.style}
+            onChange={(e) => setTuning({ style: e.target.value })}
+            style={{ flex: 1, minWidth: "12rem" }}
+          />
+        </div>
+      </details>
     </form>
   );
 }

@@ -15,6 +15,7 @@ from cicero.api.dependencies import (
     get_repository,
 )
 from cicero.persistence.memory import InMemoryChamberRepository
+from cicero.providers import ProviderError
 from tests.conftest import ConstantFactory, ScriptedProvider
 
 
@@ -41,7 +42,7 @@ def _create_chamber(client: TestClient, topic: str = "Should we colonise Mars?")
 def _add_participant(client: TestClient, cid: str, name: str, stance: str) -> None:
     resp = client.post(
         f"/chambers/{cid}/participants",
-        json={"display_name": name, "provider": "mock", "model": "m", "stance": stance},
+        json={"display_name": name, "provider": "mock", "model": "scripted", "stance": stance},
     )
     assert resp.status_code == 201
 
@@ -104,10 +105,107 @@ def test_add_participant_defaults_to_neutral(client: TestClient) -> None:
     cid = _create_chamber(client)
     resp = client.post(
         f"/chambers/{cid}/participants",
-        json={"display_name": "Athena", "provider": "mock", "model": "m"},
+        json={"display_name": "Athena", "provider": "mock", "model": "scripted"},
     )
     assert resp.status_code == 201
     assert resp.json()["participants"][0]["stance"] == "neutral"
+
+
+def test_add_participant_rejects_a_model_the_provider_cannot_serve(
+    client: TestClient,
+) -> None:
+    cid = _create_chamber(client)
+    resp = client.post(
+        f"/chambers/{cid}/participants",
+        json={"display_name": "Ghost", "provider": "mock", "model": "no-such-model"},
+    )
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    # The error names what the provider *can* serve, so it is actionable.
+    assert "no-such-model" in detail
+    assert "scripted" in detail
+    assert client.get(f"/chambers/{cid}").json()["participants"] == []
+
+
+def test_edit_participant_revalidates_only_when_the_model_changes(
+    client: TestClient,
+) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    pid = client.get(f"/chambers/{cid}").json()["participants"][0]["id"]
+
+    bad = client.patch(f"/chambers/{cid}/participants/{pid}", json={"model": "nope"})
+    assert bad.status_code == 422
+
+    # A rename touches no provider, so it is not gated on provider reachability.
+    renamed = client.patch(
+        f"/chambers/{cid}/participants/{pid}", json={"display_name": "Ada L."}
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["participants"][0]["display_name"] == "Ada L."
+
+
+def test_add_participant_reports_an_unreachable_provider() -> None:
+    class DeadFactory:
+        def get(self, participant):  # type: ignore[no-untyped-def]
+            raise ProviderError("Ollama request failed: ConnectError")
+
+        def get_for_type(self, provider_type):  # type: ignore[no-untyped-def]
+            raise ProviderError("Ollama request failed: ConnectError")
+
+    repo = InMemoryChamberRepository()
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = DeadFactory
+    with TestClient(app) as client:
+        cid = _create_chamber(client)
+        resp = client.post(
+            f"/chambers/{cid}/participants",
+            json={"display_name": "Ada", "provider": "ollama", "model": "llama3"},
+        )
+        # Connectivity is the other half of FR-12: a provider that cannot be
+        # reached is a 502, distinct from a model that does not exist (422).
+        assert resp.status_code == 502
+        assert "ConnectError" in resp.json()["detail"]
+    app.dependency_overrides.clear()
+
+
+def test_add_participant_accepts_tuning(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    resp = client.post(
+        f"/chambers/{cid}/participants",
+        json={
+            "display_name": "Ada",
+            "provider": "mock",
+            "model": "scripted",
+            "stance": "pro",
+            "tuning": {
+                "temperature": 0.2,
+                "max_tokens": 1500,
+                "persona": "a cautious economist",
+                "style": "terse",
+            },
+        },
+    )
+    assert resp.status_code == 201
+    tuning = resp.json()["participants"][0]["tuning"]
+    assert tuning == {
+        "temperature": 0.2,
+        "max_tokens": 1500,
+        "persona": "a cautious economist",
+        "style": "terse",
+    }
+    # Out-of-range tuning is rejected, not clamped.
+    bad = client.post(
+        f"/chambers/{cid}/participants",
+        json={
+            "display_name": "Zeno",
+            "provider": "mock",
+            "model": "scripted",
+            "tuning": {"temperature": 5},
+        },
+    )
+    assert bad.status_code == 422
 
 
 def test_edit_chamber_while_draft(client: TestClient) -> None:
@@ -143,11 +241,11 @@ def test_edit_and_remove_participants_while_draft(client: TestClient) -> None:
     # Retarget one debater at a different model, leaving the rest untouched.
     resp = client.patch(
         f"/chambers/{cid}/participants/{ada}",
-        json={"model": "mock-large", "stance": "con"},
+        json={"model": "scripted-large", "stance": "con"},
     )
     assert resp.status_code == 200
     edited = next(p for p in resp.json()["participants"] if p["id"] == ada)
-    assert edited["model"] == "mock-large"
+    assert edited["model"] == "scripted-large"
     assert edited["stance"] == "con"
     assert edited["display_name"] == "Ada"  # unsent fields survive
     assert edited["tuning"]["temperature"] == 0.7
@@ -200,7 +298,7 @@ def test_clone_can_be_edited_before_its_rerun(client: TestClient) -> None:
     assert (
         client.patch(
             f"/chambers/{clone_id}/participants/{clone['participants'][0]['id']}",
-            json={"model": "mock-large"},
+            json={"model": "scripted-large"},
         ).status_code
         == 200
     )
@@ -217,7 +315,7 @@ def test_clone_can_be_edited_before_its_rerun(client: TestClient) -> None:
     body = rerun.json()
     assert body["category"] == "rerun"
     names = [(p["display_name"], p["model"]) for p in body["participants"]]
-    assert names == [("Ada", "mock-large"), ("Hypatia", "m")]
+    assert names == [("Ada", "scripted-large"), ("Hypatia", "scripted")]
     # The source chamber is untouched by the clone's edits.
     source = client.get(f"/chambers/{cid}").json()
     assert [p["display_name"] for p in source["participants"]] == ["Ada", "Zeno"]
@@ -354,7 +452,7 @@ def test_cannot_add_participant_after_run(client: TestClient) -> None:
     # Chamber is concluded now.
     resp = client.post(
         f"/chambers/{cid}/participants",
-        json={"display_name": "C", "provider": "mock", "model": "m"},
+        json={"display_name": "C", "provider": "mock", "model": "scripted"},
     )
     assert resp.status_code == 409
 
@@ -575,6 +673,19 @@ def test_auth_token_required_when_configured() -> None:
         assert ok.status_code == 200
 
 
+def test_blank_auth_token_leaves_the_api_open() -> None:
+    from cicero.config import Settings
+
+    # Regression: `API_AUTH_TOKEN=` (an empty value, which is what compose and
+    # .env files inject when nothing was supplied) used to enable auth with a
+    # token nobody could send, 401-ing everything except /health.
+    app = create_app(Settings(api_auth_token="", _env_file=None))  # type: ignore[call-arg]
+    with TestClient(app) as anon:
+        assert anon.get("/health").status_code == 200
+        assert anon.get("/chambers").status_code == 200
+        assert anon.post("/chambers", json={"topic": "Open?"}).status_code == 201
+
+
 def test_rate_limit_returns_429() -> None:
     from cicero.config import Settings
 
@@ -597,7 +708,7 @@ def test_list_models_for_provider(client: TestClient) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["provider"] == "mock"
-    assert body["models"] == ["scripted"]
+    assert body["models"] == ["scripted", "scripted-large"]
 
 
 def test_list_models_unknown_provider_422(client: TestClient) -> None:

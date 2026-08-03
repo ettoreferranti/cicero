@@ -38,6 +38,31 @@ def test_env_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.max_rounds == 3
 
 
+def test_blank_secrets_are_treated_as_unset() -> None:
+    # `.env.example` ships `ANTHROPIC_API_KEY=` and orchestrators inject empty
+    # values freely. An empty API_AUTH_TOKEN read as *set* would enable auth
+    # with a token no caller can send, 401-ing every endpoint but /health.
+    s = Settings(_env_file=None, anthropic_api_key="", api_auth_token="   ")  # type: ignore[call-arg] # noqa: S106
+    assert s.anthropic_api_key is None
+    assert s.api_auth_token is None
+
+
+def test_blank_secrets_from_the_environment_are_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("API_AUTH_TOKEN", "")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.api_auth_token is None
+    assert s.anthropic_api_key is None
+
+    # A real value still comes through untouched.
+    monkeypatch.setenv("API_AUTH_TOKEN", "  tok-123  ")
+    configured = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert configured.api_auth_token is not None
+    assert configured.api_auth_token.get_secret_value() == "  tok-123  "
+
+
 def test_rejects_invalid_budget() -> None:
     with pytest.raises(ValueError):
         Settings(_env_file=None, max_rounds=0)  # type: ignore[call-arg]

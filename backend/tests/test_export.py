@@ -7,7 +7,7 @@ from uuid import uuid4
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.prompt_builder import KIND_EVIDENCE, KIND_MODERATOR_NOTE
 from cicero.domain.enums import ConsensusOutcome, Stance
-from cicero.domain.models import Citation, ConsensusResult, Turn
+from cicero.domain.models import Citation, ConsensusResult, StancePoll, Turn
 from tests.conftest import make_chamber, make_participant
 
 
@@ -37,6 +37,47 @@ def test_markdown_includes_outcome_and_statement() -> None:
     md = to_markdown(_chamber_with_debate())
     assert "## Outcome: disagreement" in md
     assert "No agreement reached." in md
+
+
+def test_markdown_renders_the_stance_history_as_a_table() -> None:
+    chamber = _chamber_with_debate()
+    ada, zeno = chamber.participants
+    chamber.stance_history = [
+        StancePoll(
+            round_index=0, stances={str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+        ),
+        StancePoll(
+            round_index=1, stances={str(ada.id): Stance.PRO, str(zeno.id): Stance.NEUTRAL}
+        ),
+    ]
+    md = to_markdown(chamber)
+
+    assert "## Stance history" in md
+    assert "| Round | Ada | Zeno |" in md
+    assert "| 1 | pro | con |" in md
+    assert "| 2 | pro | neutral |" in md  # Zeno moved
+
+
+def test_markdown_omits_the_stance_history_when_there_is_none() -> None:
+    assert "## Stance history" not in to_markdown(_chamber_with_debate())
+
+
+def test_stance_history_falls_back_to_the_declared_stance() -> None:
+    # A participant added after a poll has no entry in it; render their
+    # declared stance rather than a blank or a crash.
+    chamber = _chamber_with_debate()
+    chamber.stance_history = [StancePoll(round_index=0, stances={})]
+    md = to_markdown(chamber)
+    assert "| 1 | pro | con |" in md
+
+
+def test_export_dict_carries_the_stance_history() -> None:
+    chamber = _chamber_with_debate()
+    ada = chamber.participants[0]
+    chamber.stance_history = [StancePoll(round_index=0, stances={str(ada.id): Stance.CON})]
+    exported = to_export_dict(chamber)
+    assert exported["stance_history"][0]["round_index"] == 0
+    assert exported["stance_history"][0]["stances"][str(ada.id)] == "con"
 
 
 def test_markdown_skips_empty_turns() -> None:

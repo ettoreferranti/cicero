@@ -570,6 +570,74 @@ async def test_resume_does_not_regather_evidence() -> None:
     assert gatherer.calls == 0  # brief not regathered, and no turn searched
 
 
+async def test_stance_history_records_each_poll_once() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {
+            a.id: CyclingProvider(["pro", "con", "pro"]),
+            b.id: CyclingProvider(["con", "con", "con"]),
+        }
+    )
+    engine = _engine(factory, repo)
+
+    # min_rounds=1 → a poll after every round. A holds out for one round, then
+    # crosses to con, which is exactly the movement FR-25 exists to capture.
+    result = await engine.run(chamber, DebateBudget(max_rounds=3, max_total_tokens=100_000))
+
+    assert [poll.round_index for poll in result.stance_history] == [0, 1]
+    assert result.stance_history[0].stances == {str(a.id): Stance.PRO, str(b.id): Stance.CON}
+    assert result.stance_history[1].stances == {str(a.id): Stance.CON, str(b.id): Stance.CON}
+    # Round 1 found consensus and ended the debate; the final poll measured a
+    # round already recorded, so it is not duplicated.
+    assert result.config["stop_reason"] == "consensus"
+    stored = repo.get(chamber.id)
+    assert stored is not None and len(stored.stance_history) == 2
+
+
+async def test_stance_history_is_recorded_when_no_round_poll_ran() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="con")}
+    )
+    engine = _engine(factory, repo)
+
+    # min_rounds == max_rounds: the loop never reaches its early-stop poll, so
+    # the only measurement is the final one — and it is still recorded.
+    budget = DebateBudget(max_rounds=2, max_total_tokens=100_000, min_rounds=2)
+    result = await engine.run(chamber, budget)
+
+    assert len(result.stance_history) == 1
+    assert result.stance_history[0].round_index == 1  # after the last round
+    assert result.stance_history[0].stances == {str(a.id): Stance.PRO, str(b.id): Stance.CON}
+
+
+async def test_stepping_does_not_double_record_stance_polls() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.settings.decision_rule = DecisionRule.UNANIMOUS
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="con")}
+    )
+    engine = _engine(factory, repo)
+    budget = DebateBudget(max_rounds=2, max_total_tokens=100_000)
+
+    while chamber.status is not ChamberStatus.CONCLUDED:
+        chamber = await engine.run(chamber, budget, TurnLimit(1))
+
+    # Each step is its own run, but a round is still recorded exactly once.
+    rounds = [poll.round_index for poll in chamber.stance_history]
+    assert rounds == sorted(set(rounds))
+
+
 def test_round_complete_requires_every_participant() -> None:
     a = make_participant("A", Stance.PRO)
     b = make_participant("B", Stance.CON)

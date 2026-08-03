@@ -36,7 +36,7 @@ from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.metrics import ParticipantMetrics, compute_participant_metrics
 from cicero.core.orchestrator import DebateEngine, NoteSource, TurnLimit, TurnListener
 from cicero.core.prompt_builder import KIND_MODERATOR_NOTE
-from cicero.domain.enums import ChamberStatus
+from cicero.domain.enums import ChamberStatus, ProviderType
 from cicero.domain.models import (
     Chamber,
     DebateSettings,
@@ -46,6 +46,7 @@ from cicero.domain.models import (
 )
 from cicero.persistence import ChamberRepository
 from cicero.providers import GenerateOptions, ProviderError, ProviderFactory
+from cicero.providers.availability import describe_available, model_is_available
 from cicero.tools.web import EvidenceService
 
 router = APIRouter(prefix="/chambers", tags=["chambers"])
@@ -58,6 +59,10 @@ EvidenceDep = Annotated[EvidenceService | None, Depends(get_evidence_service)]
 MIN_PARTICIPANTS = 2
 _MODERATOR_MAX_TOKENS = 1024
 _MODERATOR_TEMPERATURE = 0.3
+# Spelled as a literal: Starlette renamed HTTP_422_UNPROCESSABLE_ENTITY to
+# ..._CONTENT, and the constant we can rely on across the supported range is the
+# number itself.
+_UNPROCESSABLE = 422
 
 
 def _require_chamber(repo: ChamberRepository, chamber_id: UUID) -> Chamber:
@@ -87,6 +92,29 @@ def _require_participant(chamber: Chamber, participant_id: UUID) -> Participant:
     if participant is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "participant not found")
     return participant
+
+
+async def _validate_model(
+    factory: ProviderFactory, provider_type: ProviderType, model: str
+) -> None:
+    """Check the provider is reachable and can serve ``model`` (C4/FR-12).
+
+    Catching this at add/edit time turns a mid-debate empty turn into an
+    immediate, fixable error. Unreachable provider → 502 (that is the
+    connectivity half of FR-12); reachable but unknown model → 422, naming what
+    it *can* serve.
+    """
+    try:
+        provider = factory.get_for_type(provider_type)
+        available = await provider.list_models()
+    except ProviderError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    if not model_is_available(model, available):
+        raise HTTPException(
+            _UNPROCESSABLE,
+            f"{provider_type.value} cannot serve model {model!r}; "
+            f"available: {describe_available(available)}",
+        )
 
 
 def _build_engine(
@@ -209,10 +237,11 @@ def clone_chamber(chamber_id: UUID, repo: RepoDep) -> Chamber:
     status_code=status.HTTP_201_CREATED,
     response_model=Chamber,
 )
-def add_participant(
-    chamber_id: UUID, payload: ParticipantCreate, repo: RepoDep
+async def add_participant(
+    chamber_id: UUID, payload: ParticipantCreate, repo: RepoDep, factory: FactoryDep
 ) -> Chamber:
     chamber = _require_draft(repo, chamber_id, "the participant roster")
+    await _validate_model(factory, payload.provider, payload.model)
     tuning = (
         ParticipantTuning(**payload.tuning.model_dump())
         if payload.tuning is not None
@@ -231,20 +260,28 @@ def add_participant(
 
 
 @router.patch("/{chamber_id}/participants/{participant_id}", response_model=Chamber)
-def update_participant(
+async def update_participant(
     chamber_id: UUID,
     participant_id: UUID,
     payload: ParticipantUpdate,
     repo: RepoDep,
+    factory: FactoryDep,
 ) -> Chamber:
     """Edit a debater while the chamber is a draft (FR-3).
 
     Only the fields actually sent are applied, so a cloned chamber can be rerun
     with (say) one debater on a different model, everything else held constant.
+    A changed provider/model is re-validated the same way an add is (C4/FR-12).
     """
     chamber = _require_draft(repo, chamber_id, "the participant roster")
     participant = _require_participant(chamber, participant_id)
     changes = payload.model_dump(exclude_unset=True)
+    if "provider" in changes or "model" in changes:
+        await _validate_model(
+            factory,
+            changes.get("provider", participant.provider),
+            changes.get("model", participant.model),
+        )
     tuning = changes.pop("tuning", None)
     for field, value in changes.items():
         setattr(participant, field, value)

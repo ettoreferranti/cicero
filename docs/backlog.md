@@ -22,7 +22,7 @@
 | A3 | As an operator, CI runs lint, type-check, tests, secret scanning, and dependency (SCA) scanning on every push. | NFR-Q-1/4, NFR-SEC-1/7 | M | 5 | ✅ done |
 | A4 | As a developer, mutation testing is wired up with a configured threshold on core modules and runs in CI. | NFR-Q-2 | M | 5 | ✅ done |
 | A5 | As a maintainer, `SECURITY.md`, threat model, and a CONTRIBUTING guide exist. | NFR-SEC-10, NFR-M-2 | M | 2 | ✅ done |
-| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | 🟡 partial |
+| A6 | As an operator, the app runs locally from a documented quickstart (and optionally Docker Compose). | NFR-O-1/2/3 | S | 3 | ✅ done — `uv`+`uvicorn` quickstart plus `docker compose up --build` (API image runs non-root with no baked secrets; nginx serves the SPA and reverse-proxies the API same-origin so SSE works without CORS; both ports published to `127.0.0.1` only). Built and smoke-tested by a dedicated CI job on every push — see the note below |
 
 ## Epic B — Domain Model & Persistence
 *Goal: the core entities and their storage.*
@@ -41,8 +41,8 @@
 | C1 | As a developer, a `Provider` interface defines `generate()`/streaming, model listing, and capability flags. | FR-10, NFR-M-1 | M | 5 | ✅ done |
 | C2 | As a user, an **Ollama** provider connects to a local Ollama server and generates turns. | FR-8 | M | 5 | ✅ done |
 | C3 | As a user, an **Anthropic** provider generates turns using an env-supplied API key. | FR-9, NFR-SEC-1/3 | M | 5 | ✅ done |
-| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | 🟡 partial — UI model selector lists the provider's live models (`GET /providers/{p}/models`); server-side validation on add still todo |
-| C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | 🟡 partial |
+| C4 | As a user, adding a participant validates connectivity / model availability. | FR-12 | S | 3 | ✅ done — add *and* edit check the provider server-side: unreachable → `502`, model the provider cannot serve → `422` naming what it can. Tag/case tolerant (`llama3` matches `llama3:latest`); an empty listing never rejects. UI model selector unchanged |
+| C5 | As a developer, provider failures are handled with retries/backoff and clear errors without crashing the debate. | NFR-R-1 | S | 3 | ✅ done — `providers/retry.py` retries transient failures (timeouts, transport errors, 408/425/429/5xx/529) with capped exponential backoff, honouring `Retry-After`; permanent 4xx are never retried. Tunable via `PROVIDER_MAX_ATTEMPTS` / `PROVIDER_RETRY_BASE_DELAY_SECONDS`; the engine's per-turn error containment remains the backstop |
 | C6 | As a developer, a `Mock`/`Stub` provider enables deterministic tests with no live calls. | NFR-Q-1/3 | M | 2 | ✅ done |
 
 ## Epic D — Chamber & Participant Management (API)
@@ -52,10 +52,30 @@
 |----|-------|--------|-----|-----|--------|
 | D1 | As a user, I can create/list/view/delete chambers with topic, category, and description. | FR-1/2 | M | 3 | ✅ done |
 | D2 | As a user, I can add participants with provider, model, name, and stance (default `neutral`). | FR-6/7 | M | 3 | ✅ done |
-| D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | 🟡 partial — API accepts tuning on add; per-chamber debate settings (rounds/tokens/duration/decision rule) tunable via API+UI; per-participant tuning UI still todo |
+| D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | ✅ done — tuning accepted on add *and* edit (`PATCH`), with a collapsible **Tuning** panel in the participant form and a `⚙` summary on the roster for anyone off the defaults; per-chamber debate settings tunable via API+UI |
 | D4 | As a user, I can edit a chamber while it is a `draft` — its topic/category/description, and the participant roster (add, edit, remove) — including on a **clone before its rerun**, so a rerun can change one variable. | FR-3 | S | 3 | ✅ done — `PATCH /chambers/{id}`, `PATCH`/`DELETE /chambers/{id}/participants/{pid}`, plus edit/remove controls in the UI |
 | D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
 | D6 | As a user, I can remove or mute a participant **mid-debate**. | FR-13 | C | 5 | todo — split out of the original D4 (see note below) |
+
+> **I5 scope.** The story asks for *basic* accessibility and that is what
+> shipped: keyboard operability, screen-reader labelling, focus visibility and
+> management, table semantics, and a live region for the streaming transcript
+> (the one place a screen-reader user was previously told nothing at all). What
+> has **not** been done is a real audit — no automated axe/Lighthouse pass, no
+> testing with an actual screen reader, and no contrast measurement of the eight
+> participant accent colours (they are decorative and always paired with a text
+> label, but that is an argument, not a measurement). Reopen as a new story if a
+> WCAG conformance claim is ever needed.
+
+> **A6 is verified in CI, not locally.** The machine this was written on has the
+> `docker` CLI but no daemon (no Desktop/colima/OrbStack), so instead of a
+> one-off local run the stack is built and smoke-tested by a **`docker` job in
+> CI** on every push: `docker compose up --build --wait`, then a health check, a
+> UI fetch, a create-and-read-back chamber round-trip through the nginx proxy,
+> the `/config` capability probe, and an assertion that the API container is not
+> running as root. That is a stronger guarantee than a manual check, since it
+> keeps holding: a broken Dockerfile, a wrong build context, or a missing proxy
+> route now fails the build rather than the first operator to try it.
 
 > **Why D4 and D6 are separate.** The original D4 bundled FR-3 (edit while
 > `draft`) with FR-13 (remove/mute mid-debate); they are very different jobs.
@@ -90,7 +110,7 @@
 | F1 | As a developer, a consensus detector decides convergence (hybrid: stance-stability signal + moderator-LLM check), with two-phase prompting (adversarial → convergence) and per-chamber decision rules (unanimous / majority / judge) so a winner can always emerge. | FR-22, OQ-1 | M | 8 | ✅ done |
 | F2 | As a user, on convergence the chamber produces a Consensus Statement (or majority Resolution / judge's Verdict, incl. the winning stance) plus each participant's final stance/agreement. | FR-23 | M | 5 | ✅ done |
 | F3 | As a user, if no consensus within budget, I get a Summary of Disagreement (positions, cruxes, open points). | FR-24 | S | 5 | ✅ done |
-| F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | todo |
+| F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | ✅ done — every convergence poll is persisted as a `StancePoll` on `chamber.stance_history` (one per round, never double-recorded across steps), surfaced in the API, both exports, and a **Stance history** table in the UI that flags who moved |
 
 ## Epic G — Evidence / Web Access (opt-in, sandboxed) — **v1 scope (approved D-3)**
 *Goal: participants can cite web evidence — safely. Built behind security controls from the start.*
@@ -121,7 +141,7 @@
 | I2 | As a user, I can watch a debate stream live and use start/pause/step/stop controls. | FR-18/19 | S | 5 | ✅ done — live SSE transcript with Start/Resume, Step, and Pause controls |
 | I3 | As a user, I can view the consensus/disagreement result and export it. | FR-23/24/31 | S | 3 | ✅ done |
 | I4 | As a developer, all model/web-derived content is rendered safely (no XSS). | NFR-SEC-6 | M | 3 | ✅ done |
-| I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | 🟡 partial — labelled form controls / aria-labels; no full audit |
+| I5 | As a user, the UI meets basic accessibility. | NFR-U-2 | C | 3 | ✅ done (basic) — labelled controls, a `<main>` landmark, a visible focus ring on the dark palette, `scope`d table headers with row headers, spelled-out "Yes/No" instead of a bare tick, focus moved into (and back out of) the participant edit form, and an `aria-live` region announcing debate progress without reading whole turns aloud. **Not** a full WCAG audit — see the note below |
 
 ## Epic J — Hardening & Release
 *Goal: production-readiness for self-hosting.*

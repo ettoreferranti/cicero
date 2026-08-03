@@ -449,6 +449,23 @@ def run_demo(
         added.raise_for_status()
         names = _participant_names(added.json())
         print(f"  {spec.display_name}: {spec.provider}/{spec.model} arguing {spec.stance}")
+    # A model the provider cannot serve is caught here, not mid-debate (FR-12).
+    rejected = client.post(
+        f"/chambers/{chamber_id}/participants",
+        json={
+            "display_name": "Ghost",
+            "provider": roster[0].provider,
+            "model": "definitely-not-a-real-model",
+            "stance": "neutral",
+        },
+    )
+    report.check(
+        "FR-12",
+        "unavailable model rejected at add time",
+        rejected.status_code == 422,
+        f"HTTP {rejected.status_code}",
+    )
+
     providers_used = sorted({spec.provider for spec in roster})
     report.check(
         "FR-6/7",
@@ -548,6 +565,20 @@ def run_demo(
         "FR-25",
         "final stances recorded per participant",
         len(consensus.get("final_stances") or {}) == len(roster),
+    )
+    history: list[dict[str, Any]] = body.get("stance_history") or []
+    rounds_polled = [entry.get("round_index") for entry in history]
+    first = history[0].get("stances") or {} if history else {}
+    movers = [
+        pid
+        for pid, opening in first.items()
+        if any((entry.get("stances") or {}).get(pid) != opening for entry in history)
+    ]
+    report.check(
+        "FR-25",
+        "stance history recorded per round",
+        bool(history) and rounds_polled == sorted(set(rounds_polled)),
+        f"{len(history)} poll(s) across rounds {rounds_polled}, {len(movers)} debater(s) moved",
     )
     stop_reason = (body.get("config") or {}).get("stop_reason")
     report.check("FR-16", "a stop condition ended the debate", bool(stop_reason), str(stop_reason))

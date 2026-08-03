@@ -2,6 +2,7 @@ import type {
   Chamber,
   DebateSettings,
   ParticipantMetrics,
+  ParticipantTuning,
   Provider,
   Stance,
 } from "./types";
@@ -100,7 +101,13 @@ export function cloneChamber(id: string): Promise<Chamber> {
 
 export function addParticipant(
   id: string,
-  input: { display_name: string; provider: Provider; model: string; stance: Stance },
+  input: {
+    display_name: string;
+    provider: Provider;
+    model: string;
+    stance: Stance;
+    tuning?: ParticipantTuning;
+  },
 ): Promise<Chamber> {
   return request<Chamber>(`/chambers/${id}/participants`, {
     method: "POST",
@@ -117,6 +124,7 @@ export function updateParticipant(
     provider: Provider;
     model: string;
     stance: Stance;
+    tuning: ParticipantTuning;
   }>,
 ): Promise<Chamber> {
   return request<Chamber>(`/chambers/${id}/participants/${participantId}`, {

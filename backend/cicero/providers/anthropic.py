@@ -7,6 +7,7 @@ tests.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 import httpx
@@ -21,6 +22,7 @@ from cicero.providers.base import (
     Role,
     SearchExecutor,
 )
+from cicero.providers.retry import RetryPolicy, call_with_retry
 
 _BASE_URL = "https://api.anthropic.com"
 _API_VERSION = "2023-06-01"
@@ -55,12 +57,14 @@ class AnthropicProvider(Provider):
         client: httpx.AsyncClient | None = None,
         timeout: float = 120.0,
         base_url: str = _BASE_URL,
+        retry: RetryPolicy | None = None,
     ) -> None:
         if not api_key:
             raise ProviderError("Anthropic API key is not configured")
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._client = client or httpx.AsyncClient(timeout=timeout)
+        self._retry = retry or RetryPolicy()
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -178,24 +182,33 @@ class AnthropicProvider(Provider):
         await self._client.aclose()
 
     async def _post_json(self, path: str, payload: dict[str, object]) -> dict[str, Any]:
-        try:
+        async def send() -> dict[str, Any]:
             response = await self._client.post(
                 f"{self._base_url}{path}", json=payload, headers=self._headers()
             )
             response.raise_for_status()
             return cast(dict[str, Any], response.json())
-        except httpx.HTTPError as exc:
-            # Never surface headers (they carry the API key).
-            raise ProviderError(f"Anthropic request failed: {type(exc).__name__}") from exc
+
+        return await self._request(send)
 
     async def _get_json(self, path: str) -> dict[str, Any]:
-        try:
+        async def send() -> dict[str, Any]:
             response = await self._client.get(
                 f"{self._base_url}{path}", headers=self._headers()
             )
             response.raise_for_status()
             return cast(dict[str, Any], response.json())
+
+        return await self._request(send)
+
+    async def _request(
+        self, send: Callable[[], Awaitable[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        """Send with retries, then translate any surviving failure (NFR-R-1)."""
+        try:
+            return await call_with_retry(send, self._retry)
         except httpx.HTTPError as exc:
+            # Never surface headers (they carry the API key).
             raise ProviderError(f"Anthropic request failed: {type(exc).__name__}") from exc
 
 

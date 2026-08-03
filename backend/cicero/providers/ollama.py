@@ -6,6 +6,7 @@ The HTTP client is injectable so tests can run hermetically against a
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 import httpx
@@ -18,6 +19,7 @@ from cicero.providers.base import (
     Provider,
     ProviderError,
 )
+from cicero.providers.retry import RetryPolicy, call_with_retry
 
 
 class OllamaProvider(Provider):
@@ -30,9 +32,11 @@ class OllamaProvider(Provider):
         host: str = "http://localhost:11434",
         client: httpx.AsyncClient | None = None,
         timeout: float = 120.0,
+        retry: RetryPolicy | None = None,
     ) -> None:
         self._host = host.rstrip("/")
         self._client = client or httpx.AsyncClient(timeout=timeout)
+        self._retry = retry or RetryPolicy()
 
     async def generate(
         self, messages: list[Message], options: GenerateOptions
@@ -66,18 +70,27 @@ class OllamaProvider(Provider):
         await self._client.aclose()
 
     async def _post_json(self, path: str, payload: dict[str, object]) -> dict[str, Any]:
-        try:
+        async def send() -> dict[str, Any]:
             response = await self._client.post(f"{self._host}{path}", json=payload)
             response.raise_for_status()
             return cast(dict[str, Any], response.json())
-        except httpx.HTTPError as exc:
-            # Do not include headers/payload — avoid leaking anything sensitive.
-            raise ProviderError(f"Ollama request failed: {type(exc).__name__}") from exc
+
+        return await self._request(send)
 
     async def _get_json(self, path: str) -> dict[str, Any]:
-        try:
+        async def send() -> dict[str, Any]:
             response = await self._client.get(f"{self._host}{path}")
             response.raise_for_status()
             return cast(dict[str, Any], response.json())
+
+        return await self._request(send)
+
+    async def _request(
+        self, send: Callable[[], Awaitable[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        """Send with retries, then translate any surviving failure (NFR-R-1)."""
+        try:
+            return await call_with_retry(send, self._retry)
         except httpx.HTTPError as exc:
+            # Do not include headers/payload — avoid leaking anything sensitive.
             raise ProviderError(f"Ollama request failed: {type(exc).__name__}") from exc

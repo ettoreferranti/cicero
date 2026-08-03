@@ -70,6 +70,9 @@ export interface Turn {
 export interface StancePoll {
   round_index: number;
   stances: Record<string, Stance>;
+  // Ids whose reply could not be read: their stance here was carried over from
+  // the previous poll, not measured, so it is not evidence of a position.
+  unparsed: string[];
   created_at: string;
 }
 

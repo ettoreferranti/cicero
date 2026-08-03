@@ -472,6 +472,37 @@ provider server-side before the roster changes: unreachable or unconfigured →
 → `422` naming what it *can* serve. Without this the mistake only surfaces
 mid-debate, as an empty turn with an `error` in its metadata.
 
+**Reading a stance report.** `parse_stance` matches **whole words**, and this is
+load-bearing. The original substring match read `prohibit` as *pro* and
+`context`/`concede` as *con* — so a debater conceding "we should prohibit it"
+was recorded as supporting the motion, exactly inverting them. Because the
+result feeds `decide_outcome`, that could hand a debate to the losing side while
+the moderator (which reads the transcript, not the tally) wrote an honest
+summary of the opposite result: a chamber whose `winning_stance` contradicted
+its own statement.
+
+Two rules follow from that failure:
+
+- **A one-word reply is matched generously; prose is matched narrowly.** The
+  poll asks for a single word, and when it gets one, synonyms
+  (`against`, `oppose`, `yes`, `no`, `support`, …) are safe because there is no
+  surrounding text to misread. Inside a longer reply only unambiguous tokens are
+  scanned — `agree`/`support` usually take a *person* as their object ("I agree
+  with SanePerson that we should ban it"), and reading those is guessing.
+  `<think>` blocks are stripped first: reasoning models argue both sides before
+  answering, and scanning that scores whichever side they considered first.
+- **An unreadable reply is reported, never laundered.** `poll_stances` returns a
+  `StanceReport` carrying `unparsed` ids alongside the stances. The previous
+  measurement is carried forward so the tally stays complete, but the id is
+  flagged, and `StancePoll.unparsed` persists it into the history, the exports
+  and the UI. The old code silently substituted the participant's *declared
+  starting stance*, which made a run where every poll failed look identical to a
+  debate where nobody was persuaded.
+
+`MockProvider` answers a stance poll rather than echoing the prompt, for the
+same reason: the echo used to be "parsed" by matching pro/con out of the quoted
+transcript, so offline debates were resolving on parser noise.
+
 **Stance history (FR-25).** The engine already polls every participant's stance
 after a round to decide convergence; that measurement used to be discarded, with
 only the final poll surviving as `consensus.final_stances`. Each poll is now

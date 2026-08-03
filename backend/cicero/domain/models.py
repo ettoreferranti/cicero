@@ -119,6 +119,9 @@ class StancePoll(_Base):
     round_index: int = Field(ge=0)
     #: Stance per participant id (as a string), matching ``ConsensusResult``.
     stances: dict[str, Stance] = Field(default_factory=dict)
+    #: Ids whose reply could not be read; their stance here is carried over from
+    #: the previous poll rather than measured, so it is not evidence of anything.
+    unparsed: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
 

@@ -209,6 +209,30 @@ FR-19 has a PASS row for start, step, and resume. Closes **E5** and **I2**.
 
 ---
 
+### Bug — stance polling inverted concessions (2026-08-03)
+Found from a real Ollama debate whose `winning_stance` was `pro` while its own
+resolution text rejected the motion, and whose stance history showed **zero**
+movement across three rounds in which three debaters explicitly conceded.
+
+Root cause: `parse_stance` matched **substrings**, so `prohibit` → *pro* and
+`context`/`concede` → *con*. A debater conceding "we should prohibit it" was
+recorded as supporting the motion. Words models actually use when conceding
+(`against`, `oppose`, `no`) matched nothing, and the parse failure was then
+silently replaced with the participant's **declared starting stance** — which is
+why the history looked stable rather than broken.
+
+Fixed: whole-word matching, generous on a one-word reply and narrow inside
+prose, with `<think>` blocks stripped; unreadable replies now reported via
+`StanceReport.unparsed` and `StancePoll.unparsed` and surfaced in the exports
+and UI; `MockProvider` answers stance polls instead of echoing the prompt (the
+echo was being "parsed" out of the quoted transcript, so offline debates
+resolved on parser noise). Knock-on: the `STANCES_STABLE` early stop could fire
+on a debate that was actively converging, since stances never appeared to move.
+
+The tests missed it because `ScriptedProvider` only ever returned exactly
+`"pro"`/`"con"`/`"neutral"` — the one input shape that worked. Regression tests
+now use the reply shapes real models produce.
+
 ## Cross-cutting "Definition of Done" (every story)
 1. Code + tests (unit/integration) with providers mocked.
 2. Mutation score on touched core logic meets threshold (or justified exclusion).

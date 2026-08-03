@@ -63,11 +63,20 @@ def to_markdown(chamber: Chamber) -> str:
         lines.append(_stance_history_header(chamber))
         lines.append("|---" * (len(chamber.participants) + 1) + "|")
         for poll in chamber.stance_history:
-            cells = [
-                poll.stances.get(str(participant.id), participant.stance).value
-                for participant in chamber.participants
-            ]
+            cells = []
+            for participant in chamber.participants:
+                key = str(participant.id)
+                value = poll.stances.get(key, participant.stance).value
+                # Mark what was carried over rather than measured, so a reader
+                # does not mistake a parse failure for a settled position.
+                cells.append(f"{value} (?)" if key in poll.unparsed else value)
             lines.append(f"| {poll.round_index + 1} | " + " | ".join(cells) + " |")
+        if any(poll.unparsed for poll in chamber.stance_history):
+            lines.append("")
+            lines.append(
+                "`(?)` — the debater's reply could not be read; the previous "
+                "value was carried forward and is not evidence of their position."
+            )
         lines.append("")
 
     if chamber.consensus is not None:

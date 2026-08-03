@@ -670,6 +670,9 @@ export function ChamberDetail({
           <h2>Stance history</h2>
           <p className="muted" style={{ fontSize: "0.85rem" }} id="stance-history-hint">
             Where each debater stood after each round, and whether they moved.
+            {chamber.stance_history.some((poll) => (poll.unparsed ?? []).length > 0) &&
+              " (?) marks a reply that could not be read — that value was carried" +
+                " forward, not measured."}
           </p>
           <div style={{ overflowX: "auto" }}>
             <table aria-describedby="stance-history-hint">
@@ -686,7 +689,7 @@ export function ChamberDetail({
               </thead>
               <tbody>
                 {stanceTrajectories(chamber.participants, chamber.stance_history).map(
-                  ({ participant, stances, moved }) => (
+                  ({ participant, stances, unread, moved }) => (
                     <tr key={participant.id}>
                       <th scope="row" style={{ fontWeight: "normal" }}>
                         <span
@@ -704,6 +707,15 @@ export function ChamberDetail({
                       {stances.map((stance, index) => (
                         <td key={chamber.stance_history[index].round_index}>
                           <span className={`stance ${stance}`}>{stanceLabel(stance)}</span>
+                          {unread[index] && (
+                            <span
+                              className="muted"
+                              title="This debater's reply could not be read; the previous value was carried forward."
+                            >
+                              {" "}
+                              (?)
+                            </span>
+                          )}
                         </td>
                       ))}
                       {/* Spelled out rather than a tick: a bare ✓ reads as

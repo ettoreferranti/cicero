@@ -24,7 +24,7 @@ from uuid import UUID
 
 from cicero.core import prompts
 from cicero.core.budget import BudgetTracker, DebateBudget, StopReason
-from cicero.core.consensus import ConsensusEngine, is_consensus
+from cicero.core.consensus import ConsensusEngine, StanceReport, is_consensus
 from cicero.core.prompt_builder import (
     KIND_EVIDENCE,
     KIND_MODERATOR_NOTE,
@@ -247,8 +247,9 @@ class DebateEngine:
                 break
 
             if tracker.may_stop_early():
-                poll = await self._consensus.poll_stances(chamber)
-                self._record_poll(chamber, round_index, poll)
+                report = await self._consensus.poll_stances(chamber)
+                poll = report.stances
+                self._record_poll(chamber, round_index, report)
                 # Everyone is polled, but only active debaters decide whether
                 # the debate has converged (FR-13).
                 if is_consensus(active_stances(chamber, poll)):
@@ -270,8 +271,9 @@ class DebateEngine:
                 return self._park(chamber)  # step landed on a round boundary
 
         if final_stances is None:
-            final_stances = await self._consensus.poll_stances(chamber)
-            self._record_poll(chamber, max(tracker.rounds_completed - 1, 0), final_stances)
+            final_report = await self._consensus.poll_stances(chamber)
+            final_stances = final_report.stances
+            self._record_poll(chamber, max(tracker.rounds_completed - 1, 0), final_report)
 
         result = await self._consensus.finalize(chamber, final_stances)
         chamber.consensus = result
@@ -474,7 +476,7 @@ class DebateEngine:
         self._persist(chamber)
 
     def _record_poll(
-        self, chamber: Chamber, round_index: int, stances: dict[str, Stance]
+        self, chamber: Chamber, round_index: int, report: StanceReport
     ) -> None:
         """Persist a stance snapshot so the debate's trajectory survives (FR-25).
 
@@ -487,7 +489,11 @@ class DebateEngine:
         if chamber.stance_history and chamber.stance_history[-1].round_index >= round_index:
             return
         chamber.stance_history.append(
-            StancePoll(round_index=round_index, stances=dict(stances))
+            StancePoll(
+                round_index=round_index,
+                stances=dict(report.stances),
+                unparsed=list(report.unparsed),
+            )
         )
         self._persist(chamber)
 

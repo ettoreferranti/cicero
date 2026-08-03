@@ -271,6 +271,66 @@ def test_edit_and_remove_participants_while_draft(client: TestClient) -> None:
     assert client.post(f"/chambers/{cid}/run").status_code == 409
 
 
+def test_mute_and_unmute_a_participant(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    _add_participant(client, cid, "Zeno", "con")
+    _add_participant(client, cid, "Hypatia", "con")
+    pid = client.get(f"/chambers/{cid}").json()["participants"][2]["id"]
+
+    muted = client.post(f"/chambers/{cid}/participants/{pid}/mute", json={"muted": True})
+    assert muted.status_code == 200
+    assert muted.json()["status"] == "muted"
+    roster = client.get(f"/chambers/{cid}").json()["participants"]
+    assert [p["muted"] for p in roster] == [False, False, True]
+
+    unmuted = client.post(f"/chambers/{cid}/participants/{pid}/mute", json={"muted": False})
+    assert unmuted.json()["status"] == "unmuted"
+    assert client.get(f"/chambers/{cid}").json()["participants"][2]["muted"] is False
+
+
+def test_mute_refuses_to_drop_below_two_active_debaters(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    _add_participant(client, cid, "Zeno", "con")
+    pid = client.get(f"/chambers/{cid}").json()["participants"][0]["id"]
+
+    # Two participants, so muting either would leave a debate of one.
+    resp = client.post(f"/chambers/{cid}/participants/{pid}/mute", json={"muted": True})
+    assert resp.status_code == 409
+    assert "two unmuted" in resp.json()["detail"]
+    assert client.get(f"/chambers/{cid}").json()["participants"][0]["muted"] is False
+
+
+def test_mute_validates_its_target_and_payload(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    pid = client.get(f"/chambers/{cid}").json()["participants"][0]["id"]
+    missing = "00000000-0000-0000-0000-000000000000"
+
+    no_chamber = client.post(
+        f"/chambers/{missing}/participants/{pid}/mute", json={"muted": True}
+    )
+    assert no_chamber.status_code == 404
+    no_participant = client.post(
+        f"/chambers/{cid}/participants/{missing}/mute", json={"muted": True}
+    )
+    assert no_participant.status_code == 404
+    assert client.post(f"/chambers/{cid}/participants/{pid}/mute", json={}).status_code == 422
+
+
+def test_muting_a_concluded_chamber_still_records_the_flag(client: TestClient) -> None:
+    # Muting is not gated on `draft` the way roster edits are: an evaluator may
+    # want to mark a debater after the fact, and it costs nothing.
+    cid = _create_chamber(client)
+    for name, stance in (("A", "pro"), ("B", "pro"), ("C", "pro")):
+        _add_participant(client, cid, name, stance)
+    assert client.post(f"/chambers/{cid}/run", params={"wait": "true"}).status_code == 200
+    pid = client.get(f"/chambers/{cid}").json()["participants"][2]["id"]
+    resp = client.post(f"/chambers/{cid}/participants/{pid}/mute", json={"muted": True})
+    assert resp.status_code == 200
+
+
 def test_chamber_and_roster_are_frozen_once_the_debate_has_run(client: TestClient) -> None:
     cid = _create_chamber(client)
     _add_participant(client, cid, "Ada", "pro")

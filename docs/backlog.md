@@ -55,7 +55,7 @@
 | D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | ✅ done — tuning accepted on add *and* edit (`PATCH`), with a collapsible **Tuning** panel in the participant form and a `⚙` summary on the roster for anyone off the defaults; per-chamber debate settings tunable via API+UI |
 | D4 | As a user, I can edit a chamber while it is a `draft` — its topic/category/description, and the participant roster (add, edit, remove) — including on a **clone before its rerun**, so a rerun can change one variable. | FR-3 | S | 3 | ✅ done — `PATCH /chambers/{id}`, `PATCH`/`DELETE /chambers/{id}/participants/{pid}`, plus edit/remove controls in the UI |
 | D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
-| D6 | As a user, I can remove or mute a participant **mid-debate**. | FR-13 | C | 5 | todo — split out of the original D4 (see note below) |
+| D6 | As a user, I can remove or mute a participant **mid-debate**. | FR-13 | C | 5 | ✅ done (mute) — `POST /chambers/{id}/participants/{pid}/mute`, queued to the **next round boundary** while running, immediate otherwise. A muted debater stops taking turns and stops counting toward the decision rule, but stays on the roster and is still polled, so the stance history has no hole. Mid-debate *removal* was deliberately not built — see the note below |
 
 > **I5 scope.** The story asks for *basic* accessibility and that is what
 > shipped: keyboard operability, screen-reader labelling, focus visibility and
@@ -83,11 +83,25 @@
 > draft guard is the whole safety story. D6 reaches into the engine:
 > `participants_spoken()` and `round_complete()` in `core/orchestrator.py` both
 > assume a fixed roster, and `resume_round()` — and therefore the step control —
-> derives its resume point from "has everyone spoken in this round?". Dropping a
-> debater mid-round would make an already-complete round read as incomplete (or
-> the reverse), and muting needs an explicit decision on whether a muted debater
-> still counts toward round completion, still gets polled for its stance, and
-> still counts in the `unanimous`/`majority` tallies in `core/consensus.py`.
+> derives its resume point from "has everyone spoken in this round?".
+
+> **D6 as decided and built (2026-08-03).** Four questions had to be answered
+> before any code; the answers are what the implementation encodes:
+>
+> | Question | Decision | Why |
+> |---|---|---|
+> | Remove *and* mute? | **Mute only.** | Removal mid-debate leaves a transcript whose speakers are no longer on the roster; mute is reversible and says what an operator actually wants — "stop arguing", not "stop existing". |
+> | Does a muted debater count toward round completion? | **No**, and the change lands at the **next round boundary**, never mid-round. | Boundary application keeps a debater's muted state constant for a whole round, which is the invariant `round_complete()` — and so resume and step — depend on. Applying mid-round would make a completed round read as incomplete, or the reverse. |
+> | Still polled for its stance? | **Yes.** | Dropping it from the poll would put a hole in the stance history (FR-25) exactly where the interesting thing happened. |
+> | Still counted in the decision rule? | **No.** | This is the point of the control: `core/roster.py::active_stances` restricts the tally, so muting can flip a split into a consensus or a majority into a judge's verdict. Deliberate, and documented as such. |
+>
+> Two guards fall out of this: muting is refused (`409`) if it would leave fewer
+> than two active debaters, and a fully muted chamber falls back to counting
+> everyone rather than resolving an empty tally as "no agreement".
+>
+> Mid-debate **removal** (the other half of FR-13) remains unbuilt. It needs its
+> own decision about what a transcript means when a speaker is no longer on the
+> roster, and mute covers the operator need that motivated the story.
 
 ## Epic E — Debate Engine (turn-based group chat)
 *Goal: the core orchestration loop.*

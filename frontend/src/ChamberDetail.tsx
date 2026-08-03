@@ -42,6 +42,8 @@ export function ChamberDetail({
   const [chamber, setChamber] = useState<Chamber | null>(null);
   const [metrics, setMetrics] = useState<ParticipantMetrics[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Non-error feedback, e.g. a mute that lands at the next round boundary.
+  const [notice, setNotice] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   // A step runs synchronously on the server: hold the controls until it returns.
   const [stepping, setStepping] = useState(false);
@@ -107,6 +109,25 @@ export function ChamberDetail({
       setEditingParticipant(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to update participant");
+    }
+  }
+
+  async function onToggleMuted(participantId: string, muted: boolean) {
+    setError(null);
+    try {
+      const result = await api.setParticipantMuted(chamberId, participantId, muted);
+      if (result.status === "queued") {
+        // The engine applies it at the next round boundary, so the roster we
+        // hold is still correct until then — say so rather than lying about it.
+        setNotice(
+          `${muted ? "Mute" : "Unmute"} queued — it takes effect at the next round.`,
+        );
+      } else {
+        setNotice(null);
+        setChamber(await api.getChamber(chamberId));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to change muting");
     }
   }
 
@@ -314,6 +335,11 @@ export function ChamberDetail({
       </p>
       {chamber.description && <p>{chamber.description}</p>}
       {error && <p className="error">{error}</p>}
+      {notice && (
+        <p className="muted" role="status">
+          {notice}
+        </p>
+      )}
 
       <div className="card">
         <h2>Debate settings</h2>
@@ -459,7 +485,7 @@ export function ChamberDetail({
               onCancel={() => setEditingParticipant(null)}
             />
           ) : (
-            <div key={p.id} className="row">
+            <div key={p.id} className="row" style={p.muted ? { opacity: 0.55 } : undefined}>
               <span
                 className="dot"
                 style={{ background: participantColor(chamber.participants, p.id) }}
@@ -470,6 +496,9 @@ export function ChamberDetail({
               <span className="muted">
                 {p.provider} / {p.model}
               </span>
+              {/* Spelled out, not just dimmed: opacity alone is invisible to a
+                  screen reader and marginal for low-vision users (NFR-U-2). */}
+              {p.muted && <span className="muted">🔇 muted — not counted in the vote</span>}
               {tuningSummary(p.tuning) && (
                 <span
                   className="muted"
@@ -481,6 +510,20 @@ export function ChamberDetail({
                 >
                   ⚙ {tuningSummary(p.tuning)}
                 </span>
+              )}
+              {/* Muting works at any point, including mid-debate (FR-13). */}
+              {chamber.status !== "concluded" && (
+                <button
+                  onClick={() => onToggleMuted(p.id, !p.muted)}
+                  aria-label={`${p.muted ? "unmute" : "mute"} ${p.display_name}`}
+                  title={
+                    p.muted
+                      ? "Bring this debater back into the argument and the vote"
+                      : "Stop this debater taking turns; their stance stops counting"
+                  }
+                >
+                  {p.muted ? "Unmute" : "Mute"}
+                </button>
               )}
               {chamber.status === "draft" && (
                 <>

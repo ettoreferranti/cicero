@@ -56,6 +56,10 @@ UI with exports and metrics). Milestone 3 adds:
   description and its participant roster (add, edit, remove) are all editable,
   API + UI. A clone is a fresh draft, so this is how a rerun changes exactly one
   variable before being compared against the original.
+- **Muting (D6)** — take a debater out of the argument mid-debate without
+  removing it: it stops taking turns and stops counting toward the decision
+  rule, but stays on the roster and is still polled, so the stance record stays
+  continuous. Applied at the next round boundary.
 - **Restart resilience (J3)** and an **executable release demo (J4)** —
   `make demo` walks the whole acceptance path against a live API and reports
   PASS/FAIL per requirement (see [Release demo](#release-demo)).

@@ -824,11 +824,15 @@ def run_demo(
     )
     history: list[dict[str, Any]] = body.get("stance_history") or []
     rounds_polled = [entry.get("round_index") for entry in history]
-    first = history[0].get("stances") or {} if history else {}
+    # Movement is measured against the *assigned* stance, not against the first
+    # poll: with min_rounds > 1 the first poll already reflects a debater who
+    # has crossed the floor, and comparing polls to each other reports that as
+    # "nobody moved".
+    starting = {str(p.get("id")): str(p.get("stance")) for p in body.get("participants") or []}
     movers = [
         pid
-        for pid, opening in first.items()
-        if any((entry.get("stances") or {}).get(pid) != opening for entry in history)
+        for pid, assigned in starting.items()
+        if any((entry.get("stances") or {}).get(pid, assigned) != assigned for entry in history)
     ]
     report.check(
         "FR-25",

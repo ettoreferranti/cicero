@@ -36,6 +36,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -410,6 +411,103 @@ def _compare_runs(
 # --------------------------------------------------------------------------- #
 
 
+def _decide(stances: dict[str, str], rule: str) -> tuple[str, str | None]:
+    """Independent re-implementation of the decision rule (see FR-22).
+
+    Deliberately *not* imported from ``cicero.core.consensus``: an acceptance
+    check that calls the code under test can only ever agree with it. Written
+    from the requirement instead, so the two disagreeing is a real signal.
+    """
+    values = list(stances.values())
+    if values and len(set(values)) == 1:
+        return "consensus", values[0]
+    if rule == "unanimous":
+        return "disagreement", None
+    ranked = Counter(values).most_common()
+    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        return ("verdict", None) if rule == "judge" else ("disagreement", None)
+    return "majority", ranked[0][0]
+
+
+def _check_stances_were_actually_measured(body: dict[str, Any], report: Report) -> None:
+    """Guard the class of bug where the tally is not evidence at all.
+
+    Every check above this asks "was something recorded". These ask whether the
+    recorded thing means anything — which is what was missing when a substring
+    parser silently inverted concessions, and again when a reasoning model
+    answered every poll with empty content.
+    """
+    history: list[dict[str, Any]] = body.get("stance_history") or []
+    consensus: dict[str, Any] = body.get("consensus") or {}
+
+    # 1. A poll nobody could read is a defect, always. This is the direct guard
+    #    on the reasoning-model bug: qwen3 spent its whole token budget thinking
+    #    and returned empty content, three rounds running, and nothing failed.
+    unreadable = sum(len(entry.get("unparsed") or []) for entry in history)
+    report.check(
+        "FR-25",
+        "every stance poll was readable",
+        unreadable == 0,
+        f"{unreadable} unreadable poll(s) across {len(history)} round(s)",
+    )
+
+    # 2. Debaters who *start* opposed cannot unanimously agree without at least
+    #    one of them leaving their assigned position. If the record shows
+    #    everyone still sitting on their starting role, it is echoing the roster
+    #    rather than measuring anyone — the signature of the parser bug, where
+    #    an unreadable reply was silently replaced by the declared stance.
+    #    Narrow (it can only fire on a consensus outcome) but sound: for a
+    #    unanimous end from a divided start, movement is a tautology.
+    declared = {
+        str(p.get("id")): str(p.get("stance")) for p in body.get("participants") or []
+    }
+    final_stances = {
+        pid: str(value) for pid, value in (consensus.get("final_stances") or {}).items()
+    }
+    outcome = consensus.get("outcome")
+    if outcome == "consensus" and len(set(declared.values())) > 1:
+        movers = [pid for pid, stance in final_stances.items() if declared.get(pid) != stance]
+        report.check(
+            "FR-25",
+            "unanimous agreement from opposed starts shows movement",
+            bool(movers),
+            f"started {sorted(set(declared.values()))}, "
+            f"ended {sorted(set(final_stances.values()))}, {len(movers)} moved",
+        )
+    else:
+        report.skip(
+            "FR-25",
+            "movement implied by unanimity",
+            f"only checkable on a consensus from a divided start (was {outcome!r})",
+        )
+
+    # 3. The published outcome must follow from the published stances. Would not
+    #    have caught either bug above — both produced an outcome faithful to the
+    #    (wrong) stances — but it is what stops the tally and the artifact
+    #    drifting apart, which is how the contradiction became visible.
+    rule = str(((body.get("settings") or {}).get("decision_rule")) or "judge")
+    muted = any(p.get("muted") for p in body.get("participants") or [])
+    if final_stances and not muted and unreadable == 0:
+        expected_outcome, expected_winner = _decide(final_stances, rule)
+        actual_winner = consensus.get("winning_stance")
+        agrees = expected_outcome == outcome and (
+            expected_winner is None or expected_winner == actual_winner
+        )
+        report.check(
+            "FR-22/23",
+            "outcome follows from the recorded stances",
+            agrees,
+            f"rule={rule}: expected {expected_outcome}/{expected_winner}, "
+            f"got {outcome}/{actual_winner}",
+        )
+    else:
+        report.skip(
+            "FR-22/23",
+            "outcome recomputed from stances",
+            "needs an unmuted, fully-readable poll",
+        )
+
+
 def run_demo(
     client: httpx.Client, roster: list[ParticipantSpec], args: argparse.Namespace
 ) -> Report:
@@ -597,6 +695,8 @@ def run_demo(
         bool(history) and rounds_polled == sorted(set(rounds_polled)),
         f"{len(history)} poll(s) across rounds {rounds_polled}, {len(movers)} debater(s) moved",
     )
+    _check_stances_were_actually_measured(body, report)
+
     stop_reason = (body.get("config") or {}).get("stop_reason")
     report.check("FR-16", "a stop condition ended the debate", bool(stop_reason), str(stop_reason))
 

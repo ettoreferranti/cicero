@@ -53,8 +53,21 @@
 | D1 | As a user, I can create/list/view/delete chambers with topic, category, and description. | FR-1/2 | M | 3 | ✅ done |
 | D2 | As a user, I can add participants with provider, model, name, and stance (default `neutral`). | FR-6/7 | M | 3 | ✅ done |
 | D3 | As a user, I can set per-participant tuning (temperature, max tokens, persona/style). | FR-11 | S | 3 | 🟡 partial — API accepts tuning on add; per-chamber debate settings (rounds/tokens/duration/decision rule) tunable via API+UI; per-participant tuning UI still todo |
-| D4 | As a user, I can edit a chamber while `draft` and remove/mute participants. | FR-3/13 | S | 3 | todo |
+| D4 | As a user, I can edit a chamber while it is a `draft` — its topic/category/description, and the participant roster (add, edit, remove) — including on a **clone before its rerun**, so a rerun can change one variable. | FR-3 | S | 3 | ✅ done — `PATCH /chambers/{id}`, `PATCH`/`DELETE /chambers/{id}/participants/{pid}`, plus edit/remove controls in the UI |
 | D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
+| D6 | As a user, I can remove or mute a participant **mid-debate**. | FR-13 | C | 5 | todo — split out of the original D4 (see note below) |
+
+> **Why D4 and D6 are separate.** The original D4 bundled FR-3 (edit while
+> `draft`) with FR-13 (remove/mute mid-debate); they are very different jobs.
+> D4 touches only draft-state CRUD — the chamber has no turns, so the existing
+> draft guard is the whole safety story. D6 reaches into the engine:
+> `participants_spoken()` and `round_complete()` in `core/orchestrator.py` both
+> assume a fixed roster, and `resume_round()` — and therefore the step control —
+> derives its resume point from "has everyone spoken in this round?". Dropping a
+> debater mid-round would make an already-complete round read as incomplete (or
+> the reverse), and muting needs an explicit decision on whether a muted debater
+> still counts toward round completion, still gets polled for its stance, and
+> still counts in the `unanimous`/`majority` tallies in `core/consensus.py`.
 
 ## Epic E — Debate Engine (turn-based group chat)
 *Goal: the core orchestration loop.*
@@ -137,7 +150,7 @@ Epics **A**, **B1/B2**, **C1/C6**. Deliverable: scaffold, CI (lint/type/test/sec
 ### Milestone 3 — Web Evidence (v1 feature) & Hardening ← **done**
 Epic **G** (SSRF-sandboxed web search + fetch + citations), **J1/J2**, **H4**, **E7**, **I5**, **J3**, **J4**. Deliverable: safe web evidence with citations wired into the debate loop, security hardening, release.
 Also delivered here (user-driven): per-chamber **debate settings** (rounds, token budget, wall-clock duration, convergence rounds, decision rule) via API + UI, and the **convergence redesign** (two-phase prompting + unanimous/majority/judge decision rules with a recorded winning stance) so debates end with one position winning. **J3 landed** (restart recovery + pause/resume). **J4 landed** (executable release demo + doc audit).
-Carried forward as follow-ups, none blocking the release: full a11y audit (I5), server-side model validation on add (C4), provider retry/backoff (C5), per-participant tuning UI (D3), draft editing / muting (D4), stance-change history (F4), Docker Compose (A6).
+Carried forward as follow-ups, none blocking the release: full a11y audit (I5), server-side model validation on add (C4), provider retry/backoff (C5), per-participant tuning UI (D3), draft editing (D4) and mid-debate muting (D6), stance-change history (F4), Docker Compose (A6).
 
 ### Post-release follow-up — step control (E5/I2) ✅ *2026-08-03*
 `POST /chambers/{id}/step` runs exactly one participant turn and parks the chamber

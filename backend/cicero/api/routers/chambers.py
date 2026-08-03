@@ -1,7 +1,8 @@
 """Chamber, participant, debate-run, streaming, export and metrics endpoints.
 
-Covers FR-1/2/6/7 (chambers/participants), E1 (run), E6/FR-18 (live SSE stream),
-E5/FR-19 (start/step/pause/resume/stop), H2/FR-31 (export), and H3/FR-33 (metrics).
+Covers FR-1/2/6/7 (chambers/participants), D4/FR-3 (draft editing), E1 (run),
+E6/FR-18 (live SSE stream), E5/FR-19 (start/step/pause/resume/stop),
+H2/FR-31 (export), and H3/FR-33 (metrics).
 """
 
 from __future__ import annotations
@@ -22,9 +23,11 @@ from cicero.api.dependencies import (
 )
 from cicero.api.schemas import (
     ChamberCreate,
+    ChamberUpdate,
     DebateSettingsIn,
     ModeratorNoteIn,
     ParticipantCreate,
+    ParticipantUpdate,
 )
 from cicero.core.budget import DebateBudget
 from cicero.core.compare import compare_chambers
@@ -62,6 +65,28 @@ def _require_chamber(repo: ChamberRepository, chamber_id: UUID) -> Chamber:
     if chamber is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "chamber not found")
     return chamber
+
+
+def _require_draft(repo: ChamberRepository, chamber_id: UUID, subject: str) -> Chamber:
+    """Fetch a chamber that must still be editable (FR-3).
+
+    A clone is created as a fresh `draft`, so this also covers editing a cloned
+    chamber before its rerun.
+    """
+    chamber = _require_chamber(repo, chamber_id)
+    if chamber.status is not ChamberStatus.DRAFT:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{subject} can only be changed while the chamber is a draft",
+        )
+    return chamber
+
+
+def _require_participant(chamber: Chamber, participant_id: UUID) -> Participant:
+    participant = chamber.participant_by_id(participant_id)
+    if participant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "participant not found")
+    return participant
 
 
 def _build_engine(
@@ -113,17 +138,25 @@ def create_chamber(payload: ChamberCreate, repo: RepoDep) -> Chamber:
     return repo.add(chamber)
 
 
+@router.patch("/{chamber_id}", response_model=Chamber)
+def update_chamber(chamber_id: UUID, payload: ChamberUpdate, repo: RepoDep) -> Chamber:
+    """Edit topic/category/description while the chamber is a draft (FR-3).
+
+    Only the fields actually sent are applied. A cloned chamber is a fresh
+    draft, so this is how a rerun gets retargeted before it starts.
+    """
+    chamber = _require_draft(repo, chamber_id, "a chamber")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(chamber, field, value)
+    return repo.update(chamber)
+
+
 @router.put("/{chamber_id}/settings", response_model=Chamber)
 def update_settings(
     chamber_id: UUID, payload: DebateSettingsIn, repo: RepoDep
 ) -> Chamber:
     """Tune the debate (rounds, token/time budgets, decision rule) while a draft."""
-    chamber = _require_chamber(repo, chamber_id)
-    if chamber.status is not ChamberStatus.DRAFT:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "settings can only be changed while the chamber is a draft",
-        )
+    chamber = _require_draft(repo, chamber_id, "settings")
     chamber.settings = DebateSettings(**payload.model_dump())
     return repo.update(chamber)
 
@@ -179,12 +212,7 @@ def clone_chamber(chamber_id: UUID, repo: RepoDep) -> Chamber:
 def add_participant(
     chamber_id: UUID, payload: ParticipantCreate, repo: RepoDep
 ) -> Chamber:
-    chamber = _require_chamber(repo, chamber_id)
-    if chamber.status is not ChamberStatus.DRAFT:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "participants can only be added while the chamber is a draft",
-        )
+    chamber = _require_draft(repo, chamber_id, "the participant roster")
     tuning = (
         ParticipantTuning(**payload.tuning.model_dump())
         if payload.tuning is not None
@@ -199,6 +227,48 @@ def add_participant(
             tuning=tuning,
         )
     )
+    return repo.update(chamber)
+
+
+@router.patch("/{chamber_id}/participants/{participant_id}", response_model=Chamber)
+def update_participant(
+    chamber_id: UUID,
+    participant_id: UUID,
+    payload: ParticipantUpdate,
+    repo: RepoDep,
+) -> Chamber:
+    """Edit a debater while the chamber is a draft (FR-3).
+
+    Only the fields actually sent are applied, so a cloned chamber can be rerun
+    with (say) one debater on a different model, everything else held constant.
+    """
+    chamber = _require_draft(repo, chamber_id, "the participant roster")
+    participant = _require_participant(chamber, participant_id)
+    changes = payload.model_dump(exclude_unset=True)
+    tuning = changes.pop("tuning", None)
+    for field, value in changes.items():
+        setattr(participant, field, value)
+    if tuning is not None:
+        participant.tuning = ParticipantTuning(**tuning)
+    return repo.update(chamber)
+
+
+@router.delete("/{chamber_id}/participants/{participant_id}", response_model=Chamber)
+def remove_participant(
+    chamber_id: UUID, participant_id: UUID, repo: RepoDep
+) -> Chamber:
+    """Remove a debater while the chamber is a draft (FR-3).
+
+    A draft may drop below two participants — `/run` is what enforces the
+    minimum, so a roster can be rebuilt freely before the debate starts.
+    """
+    chamber = _require_draft(repo, chamber_id, "the participant roster")
+    _require_participant(chamber, participant_id)
+    chamber.participants = [
+        participant
+        for participant in chamber.participants
+        if participant.id != participant_id
+    ]
     return repo.update(chamber)
 
 

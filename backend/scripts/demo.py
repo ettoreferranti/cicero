@@ -374,6 +374,25 @@ def _compare_runs(
         return
     clone_body = clone.json()
     clone_id = str(clone_body["id"])
+
+    # A clone is a fresh draft, so the rerun can be retargeted first (FR-3) —
+    # this is what makes the comparison a controlled one.
+    edited = client.patch(f"/chambers/{clone_id}", json={"category": "rerun"})
+    roster = clone_body["participants"]
+    retuned = client.patch(
+        f"/chambers/{clone_id}/participants/{roster[0]['id']}",
+        json={"tuning": {"temperature": 0.2}},
+    )
+    clone_body = retuned.json() if retuned.status_code == 200 else clone_body
+    report.check(
+        "FR-3",
+        "cloned draft edited before its rerun",
+        edited.status_code == 200
+        and edited.json().get("category") == "rerun"
+        and retuned.status_code == 200,
+        f"HTTP {edited.status_code}/{retuned.status_code}",
+    )
+
     _run_debate(client, clone_id, report, timeout, _participant_names(clone_body))
 
     comparison = client.get(f"/chambers/{chamber_id}/compare/{clone_id}")

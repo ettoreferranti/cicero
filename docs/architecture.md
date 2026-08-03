@@ -333,8 +333,11 @@ streaming path:
   | Endpoint | Purpose |
   |---|---|
   | `POST/GET/DELETE /chambers[/{id}]` | Chamber CRUD (FR-1/2) |
+  | `PATCH /chambers/{id}` | Edit topic/category/description while `draft` (FR-3) |
   | `PUT /chambers/{id}/settings` | Debate tuning while `draft` (FR-11/16) |
   | `POST /chambers/{id}/participants` | Add a debater (FR-6/7) |
+  | `PATCH /chambers/{id}/participants/{pid}` | Edit a debater while `draft` (FR-3) |
+  | `DELETE /chambers/{id}/participants/{pid}` | Remove a debater while `draft` (FR-3) |
   | `POST /chambers/{id}/run` | Start — async → 202, or `?wait=true` (FR-19) |
   | `POST /chambers/{id}/step` | Run one turn, then park as `paused` (FR-19) |
   | `POST /chambers/{id}/resume` | Continue a paused debate (FR-19, J3) |
@@ -357,6 +360,23 @@ streaming path:
 SSE (one-directional server→client) is chosen over WebSockets because debate
 streaming is a pure fan-out of events; there is no client→server channel to
 justify a bidirectional socket.
+
+**Draft mutability (FR-3).** Everything that defines *what will be debated* —
+topic, category, description, debate settings, and the participant roster — is
+editable only while the chamber is `draft`, enforced in one place
+(`_require_draft`) so every write path answers `409` identically once a debate
+has started. The rule keeps a transcript honest: a concluded debate always
+reflects the roster and topic it actually ran with. Because `POST
+/chambers/{id}/clone` produces a *fresh draft*, the same endpoints are how a
+rerun is prepared — swap one debater's model, drop or add a participant, retitle
+the topic — which is what makes `GET /chambers/{a}/compare/{b}` (FR-32) a
+controlled comparison rather than a repeat. Removing a debater may take a draft
+below two participants; `/run` is the single place that enforces the minimum, so
+a roster can be rebuilt freely before the debate starts.
+
+Editing a participant *mid-debate* (FR-13, backlog D6) is deliberately **not**
+covered by this: it would invalidate the fixed-roster assumption in
+`participants_spoken()` / `round_complete()` that resume and step both rely on.
 
 ## 12. Human controls: start, step, pause, resume & restart recovery (J3 / E5)
 

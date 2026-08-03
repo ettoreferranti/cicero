@@ -45,6 +45,10 @@ UI with exports and metrics). Milestone 3 adds:
   security headers and CORS lockdown.
 - **Moderator notes (E7)** — inject a note between turns (API + UI) — and
   **run comparison (H4)** via `GET /chambers/{a}/compare/{b}`.
+- **Draft editing (D4)** — while a chamber is a draft, its topic/category/
+  description and its participant roster (add, edit, remove) are all editable,
+  API + UI. A clone is a fresh draft, so this is how a rerun changes exactly one
+  variable before being compared against the original.
 - **Restart resilience (J3)** and an **executable release demo (J4)** —
   `make demo` walks the whole acceptance path against a live API and reports
   PASS/FAIL per requirement (see [Release demo](#release-demo)).
@@ -113,6 +117,11 @@ provider + model + stance), and click **Start** — turns stream in live, follow
 by the consensus/disagreement statement, metrics, and JSON/Markdown export links.
 **Step** takes one turn at a time instead, and **Pause** parks a running debate
 so **Resume** can pick it up where it stopped.
+
+While a chamber is still a draft you can **Edit** its topic/category/description
+and edit or remove any participant. **Clone & rerun** makes a fresh draft copy,
+so the usual way to compare runs is to clone, change one variable (say a single
+debater's model), and run it again.
 
 Frontend checks: `npm run typecheck`, `npm run lint`, `npm test` (Vitest).
 

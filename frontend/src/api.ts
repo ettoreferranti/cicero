@@ -62,6 +62,17 @@ export function createChamber(input: {
   });
 }
 
+/** Edit topic/category/description while the chamber is a draft (FR-3). */
+export function updateChamber(
+  id: string,
+  input: Partial<{ topic: string; category: string; description: string }>,
+): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 export function updateSettings(
   id: string,
   settings: Partial<DebateSettings>,
@@ -94,6 +105,30 @@ export function addParticipant(
   return request<Chamber>(`/chambers/${id}/participants`, {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+/** Edit a debater while the chamber is a draft; only the sent fields change. */
+export function updateParticipant(
+  id: string,
+  participantId: string,
+  input: Partial<{
+    display_name: string;
+    provider: Provider;
+    model: string;
+    stance: Stance;
+  }>,
+): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}/participants/${participantId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Remove a debater while the chamber is a draft; resolves with the new roster. */
+export function removeParticipant(id: string, participantId: string): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}/participants/${participantId}`, {
+    method: "DELETE",
   });
 }
 

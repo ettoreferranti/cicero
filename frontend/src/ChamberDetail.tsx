@@ -45,6 +45,9 @@ export function ChamberDetail({
   // Non-error feedback, e.g. a mute that lands at the next round boundary.
   const [notice, setNotice] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
+  // Mute/unmute requests the engine has accepted but not yet applied, keyed by
+  // participant id. Cleared when a reload shows the roster caught up.
+  const [pendingMutes, setPendingMutes] = useState<Record<string, boolean>>({});
   // A step runs synchronously on the server: hold the controls until it returns.
   const [stepping, setStepping] = useState(false);
   const [settingsForm, setSettingsForm] = useState<DebateSettings | null>(null);
@@ -75,6 +78,15 @@ export function ChamberDetail({
       const loaded = await api.getChamber(chamberId);
       setChamber(loaded);
       setSettingsForm(loaded.settings);
+      // Drop pending markers the roster has caught up with, so a stale "⏳" is
+      // never left next to a debater that is already muted.
+      setPendingMutes((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(
+            ([id, wanted]) => loaded.participants.find((p) => p.id === id)?.muted !== wanted,
+          ),
+        ),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to load chamber");
     }
@@ -119,11 +131,18 @@ export function ChamberDetail({
       if (result.status === "queued") {
         // The engine applies it at the next round boundary, so the roster we
         // hold is still correct until then — say so rather than lying about it.
+        // Recorded per participant as well as in the page notice: the notice
+        // sits at the top of the page, far from the row that was clicked, and
+        // it is the roster row a user looks at to see whether anything changed.
+        setPendingMutes((current) => ({ ...current, [participantId]: muted }));
         setNotice(
           `${muted ? "Mute" : "Unmute"} queued — it takes effect at the next round.`,
         );
       } else {
         setNotice(null);
+        setPendingMutes((current) =>
+          Object.fromEntries(Object.entries(current).filter(([id]) => id !== participantId)),
+        );
         setChamber(await api.getChamber(chamberId));
       }
     } catch (e) {
@@ -544,6 +563,11 @@ export function ChamberDetail({
               {/* Spelled out, not just dimmed: opacity alone is invisible to a
                   screen reader and marginal for low-vision users (NFR-U-2). */}
               {p.muted && <span className="muted">🔇 muted — not counted in the vote</span>}
+              {pendingMutes[p.id] !== undefined && pendingMutes[p.id] !== p.muted && (
+                <span className="muted">
+                  ⏳ {pendingMutes[p.id] ? "muting" : "unmuting"} at next round
+                </span>
+              )}
               {tuningSummary(p.tuning) && (
                 <span
                   className="muted"
@@ -556,20 +580,22 @@ export function ChamberDetail({
                   ⚙ {tuningSummary(p.tuning)}
                 </span>
               )}
-              {/* Muting works at any point, including mid-debate (FR-13). */}
-              {chamber.status !== "concluded" && (
-                <button
-                  onClick={() => onToggleMuted(p.id, !p.muted)}
-                  aria-label={`${p.muted ? "unmute" : "mute"} ${p.display_name}`}
-                  title={
-                    p.muted
-                      ? "Bring this debater back into the argument and the vote"
-                      : "Stop this debater taking turns; their stance stops counting"
-                  }
-                >
-                  {p.muted ? "Unmute" : "Mute"}
-                </button>
-              )}
+              {/* Muting works at any point, including mid-debate (FR-13), and
+                  stays reachable after the debate ends: a debater muted during
+                  a run is still muted afterwards, and hiding the control was
+                  the only reason that could not be undone. Unmuting a concluded
+                  chamber changes the roster, never the recorded outcome. */}
+              <button
+                onClick={() => onToggleMuted(p.id, !p.muted)}
+                aria-label={`${p.muted ? "unmute" : "mute"} ${p.display_name}`}
+                title={
+                  p.muted
+                    ? "Bring this debater back into the argument and the vote"
+                    : "Stop this debater taking turns; their stance stops counting"
+                }
+              >
+                {p.muted ? "Unmute" : "Mute"}
+              </button>
               {chamber.status === "draft" && (
                 <>
                   <button

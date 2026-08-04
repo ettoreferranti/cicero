@@ -323,6 +323,29 @@ participant's assigned starting role, so counting it let the setup decide the
 outcome — the same "fabricated data reaching the tally" failure as the parsing
 bug above, one layer down.
 
+### Bug — muting a debater did nothing visible, and could not be undone (2026-08-04)
+Reported from real use: "if I click on mute, there's no indication that a
+participant is muted, nor can I unmute them". Three separate defects, which
+together produce exactly that experience.
+
+| # | Where | Defect |
+|---|---|---|
+| 1 | `core/orchestrator.py` | A queued mute was **silently discarded**. `_apply_mutes` ran only at the *top* of each round, so a mute requested during the last round had no boundary left to land on and died with the debate task — after the API had already answered `"queued"`. |
+| 2 | `ChamberDetail.tsx` | A queued mute left **no mark on the row**. The only feedback was a page-level notice, far from the button clicked, and the roster is not refetched mid-run. |
+| 3 | `ChamberDetail.tsx` | The control was hidden once the chamber concluded (`status !== "concluded"`), so a debater muted mid-debate **could never be unmuted**. |
+
+Mute on a *draft* chamber always worked — that path refetches and shows the
+badge — which is why this survived D6's tests: they drove the engine directly
+with a mute already queued before round 0, the one timing that works.
+
+Fixed: pending mutes are now drained at conclusion **and** on park, applied
+*after* the outcome is computed so the roster records the request without a
+change that never survived a full round retroactively altering the tally (the
+D6 boundary invariant is preserved); a per-row `⏳ muting at next round` marker,
+cleared when a reload shows the roster caught up; and Mute/Unmute stays
+available on a concluded chamber, where it changes the roster and never the
+stored consensus.
+
 ## Cross-cutting "Definition of Done" (every story)
 1. Code + tests (unit/integration) with providers mocked.
 2. Mutation score on touched core logic meets threshold (or justified exclusion).

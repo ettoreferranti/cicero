@@ -1073,3 +1073,53 @@ async def test_listener_receives_each_turn() -> None:
     engine = DebateEngine(factory, repo, consensus, listener=Listener())
     result = await engine.run(chamber, DebateBudget(max_rounds=5, max_total_tokens=100_000))
     assert len(seen) == len(result.turns)
+
+
+class LateMutes:
+    """Mute source whose change arrives after the last round boundary.
+
+    Models an operator clicking Mute during the final round: the boundary drain
+    has already happened, so only an end-of-debate drain can see it.
+    """
+
+    def __init__(self, changes):  # type: ignore[no-untyped-def]
+        self._changes = changes
+        self.drains = 0
+
+    def drain(self):  # type: ignore[no-untyped-def]
+        self.drains += 1
+        if self.drains == 1:
+            return {}  # the round-0 boundary: nothing requested yet
+        changes, self._changes = self._changes, {}
+        return changes
+
+
+async def test_mute_requested_in_the_last_round_is_not_silently_dropped() -> None:
+    """The API answers "queued" — a promise it must keep even if no round follows.
+
+    Dropped, the operator saw no muted debater, no way to undo one, and no error:
+    the request simply evaporated with the debate task.
+    """
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="con")}
+    )
+    consensus = ConsensusEngine(factory, ScriptedProvider(moderator_reply="S."), MOD_OPTS)
+    mutes = LateMutes({b.id: True})
+    engine = DebateEngine(factory, repo, consensus, mutes=mutes)
+
+    budget = DebateBudget(max_rounds=1, max_total_tokens=100_000, min_rounds=1)
+    result = await engine.run(chamber, budget)
+
+    assert result.status is ChamberStatus.CONCLUDED
+    assert result.participant_by_id(b.id).muted is True  # type: ignore[union-attr]
+    # B still argued: the mute arrived too late to skip its turn, which is the
+    # documented boundary behaviour. What must not happen is losing the request.
+    assert any(turn.participant_id == b.id for turn in result.turns)
+    # And it is persisted, not just set on the returned object.
+    stored = repo.get(chamber.id)
+    assert stored is not None
+    assert stored.participant_by_id(b.id).muted is True  # type: ignore[union-attr]

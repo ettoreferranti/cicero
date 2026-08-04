@@ -301,6 +301,12 @@ class DebateEngine:
             "rounds_completed": tracker.rounds_completed,
             "tokens_used": tracker.tokens_used,
         }
+        # A mute requested during the last round has no "next round" to land on.
+        # Dropping it silently makes the API's "queued" a promise it never kept:
+        # the operator sees no muted debater and no way to undo one. Applied here
+        # — after the outcome is computed — so the roster records what was asked
+        # without a change that never survived a full round altering the tally.
+        self._apply_mutes(chamber)
         transition(chamber, ChamberStatus.CONCLUDED)
         self._persist(chamber)
         return chamber
@@ -524,6 +530,9 @@ class DebateEngine:
 
     def _park(self, chamber: Chamber) -> Chamber:
         """Pause a stepped debate so the next step (or resume) continues it."""
+        # Same reason as at conclusion: a parked debate may never run another
+        # round, so a queued mute would otherwise be lost with the task.
+        self._apply_mutes(chamber)
         transition(chamber, ChamberStatus.PAUSED)
         self._persist(chamber)
         return chamber

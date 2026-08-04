@@ -96,6 +96,39 @@ textarea {
   color: #a3a3a3;
 }
 
+/* Chamber-wide vs. per-debater is this app's most confusable distinction: the
+   two live in identical-looking cards, so a "Tuning" panel inside a debater's
+   form reads as if it configured the whole debate. Two cues fix it — a scope
+   badge on the heading, and the left accent below, which is the same idiom the
+   transcript already uses to mean "this belongs to one debater". */
+.scope-badge {
+  font-size: 0.7rem;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: #9aa0aa;
+  vertical-align: middle;
+  margin-left: 0.5rem;
+}
+
+.scope-note {
+  margin: -0.4rem 0 0.85rem;
+  font-size: 0.85rem;
+}
+
+/* Marks a block as scoped to a single debater. The accent colour is set inline
+   to that debater's transcript colour when one exists; the fallback below is
+   for the "add participant" form, which has no debater yet. It is deliberately
+   lighter than the usual #3a3f4b border — measured on screen, a 3px stripe in
+   that colour is invisible against the card, so the cue simply did not land. */
+.scoped {
+  border-left: 3px solid #6b7280;
+  padding-left: 0.75rem;
+}
+
 /* Per-debater accent colour is set inline via border-left-color. */
 .turn {
   border-left: 3px solid #2563eb;

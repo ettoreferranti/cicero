@@ -342,7 +342,12 @@ export function ChamberDetail({
       )}
 
       <div className="card">
-        <h2>Debate settings</h2>
+        <h2>
+          Debate settings <span className="scope-badge">whole chamber</span>
+        </h2>
+        <p className="muted scope-note">
+          How the debate runs — how long, and how it is decided. Applies to every debater.
+        </p>
         {chamber.status === "draft" && settingsForm ? (
           <form onSubmit={onSaveSettings}>
             <div className="row" style={{ flexWrap: "wrap", gap: "0.75rem" }}>
@@ -499,7 +504,13 @@ export function ChamberDetail({
       </div>
 
       <div className="card">
-        <h2>Participants</h2>
+        <h2>
+          Participants <span className="scope-badge">per debater</span>
+        </h2>
+        <p className="muted scope-note">
+          Each debater is configured on its own — provider, model, stance, and its own Tuning
+          (temperature, max tokens, persona).
+        </p>
         {chamber.participants.length === 0 && <p className="muted">None yet.</p>}
         {chamber.participants.map((p) =>
           editingParticipant === p.id ? (
@@ -507,6 +518,7 @@ export function ChamberDetail({
               key={p.id}
               formLabel={`edit ${p.display_name}`}
               submitLabel="Save"
+              accent={participantColor(chamber.participants, p.id)}
               initial={{
                 display_name: p.display_name,
                 provider: p.provider,

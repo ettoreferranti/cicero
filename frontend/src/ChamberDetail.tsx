@@ -549,7 +549,7 @@ export function ChamberDetail({
                   className="muted"
                   style={{ fontSize: "0.85rem" }}
                   title={
-                    [p.tuning.persona, p.tuning.style].filter(Boolean).join(" — ") ||
+                    [p.tuning.persona, p.tuning.instructions].filter(Boolean).join(" — ") ||
                     undefined
                   }
                 >

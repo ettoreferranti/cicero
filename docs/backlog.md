@@ -56,7 +56,7 @@
 | D4 | As a user, I can edit a chamber while it is a `draft` — its topic/category/description, and the participant roster (add, edit, remove) — including on a **clone before its rerun**, so a rerun can change one variable. | FR-3 | S | 3 | ✅ done — `PATCH /chambers/{id}`, `PATCH`/`DELETE /chambers/{id}/participants/{pid}`, plus edit/remove controls in the UI |
 | D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
 | D6 | As a user, I can remove or mute a participant **mid-debate**. | FR-13 | C | 5 | ✅ done (mute) — `POST /chambers/{id}/participants/{pid}/mute`, queued to the **next round boundary** while running, immediate otherwise. A muted debater stops taking turns and stops counting toward the decision rule, but stays on the roster and is still polled, so the stance history has no hole. Mid-debate *removal* was deliberately not built — see the note below |
-| D7 | As a user, I can give each debater a free-text **instructions** prompt (default empty) that steers how it argues during the debate — e.g. "be extra polite", "always yield your position", "speak in rhyme", "use jokes". | FR-11 | S | 3 | todo — specified 2026-08-04, see the note below |
+| D7 | As a user, I can give each debater a free-text **instructions** prompt (default empty) that steers how it argues during the debate — e.g. "be extra polite", "always yield your position", "speak in rhyme", "use jokes". | FR-11 | S | 3 | ✅ done — `ParticipantTuning.instructions` (the renamed `style`, now actually injected) reaches the turn prompt before the engine's rules, and only the turn prompt. Pre-D7 chambers still load via a deprecated `style` read alias |
 
 > **I5 scope.** The story asks for *basic* accessibility and that is what
 > shipped: keyboard operability, screen-reader labelling, focus visibility and
@@ -146,6 +146,22 @@
 > 6. Docs: FR-11 reworded (done, 2026-08-04); `README.md` §UI tuning line and
 >    `architecture.md`'s prompt-assembly description updated when the code lands.
 >
+> **Confirmed against live models (2026-08-04).** The dead-field finding above
+> came from reading the code; a real Ollama debate then reproduced it. Three
+> debaters were given a `style` and nothing else changed:
+>
+> | Debater | `style` set | What it did |
+> |---|---|---|
+> | Alice | "Only write in rhyme" | Plain prose in all three turns. Not one rhyme. |
+> | Eve | "be aggressive" | Conciliatory throughout — opened two of three turns with "While … is a sensible approach" and conceded immediately. |
+> | Bob | "terse, cite numbers and sources" | Terse, cited ASHRAE 55 and EPA figures. **Appeared to comply.** |
+>
+> Bob is the trap, and the reason this went unnoticed for so long: Bob is the
+> only one of the three that also had a **persona** (`"rigorous"`), and persona
+> *is* injected. Bob's behaviour came from the field that works plus qwen3's own
+> citation habit. Verifying the D7 fix on a debater that has a persona set proves
+> nothing — use one with `instructions` **only**.
+
 > **Known interaction, deliberate.** "Always yield your position" will genuinely
 > move a debater's stance poll, and therefore the decision rule and the recorded
 > `winning_stance`. That is the point of the control, but it makes the outcome an

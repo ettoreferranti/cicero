@@ -35,7 +35,8 @@ export interface ParticipantTuning {
   temperature: number;
   max_tokens: number;
   persona: string;
-  style: string;
+  /** How this debater should argue — "be extra polite", "speak in rhyme". */
+  instructions: string;
 }
 
 // Must match ParticipantTuning's defaults in the backend: tuningSummary() marks
@@ -44,7 +45,7 @@ export const DEFAULT_TUNING: ParticipantTuning = {
   temperature: 0.7,
   max_tokens: 2048,
   persona: "",
-  style: "",
+  instructions: "",
 };
 
 export interface Participant {

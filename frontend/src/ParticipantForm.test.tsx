@@ -79,6 +79,35 @@ describe("per-debater scope cues", () => {
     expect(screen.getByText(/Tuning for Ada — temp 1\.2/)).toBeInTheDocument();
   });
 
+  it("offers an instructions box that edits the field the engine reads (D7)", async () => {
+    // Its predecessor, `style`, was collected here and never sent to a model.
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(() => Promise.resolve());
+    render(
+      <ParticipantForm
+        formLabel="edit Ada"
+        submitLabel="Save"
+        initial={{
+          display_name: "Ada",
+          provider: "mock",
+          model: "mock-small",
+          stance: "pro",
+          tuning: DEFAULT_TUNING,
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("instructions"), "speak in rhyme");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tuning: expect.objectContaining({ instructions: "speak in rhyme" }),
+      }),
+    );
+  });
+
   it("marks the form as scoped and tints it with the debater's accent", () => {
     render(
       <ParticipantForm

@@ -216,10 +216,11 @@ export function ParticipantForm({
             style={{ flex: 1, minWidth: "14rem" }}
           />
           <input
-            aria-label="style"
-            placeholder="Style (e.g. terse, cite numbers)"
-            value={draft.tuning.style}
-            onChange={(e) => setTuning({ style: e.target.value })}
+            aria-label="instructions"
+            placeholder="Instructions (e.g. be extra polite, speak in rhyme)"
+            title="How this debater should argue. Applies to its debate turns only — not to the stance poll or the final statement."
+            value={draft.tuning.instructions}
+            onChange={(e) => setTuning({ instructions: e.target.value })}
             style={{ flex: 1, minWidth: "12rem" }}
           />
         </div>

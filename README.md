@@ -98,7 +98,35 @@ docker compose up --build       # UI on http://localhost:8080
 Both ports publish to `127.0.0.1` only, the API image runs as a non-root user,
 and no secrets are baked into any image — compose reads them from the
 git-ignored `.env` beside `docker-compose.yml`. To use an Ollama running on your
-host, leave `OLLAMA_HOST` at its default (`http://host.docker.internal:11434`).
+host, leave `OLLAMA_HOST` **unset/commented out** in `.env` — the container
+needs `http://host.docker.internal:11434`, which is only what you get by
+omitting it (`docker-compose.yml` supplies that as the default). Setting it
+explicitly to `http://localhost:11434` — e.g. by copying an older `.env`, or
+any guide that assumes a bare-metal run — points the container at itself
+instead of your host, and Ollama calls fail with a connection error.
+
+> **macOS + Homebrew:** `brew install docker docker-compose` gets you the CLI
+> only — it does **not** include a Docker daemon or wire up `docker compose`
+> as a subcommand, so `docker compose up --build` fails two different ways in
+> a row (daemon not found, then `unknown flag: --build` because `docker`
+> doesn't recognise `compose` at all). Fix both:
+> 1. **Daemon** — Homebrew ships no daemon. Install one, e.g.
+>    [colima](https://github.com/abiosoft/colima):
+>    `brew install colima && colima start`. (Docker Desktop works too, but
+>    isn't Homebrew-CLI-only.) Colima's VM only runs until you stop it or
+>    reboot; run `colima start` again after a reboot, or
+>    `brew services start colima` once to have it start automatically at
+>    login.
+> 2. **Compose plugin wiring** — `brew info docker-compose` prints a caveat
+>    that's easy to miss: add the formula's plugin directory to
+>    `~/.docker/config.json`:
+>    ```json
+>    { "cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"] }
+>    ```
+>    (Apple Silicon path shown; Intel Homebrew uses `/usr/local/lib/...`.)
+>
+> Verify with `docker compose version` before retrying `docker compose up
+> --build`.
 
 CI builds this stack and smoke-tests it (health, UI, a chamber round-trip
 through the proxy, non-root check) on every push, so it does not rot.

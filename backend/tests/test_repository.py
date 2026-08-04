@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import create_engine, text
 
 from cicero.domain import Chamber, ProviderType, Stance
 from cicero.domain.models import Participant
@@ -111,3 +112,51 @@ def test_get_returns_defensive_copy(repo: ChamberRepository) -> None:
     again = repo.get(chamber.id)
     assert again is not None
     assert again.topic == chamber.topic
+
+
+def test_pre_d7_chamber_with_style_still_loads(tmp_path: Path) -> None:
+    """Chambers saved before `style` was renamed to `instructions` must survive.
+
+    Chambers persist as a JSON document and every domain model forbids extra
+    keys, so without the deprecated alias this row would fail validation on read
+    and the chamber would be permanently unopenable — not a cosmetic break.
+    """
+    db = f"sqlite:///{tmp_path / 'legacy.db'}"
+    repo = SqlAlchemyChamberRepository(db)
+    chamber = _chamber()
+    chamber.participants[0].tuning.instructions = "be aggressive"
+    repo.add(chamber)
+
+    # Rewrite the stored document the way a pre-D7 build would have written it.
+    engine = create_engine(db, connect_args={"check_same_thread": False})
+    with engine.begin() as conn:
+        stored = conn.execute(
+            text("SELECT data FROM chambers WHERE id = :id"), {"id": str(chamber.id)}
+        ).scalar_one()
+        legacy = stored.replace('"instructions":', '"style":')
+        assert '"style":' in legacy  # the rewrite actually did something
+        conn.execute(
+            text("UPDATE chambers SET data = :data WHERE id = :id"),
+            {"data": legacy, "id": str(chamber.id)},
+        )
+
+    fetched = SqlAlchemyChamberRepository(db).get(chamber.id)
+    assert fetched is not None
+    assert fetched.participants[0].tuning.instructions == "be aggressive"
+
+
+def test_instructions_are_written_back_under_the_new_name(tmp_path: Path) -> None:
+    """The alias is read-only: nothing re-emits the deprecated `style` key."""
+    db = f"sqlite:///{tmp_path / 'writeback.db'}"
+    repo = SqlAlchemyChamberRepository(db)
+    chamber = _chamber()
+    chamber.participants[0].tuning.instructions = "speak in rhyme"
+    repo.add(chamber)
+
+    engine = create_engine(db, connect_args={"check_same_thread": False})
+    with engine.begin() as conn:
+        stored = conn.execute(
+            text("SELECT data FROM chambers WHERE id = :id"), {"id": str(chamber.id)}
+        ).scalar_one()
+    assert '"instructions":"speak in rhyme"' in stored
+    assert '"style"' not in stored

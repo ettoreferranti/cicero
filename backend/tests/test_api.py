@@ -184,7 +184,7 @@ def test_add_participant_accepts_tuning(client: TestClient) -> None:
                 "temperature": 0.2,
                 "max_tokens": 1500,
                 "persona": "a cautious economist",
-                "style": "terse",
+                "instructions": "terse",
             },
         },
     )
@@ -194,7 +194,7 @@ def test_add_participant_accepts_tuning(client: TestClient) -> None:
         "temperature": 0.2,
         "max_tokens": 1500,
         "persona": "a cautious economist",
-        "style": "terse",
+        "instructions": "terse",
     }
     # Out-of-range tuning is rejected, not clamped.
     bad = client.post(

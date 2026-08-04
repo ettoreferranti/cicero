@@ -4,6 +4,10 @@
 > (2026-07-16, see §10). This document is the single source of truth for *what*
 > Cicero must do. The *how* lives in [`architecture.md`](./architecture.md); the
 > *when/priority* and delivery status live in [`backlog.md`](./backlog.md).
+>
+> **Amendments since baseline:** FR-11 extended 2026-08-04 — the vague "debating
+> style" is now a specified per-debater **instructions** prompt; see backlog
+> story **D7** for the decisions behind it.
 
 ---
 
@@ -92,8 +96,12 @@ Requirements use MoSCoW priority: **M**ust / **S**hould / **C**ould / **W**on't 
 - **FR-9 (M)** Support an **Anthropic** provider (Claude models via API key).
 - **FR-10 (M)** Provider integrations conform to a common interface so new
   providers can be added without changing the debate engine.
-- **FR-11 (S)** Per-participant tuning: temperature, max tokens, system-prompt
-  persona, and optional "debating style".
+- **FR-11 (S)** Per-participant tuning: temperature, max tokens, a system-prompt
+  **persona** (who the debater is), and free-text **instructions** (default
+  empty) steering how it argues during the debate — e.g. "be extra polite",
+  "always yield your position", "speak in rhyme", "use jokes". Instructions
+  influence tone, format and argumentative posture only; they never override the
+  engine's structural rules or the transcript-is-data defence (NFR-SEC-5).
 - **FR-12 (S)** Validate provider connectivity/model availability when a
   participant is added (e.g. list local Ollama models).
 - **FR-13 (C)** Remove or mute a participant mid-debate.

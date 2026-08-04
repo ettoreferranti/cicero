@@ -7,7 +7,7 @@ validated (NFR-SEC-6).
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from cicero.domain.enums import DecisionRule, ProviderType, Stance
 from cicero.domain.models import DEFAULT_MAX_TOKENS
@@ -78,7 +78,14 @@ class TuningIn(BaseModel):
     # number like this drift, and the drift is invisible until a turn truncates.
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0, le=32768)
     persona: str = Field(default="", max_length=2000)
-    style: str = Field(default="", max_length=500)
+    # `style` stays accepted as a deprecated alias so existing API clients (and
+    # anything replaying an old export) keep working; responses only ever carry
+    # `instructions`.
+    instructions: str = Field(
+        default="",
+        max_length=500,
+        validation_alias=AliasChoices("instructions", "style"),
+    )
 
 
 class ParticipantCreate(BaseModel):

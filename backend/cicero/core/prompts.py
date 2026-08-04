@@ -51,6 +51,11 @@ TURN_INTRO = 'You are "{name}", a participant in a structured debate.'
 MOTION_LABEL = "The motion under debate is: {topic}"
 CONTEXT_LABEL = "Context: {description}"
 PERSONA_LABEL = "Persona: {persona}"
+#: The operator's own directive for how this debater should argue (FR-11).
+#: Placed before TURN_GUIDANCE/FIRST_PERSON_RULE/SAFETY_RULE so those keep the
+#: last word: an operator may shape tone, format and how readily a debater
+#: concedes, but not the rules the engine's own parsing and defences rest on.
+INSTRUCTIONS_LABEL = "Instructions from your operator: {instructions}"
 TURN_GUIDANCE = (
     "Respond with a concise, substantive argument (a few sentences). Address the "
     "strongest points others have made and try to persuade them. Be honest; you may "

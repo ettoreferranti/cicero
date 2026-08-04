@@ -307,14 +307,14 @@ describe("tuningSummary", () => {
     expect(tuningSummary({ ...DEFAULT_TUNING, temperature: 0.9 })).toBe("temp 0.9");
     expect(tuningSummary({ ...DEFAULT_TUNING, max_tokens: 1200 })).toBe("1200 tok");
     expect(tuningSummary({ ...DEFAULT_TUNING, persona: "an economist" })).toBe("persona");
-    expect(tuningSummary({ ...DEFAULT_TUNING, style: "terse" })).toBe("style");
+    expect(tuningSummary({ ...DEFAULT_TUNING, instructions: "terse" })).toBe("instructions");
     expect(
-      tuningSummary({ temperature: 0.9, max_tokens: 1200, persona: "p", style: "s" }),
-    ).toBe("temp 0.9 · 1200 tok · persona · style");
+      tuningSummary({ temperature: 0.9, max_tokens: 1200, persona: "p", instructions: "i" }),
+    ).toBe("temp 0.9 · 1200 tok · persona · instructions");
   });
 
-  it("treats blank persona/style as unset", () => {
-    expect(tuningSummary({ ...DEFAULT_TUNING, persona: "   ", style: "\t" })).toBe("");
+  it("treats blank persona/instructions as unset", () => {
+    expect(tuningSummary({ ...DEFAULT_TUNING, persona: "   ", instructions: "\t" })).toBe("");
   });
 
   it("reports a temperature of zero, which is a real deviation", () => {

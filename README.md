@@ -180,10 +180,21 @@ by the consensus/disagreement statement, metrics, and JSON/Markdown export links
 **Step** takes one turn at a time instead, and **Pause** parks a running debate
 so **Resume** can pick it up where it stopped.
 
+Two kinds of settings sit side by side, and the UI labels which is which:
+**Debate settings** (badged *whole chamber*) governs the run itself — rounds,
+budgets, decision rule — and applies to everyone, while each row under
+**Participants** (badged *per debater*) carries its own **Tuning for &lt;name&gt;**
+panel (temperature, max tokens, persona, instructions — collapsed unless it
+differs from the defaults). **Persona** says *who* a debater is ("a cautious
+economist"); **instructions** say *how* it should argue ("be extra polite",
+"speak in rhyme", "always yield your position"). Instructions shape a debater's
+turns only — not the stance poll or the moderator's final statement — and never
+override the engine's own safety rules. Anything scoped to a single debater is drawn with that
+debater's colour down its left edge, the same cue the transcript uses.
+
 While a chamber is still a draft you can **Edit** its topic/category/description
-and edit or remove any participant, including each debater's **Tuning**
-(temperature, max tokens, persona, style — collapsed unless it differs from the
-defaults). **Clone & rerun** makes a fresh draft copy, so the usual way to
+and edit or remove any participant, including that Tuning panel.
+**Clone & rerun** makes a fresh draft copy, so the usual way to
 compare runs is to clone, change one variable (say a single debater's model or
 temperature), and run it again.
 

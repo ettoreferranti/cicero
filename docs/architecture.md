@@ -100,9 +100,14 @@ flowchart TB
   conditions, emits stream events. Pure logic; providers/clock/store injected
   (fully mockable → high mutation coverage).
 - **Prompt Builder** — deterministic construction of each turn's prompt from
-  topic, stance, persona, transcript window, and rules. **Enforces delimiting**
-  of untrusted content (other turns, web excerpts) — central to injection
-  defence (NFR-SEC-5).
+  topic, stance, persona, per-debater instructions, transcript window, and
+  rules. **Enforces delimiting** of untrusted content (other turns, web
+  excerpts) — central to injection defence (NFR-SEC-5). Ordering is
+  load-bearing: the operator's `instructions` are placed *before*
+  `TURN_GUIDANCE`/`FIRST_PERSON_RULE`/`SAFETY_RULE` so those keep the last word,
+  and they are injected into **turn prompts only** — never the stance poll
+  (whose one-word answer they would corrupt) or the moderator (impartial by
+  design).
 - **Consensus Engine** — hybrid detector (see §6). Produces Consensus Statement
   or Disagreement Summary.
 - **Chamber State Machine** — validates lifecycle transitions (FR-4).

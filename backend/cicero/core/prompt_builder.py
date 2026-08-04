@@ -128,6 +128,13 @@ def build_turn_messages(
     system_parts.append(prompts.STANCE_INSTRUCTION[participant.stance])
     if participant.tuning.persona.strip():
         system_parts.append(prompts.PERSONA_LABEL.format(persona=participant.tuning.persona))
+    # Before the guidance and safety rules on purpose — they must have the last
+    # word. Only reaches turn prompts: the stance poll wants one bare word, and
+    # "speak in rhyme" would make it unparseable.
+    if participant.tuning.instructions.strip():
+        system_parts.append(
+            prompts.INSTRUCTIONS_LABEL.format(instructions=participant.tuning.instructions)
+        )
     system_parts.append(prompts.TURN_GUIDANCE)
     if converge:
         system_parts.append(prompts.CONVERGE_GUIDANCE)

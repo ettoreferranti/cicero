@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from cicero.domain.enums import (
     ChamberStatus,
@@ -55,12 +55,26 @@ DEFAULT_MAX_TOKENS = 2048
 
 
 class ParticipantTuning(_Base):
-    """Per-participant generation settings (see FR-11)."""
+    """Per-participant generation settings (see FR-11).
+
+    ``persona`` says *who* the debater is; ``instructions`` says *how* it should
+    behave while arguing ("be extra polite", "speak in rhyme", "always yield your
+    position"). Both are injected into the turn prompt only — never into the
+    stance poll, whose one-word answer they would corrupt.
+    """
 
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0, le=32768)
     persona: str = Field(default="", max_length=2000)
-    style: str = Field(default="", max_length=500)
+    #: A directive, not prose — hence the tighter cap than ``persona``.
+    #: ``style`` is the pre-D7 name: chambers persist as a JSON document and this
+    #: model forbids extra keys, so without the alias every chamber stored before
+    #: the rename would fail to load. Accepted on the way in, never written back.
+    instructions: str = Field(
+        default="",
+        max_length=500,
+        validation_alias=AliasChoices("instructions", "style"),
+    )
 
 
 class DebateSettings(_Base):

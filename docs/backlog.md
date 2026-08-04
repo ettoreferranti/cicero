@@ -56,6 +56,7 @@
 | D4 | As a user, I can edit a chamber while it is a `draft` — its topic/category/description, and the participant roster (add, edit, remove) — including on a **clone before its rerun**, so a rerun can change one variable. | FR-3 | S | 3 | ✅ done — `PATCH /chambers/{id}`, `PATCH`/`DELETE /chambers/{id}/participants/{pid}`, plus edit/remove controls in the UI |
 | D5 | As a developer, all API inputs are validated and errors are structured/safe. | NFR-SEC-6 | M | 2 | ✅ done |
 | D6 | As a user, I can remove or mute a participant **mid-debate**. | FR-13 | C | 5 | ✅ done (mute) — `POST /chambers/{id}/participants/{pid}/mute`, queued to the **next round boundary** while running, immediate otherwise. A muted debater stops taking turns and stops counting toward the decision rule, but stays on the roster and is still polled, so the stance history has no hole. Mid-debate *removal* was deliberately not built — see the note below |
+| D7 | As a user, I can give each debater a free-text **instructions** prompt (default empty) that steers how it argues during the debate — e.g. "be extra polite", "always yield your position", "speak in rhyme", "use jokes". | FR-11 | S | 3 | ✅ done — `ParticipantTuning.instructions` (the renamed `style`, now actually injected) reaches the turn prompt before the engine's rules, and only the turn prompt. Pre-D7 chambers still load via a deprecated `style` read alias |
 
 > **I5 scope.** The story asks for *basic* accessibility and that is what
 > shipped: keyboard operability, screen-reader labelling, focus visibility and
@@ -102,6 +103,73 @@
 > Mid-debate **removal** (the other half of FR-13) remains unbuilt. It needs its
 > own decision about what a transcript means when a speaker is no longer on the
 > roster, and mute covers the operator need that motivated the story.
+
+> **D7 as specified (2026-08-04).** A requirements session before any code; the
+> answers below *are* the spec.
+>
+> The session opened on a finding: **`tuning.style` already exists and is dead.**
+> It is declared on `ParticipantTuning` (`domain/models.py`), accepted by
+> `TuningIn` (`api/schemas.py`), has an input in `ParticipantForm.tsx`, is
+> reported by `tuningSummary()` and shown on the roster — but
+> `prompt_builder.build_turn_messages` injects only `persona`, so nothing an
+> operator has ever typed into that box has reached a model. The feature request
+> is, almost exactly, the unfinished half of FR-11.
+>
+> | Question | Decision | Why |
+> |---|---|---|
+> | New field, or the existing `persona`/`style`? | **Rename `style` → `instructions` and actually inject it.** | Adding a third free-text box beside a dead second one would ship the same promise twice. `persona` stays *who the debater is*; `instructions` becomes *how it should behave*. |
+> | Which prompts does it enter? | **Debate turns only** — `build_turn_messages`, including its `converge` and `research` variants. Stance poll and moderator untouched. | The stance poll asks for exactly one word and its parse has already broken twice (both bug notes below). "Speak in rhyme" reaching that prompt would reintroduce the failure it took two fixes to close. The moderator is deliberately impartial and belongs to no debater. |
+> | When can it change? | **Draft only** — on add and via `PATCH`, exactly like the rest of `ParticipantTuning`; `409` while running or paused, as today. | Mid-debate steering is a D6-shaped story of its own (when does a change take effect, and which instructions produced which turn?). Not what this asks for. |
+> | Instructions vs. the engine's own rules? | **Engine rules win.** `Instructions:` sits after `Persona:` but *before* `TURN_GUIDANCE`, `FIRST_PERSON_RULE` and `SAFETY_RULE`. | The operator is trusted, but the last word stays with the rules the engine's own parsing depends on. "Be polite", "use jokes", "always yield your position" all work — they are about tone and argument. "Ignore the transcript delimiters" does not, so NFR-SEC-5 holds. |
+>
+> **Acceptance criteria.**
+> 1. `ParticipantTuning.instructions`: free text, default `""`, keeping `style`'s
+>    500-character cap (a directive, not prose — `persona` remains the 2000-char
+>    field). Blank or whitespace-only is omitted from the prompt entirely, with no
+>    empty `Instructions:` label.
+> 2. **Stored chambers must still load.** Chambers persist as a JSON document
+>    (`persistence/sqlalchemy_repo.py`) and every domain model is `extra="forbid"`
+>    — so a chamber saved before D7 carries a `"style"` key that will *fail
+>    validation* after the rename. Accept `style` as a deprecated read alias (e.g.
+>    `AliasChoices("instructions", "style")`) or upgrade the document on load;
+>    serialisation emits `instructions` only. A regression test loads a pre-D7
+>    chamber fixture.
+> 3. Injection lives in `prompt_builder.py`, which is inside the mutation gate:
+>    a test asserts the text appears in the turn system prompt, *before*
+>    `SAFETY_RULE`, and does **not** appear in the stance-poll or moderator
+>    prompts.
+> 4. API: accepted on `POST /chambers/{id}/participants` and
+>    `PATCH /chambers/{id}/participants/{pid}`, subject to the existing draft guard.
+> 5. UI: the existing *Style* input becomes *Instructions* with a placeholder
+>    drawn from the real examples; `tuningSummary()` and the roster's `⚙` summary
+>    and `ChamberDetail`'s persona/style join follow the rename.
+> 6. Docs: FR-11 reworded (done, 2026-08-04); `README.md` §UI tuning line and
+>    `architecture.md`'s prompt-assembly description updated when the code lands.
+>
+> **Confirmed against live models (2026-08-04).** The dead-field finding above
+> came from reading the code; a real Ollama debate then reproduced it. Three
+> debaters were given a `style` and nothing else changed:
+>
+> | Debater | `style` set | What it did |
+> |---|---|---|
+> | Alice | "Only write in rhyme" | Plain prose in all three turns. Not one rhyme. |
+> | Eve | "be aggressive" | Conciliatory throughout — opened two of three turns with "While … is a sensible approach" and conceded immediately. |
+> | Bob | "terse, cite numbers and sources" | Terse, cited ASHRAE 55 and EPA figures. **Appeared to comply.** |
+>
+> Bob is the trap, and the reason this went unnoticed for so long: Bob is the
+> only one of the three that also had a **persona** (`"rigorous"`), and persona
+> *is* injected. Bob's behaviour came from the field that works plus qwen3's own
+> citation habit. Verifying the D7 fix on a debater that has a persona set proves
+> nothing — use one with `instructions` **only**.
+
+> **Known interaction, deliberate.** "Always yield your position" will genuinely
+> move a debater's stance poll, and therefore the decision rule and the recorded
+> `winning_stance`. That is the point of the control, but it makes the outcome an
+> artifact of the setup rather than of the arguments — worth a line in the UI help
+> text, in the same spirit as the D6 note that muting can flip a split into a
+> consensus.
+>
+> Exports and `compare` carry no tuning today, so neither is affected.
 
 ## Epic E — Debate Engine (turn-based group chat)
 *Goal: the core orchestration loop.*
@@ -254,6 +322,29 @@ no longer carries a vote (`deciding_stances`). Its value bottoms out in the
 participant's assigned starting role, so counting it let the setup decide the
 outcome — the same "fabricated data reaching the tally" failure as the parsing
 bug above, one layer down.
+
+### Bug — muting a debater did nothing visible, and could not be undone (2026-08-04)
+Reported from real use: "if I click on mute, there's no indication that a
+participant is muted, nor can I unmute them". Three separate defects, which
+together produce exactly that experience.
+
+| # | Where | Defect |
+|---|---|---|
+| 1 | `core/orchestrator.py` | A queued mute was **silently discarded**. `_apply_mutes` ran only at the *top* of each round, so a mute requested during the last round had no boundary left to land on and died with the debate task — after the API had already answered `"queued"`. |
+| 2 | `ChamberDetail.tsx` | A queued mute left **no mark on the row**. The only feedback was a page-level notice, far from the button clicked, and the roster is not refetched mid-run. |
+| 3 | `ChamberDetail.tsx` | The control was hidden once the chamber concluded (`status !== "concluded"`), so a debater muted mid-debate **could never be unmuted**. |
+
+Mute on a *draft* chamber always worked — that path refetches and shows the
+badge — which is why this survived D6's tests: they drove the engine directly
+with a mute already queued before round 0, the one timing that works.
+
+Fixed: pending mutes are now drained at conclusion **and** on park, applied
+*after* the outcome is computed so the roster records the request without a
+change that never survived a full round retroactively altering the tally (the
+D6 boundary invariant is preserved); a per-row `⏳ muting at next round` marker,
+cleared when a reload shows the roster caught up; and Mute/Unmute stays
+available on a concluded chamber, where it changes the roster and never the
+stored consensus.
 
 ## Cross-cutting "Definition of Done" (every story)
 1. Code + tests (unit/integration) with providers mocked.

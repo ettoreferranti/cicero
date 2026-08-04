@@ -32,6 +32,7 @@ export function ParticipantForm({
   formLabel,
   submitLabel,
   initial,
+  accent,
   onSubmit,
   onCancel,
 }: {
@@ -39,6 +40,8 @@ export function ParticipantForm({
   submitLabel: string;
   /** Present when editing; absent means "add", which clears the name on submit. */
   initial?: ParticipantDraft;
+  /** This debater's transcript colour, tying the form to its roster row. */
+  accent?: string;
   onSubmit: (draft: ParticipantDraft) => Promise<void>;
   onCancel?: () => void;
 }) {
@@ -100,9 +103,17 @@ export function ParticipantForm({
   }
 
   const summary = tuningSummary(draft.tuning);
+  // Everything in this form configures exactly one debater. Saying whose makes
+  // the "Tuning" panel below unmistakably per-debater rather than chamber-wide.
+  const who = draft.display_name.trim() || "this debater";
 
   return (
-    <form aria-label={formLabel} onSubmit={handleSubmit}>
+    <form
+      aria-label={formLabel}
+      onSubmit={handleSubmit}
+      className="scoped"
+      style={accent ? { borderLeftColor: accent } : undefined}
+    >
       <div className="row">
       <input
         ref={nameRef}
@@ -166,10 +177,12 @@ export function ParticipantForm({
       </div>
 
       {/* Tuning is opt-in detail (FR-11): collapsed unless it differs from
-          the defaults, so the common case stays a single compact row. */}
+          the defaults, so the common case stays a single compact row. Named
+          after the debater — an unqualified "Tuning" reads as chamber-wide. */}
       <details open={summary !== ""} style={{ marginTop: "0.4rem" }}>
         <summary className="muted" style={{ cursor: "pointer", fontSize: "0.85rem" }}>
-          Tuning{summary && ` — ${summary}`}
+          Tuning for {who}
+          {summary && ` — ${summary}`}
         </summary>
         <div className="row" style={{ marginTop: "0.4rem" }}>
           <label className="muted" style={{ fontSize: "0.85rem" }}>
@@ -203,10 +216,11 @@ export function ParticipantForm({
             style={{ flex: 1, minWidth: "14rem" }}
           />
           <input
-            aria-label="style"
-            placeholder="Style (e.g. terse, cite numbers)"
-            value={draft.tuning.style}
-            onChange={(e) => setTuning({ style: e.target.value })}
+            aria-label="instructions"
+            placeholder="Instructions (e.g. be extra polite, speak in rhyme)"
+            title="How this debater should argue. Applies to its debate turns only — not to the stance poll or the final statement."
+            value={draft.tuning.instructions}
+            onChange={(e) => setTuning({ instructions: e.target.value })}
             style={{ flex: 1, minWidth: "12rem" }}
           />
         </div>

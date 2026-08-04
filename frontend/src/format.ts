@@ -63,7 +63,7 @@ export function participantColor(
 
 /**
  * Compact summary of the tuning a debater deviates from the defaults with
- * (FR-11) — e.g. `temp 0.9 · 1200 tok · persona · style`. Empty when the
+ * (FR-11) — e.g. `temp 0.9 · 1200 tok · persona · instructions`. Empty when the
  * participant is fully default, so the roster stays quiet in the common case.
  */
 export function tuningSummary(tuning: ParticipantTuning | undefined): string {
@@ -76,7 +76,7 @@ export function tuningSummary(tuning: ParticipantTuning | undefined): string {
     parts.push(`${tuning.max_tokens} tok`);
   }
   if (tuning.persona.trim() !== "") parts.push("persona");
-  if (tuning.style.trim() !== "") parts.push("style");
+  if (tuning.instructions.trim() !== "") parts.push("instructions");
   return parts.join(" · ");
 }
 

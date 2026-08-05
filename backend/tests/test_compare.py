@@ -81,3 +81,17 @@ def test_run_summary_carries_the_headline() -> None:
 def test_run_summary_headline_is_none_before_an_outcome() -> None:
     chamber = make_chamber(make_participant("Ada", Stance.PRO))
     assert summarize_run(chamber)["headline"] is None
+
+
+def test_run_summary_empty_headline_converts_to_none() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    chamber = make_chamber(ada)
+    chamber.consensus = ConsensusResult(
+        outcome=ConsensusOutcome.CONSENSUS,
+        statement="Some statement.",
+        headline="",
+        winning_stance=Stance.PRO,
+        final_stances={str(ada.id): Stance.PRO},
+        unparsed=[],
+    )
+    assert summarize_run(chamber)["headline"] is None

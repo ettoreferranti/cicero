@@ -110,9 +110,16 @@ stance; `K = N - M` is the dissent.
 | `VERDICT` | `judge-decided — no majority among N debaters` |
 | `DISAGREEMENT` | `unresolved — no position prevailed` |
 
-When `deciding_stances` is empty — every reply unparsed, or every debater muted
-— the text is `unmeasured — no debater's final position could be read`. Never
-`0 of 3`, which would read as a measured result of zero support.
+When `deciding_stances` returns nothing, the text is `unmeasured — no debater's
+final position could be read`. Never `0 of 3`, which would read as a measured
+result of zero support.
+
+Note this is narrower than it first appears: `deciding_stances` deliberately
+falls back to the wider set rather than returning empty (`roster.py:75`), so
+neither "every reply unparsed" nor "every debater muted" reaches this branch —
+both resolve against the full roster, by design, so a fully-muted chamber still
+resolves to *something*. The branch fires only when `final_stances` is itself
+empty.
 
 **Historical chambers**, where `consensus.unparsed is None`, fall back to
 `stance_history[-1].unparsed` when a history exists, and to `()` otherwise. The
@@ -271,7 +278,9 @@ empty value; over-length value dropped; directive-only reply with no body;
 leading whitespace.
 
 **`support_summary`** — each of the four outcomes; muted debaters absent from
-the denominator; all-unparsed and all-muted both yielding `unmeasured`;
+the denominator; an empty `final_stances` yielding `unmeasured`; all-muted and
+all-unparsed resolving against the full roster rather than `unmeasured`, per
+`deciding_stances`' fallback;
 `consensus.unparsed is None` falling back to `stance_history[-1].unparsed`, and
 to `()` when there is no history at all. One test must cover the divergent case
 specifically: a chamber whose final poll was not recorded (ended on repetition

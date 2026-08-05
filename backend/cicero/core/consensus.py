@@ -159,8 +159,19 @@ def parse_directives(text: str, keys: frozenset[str]) -> tuple[dict[str, str], s
 
     The moderator prompts are written independently, so the order the directives
     arrive in must not be load-bearing. Peeling stops at the first line that is
-    not a recognised directive, which is what keeps ordinary prose — including a
-    sentence that happens to contain a colon — out of the result.
+    not blank and not a recognised directive, which is what keeps ordinary prose
+    — including a sentence that happens to contain a colon — out of the result.
+
+    A blank line between two directive lines is tolerated and does *not* stop
+    the peel: real Ollama models reliably put an empty line between ``HEADLINE:``
+    and ``WINNER:``, and treating that blank as "the peel is over" silently
+    drops ``WINNER:`` into the body, leaking it into the published statement and
+    leaving the verdict without a winner. A blank line is only ever skipped
+    *while more directives may still follow* (i.e. after at least one has
+    already been found); once real content is seen the peel stops exactly as
+    before, so a blank line does not let unrelated prose be mistaken for a
+    directive, and a blank line that opens the body itself does not get treated
+    as part of the directive block.
 
     Returns the directives found (keys upper-cased) and the remaining body. When
     nothing remains, the original text is returned as the body: a reply that was
@@ -170,7 +181,11 @@ def parse_directives(text: str, keys: frozenset[str]) -> tuple[dict[str, str], s
     remaining = stripped.split("\n")
     found: dict[str, str] = {}
     while remaining:
-        key, separator, value = remaining[0].strip().partition(":")
+        line = remaining[0].strip()
+        if not line and found:
+            remaining = remaining[1:]
+            continue
+        key, separator, value = line.partition(":")
         candidate = key.strip().upper()
         if not separator or candidate not in keys or candidate in found:
             break

@@ -249,6 +249,23 @@ def test_majority_stance_rules() -> None:
         # A repeated key is not a second directive: the first occurrence wins
         # and the repeat stops the peel, same as an unrecognised key would.
         ("WINNER: pro\nWINNER: con\nBody.", {"WINNER": "pro"}),
+        # Real Ollama models reliably put a blank line between HEADLINE and
+        # WINNER; the peel must not stop there, or WINNER is silently dropped.
+        (
+            "HEADLINE: We should go.\n\nWINNER: pro\n\nBody.",
+            {"HEADLINE": "We should go.", "WINNER": "pro"},
+        ),
+        # Multiple consecutive blank lines between directives.
+        (
+            "HEADLINE: We should go.\n\n\nWINNER: pro\nBody.",
+            {"HEADLINE": "We should go.", "WINNER": "pro"},
+        ),
+        # A blank line before the very first directive: already handled by the
+        # leading strip(), pinned here so a future change cannot regress it.
+        (
+            "\nHEADLINE: We should go.\nWINNER: pro\nBody.",
+            {"HEADLINE": "We should go.", "WINNER": "pro"},
+        ),
     ],
 )
 def test_parse_directives_peels_leading_keys(text: str, expected: dict[str, str]) -> None:
@@ -267,6 +284,15 @@ def test_parse_directives_peels_leading_keys(text: str, expected: dict[str, str]
         ("WINNER: pro", "WINNER: pro"),
         # The repeated key falls through to the body, pinning where it lands.
         ("WINNER: pro\nWINNER: con\nBody.", "WINNER: con\nBody."),
+        # Blank lines between the two directives must not surface in the body,
+        # and the blank right before the body must not leave a leading blank.
+        ("HEADLINE: One.\n\nWINNER: pro\n\nBody one.\nBody two.", "Body one.\nBody two."),
+        # A blank line internal to the body itself (a paragraph break) is real
+        # content and must survive, not just the separator blanks are dropped.
+        (
+            "HEADLINE: One.\n\nWINNER: pro\n\nBody one.\n\nBody two.",
+            "Body one.\n\nBody two.",
+        ),
     ],
 )
 def test_parse_directives_returns_remaining_body(text: str, body: str) -> None:
@@ -336,6 +362,32 @@ def test_parse_moderator_reply_takes_only_the_first_line_as_headline() -> None:
     reply = parse_moderator_reply("HEADLINE: One sentence.\nThe longer statement.\nMore.")
     assert reply.headline == "One sentence."
     assert reply.body == "The longer statement.\nMore."
+
+
+def test_parse_moderator_reply_reads_both_directives_across_a_blank_line() -> None:
+    # Real Ollama models reliably separate HEADLINE and WINNER with a blank
+    # line (see the module docstring on parse_directives). Before the fix this
+    # broke the peel after HEADLINE, so WINNER was never read: winning_stance
+    # stayed None and the literal "WINNER: pro" leaked into the statement.
+    text = (
+        "HEADLINE: Cities should invest in zero-emission transit.\n"
+        "\n"
+        "WINNER: pro\n"
+        "\n"
+        "The pro side presented a compelling case."
+    )
+    reply = parse_moderator_reply(text)
+    assert reply.headline == "Cities should invest in zero-emission transit."
+    assert reply.winner is Stance.PRO
+    assert reply.body == "The pro side presented a compelling case."
+
+
+def test_parse_moderator_reply_reads_the_winner_with_no_blank_line() -> None:
+    # Pins the pre-existing (non-blank-line) shape so the fix cannot regress it.
+    reply = parse_moderator_reply("HEADLINE: Title.\nWINNER: pro\nBody.")
+    assert reply.headline == "Title."
+    assert reply.winner is Stance.PRO
+    assert reply.body == "Body."
 
 
 def test_decide_outcome_per_rule() -> None:
@@ -484,6 +536,30 @@ async def test_finalize_reads_a_verdict_that_also_carries_a_headline() -> None:
     chamber.settings.decision_rule = DecisionRule.JUDGE
     provider = ScriptedProvider(
         moderator_reply="HEADLINE: The pro case won.\nWINNER: pro\nBetter evidence."
+    )
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+    )
+
+    assert result.outcome is ConsensusOutcome.VERDICT
+    assert result.winning_stance is Stance.PRO
+    assert result.headline == "The pro case won."
+    assert result.statement == "Better evidence."
+
+
+async def test_finalize_reads_a_verdict_with_a_blank_line_before_winner() -> None:
+    # Reproduces the shape real Ollama models actually send: a blank line
+    # between HEADLINE and WINNER. Without the fix, WINNER is never parsed,
+    # winning_stance stays None on a VERDICT outcome, and "WINNER: pro" leaks
+    # into the published statement.
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(ada, zeno)
+    chamber.settings.decision_rule = DecisionRule.JUDGE
+    provider = ScriptedProvider(
+        moderator_reply="HEADLINE: The pro case won.\n\nWINNER: pro\n\nBetter evidence."
     )
     engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
 

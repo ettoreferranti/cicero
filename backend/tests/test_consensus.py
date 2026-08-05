@@ -14,7 +14,7 @@ from cicero.core.consensus import (
     parse_stance,
 )
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
-from cicero.domain.models import StancePoll
+from cicero.domain.models import MAX_HEADLINE_LENGTH, StancePoll
 from cicero.providers.base import GenerateOptions
 from tests.conftest import ScriptedProvider, StubFactory, make_chamber, make_participant
 
@@ -240,6 +240,9 @@ def test_majority_stance_rules() -> None:
         ("VERDICT: pro\nHEADLINE: never reached.", {}),
         # A directive after prose is prose.
         ("Body.\nHEADLINE: too late.", {}),
+        # A repeated key is not a second directive: the first occurrence wins
+        # and the repeat stops the peel, same as an unrecognised key would.
+        ("WINNER: pro\nWINNER: con\nBody.", {"WINNER": "pro"}),
     ],
 )
 def test_parse_directives_peels_leading_keys(text: str, expected: dict[str, str]) -> None:
@@ -256,6 +259,8 @@ def test_parse_directives_peels_leading_keys(text: str, expected: dict[str, str]
         # Nothing left after the directives: the caller needs *something*, so the
         # original text is returned rather than an empty statement.
         ("WINNER: pro", "WINNER: pro"),
+        # The repeated key falls through to the body, pinning where it lands.
+        ("WINNER: pro\nWINNER: con\nBody.", "WINNER: con\nBody."),
     ],
 )
 def test_parse_directives_returns_remaining_body(text: str, body: str) -> None:
@@ -300,6 +305,15 @@ def test_parse_moderator_reply_without_a_headline_reports_none() -> None:
 
 def test_parse_moderator_reply_ignores_an_empty_headline() -> None:
     assert parse_moderator_reply("HEADLINE:\nStatement.").headline == ""
+
+
+def test_parse_moderator_reply_keeps_a_headline_at_the_length_cap() -> None:
+    # Pins the boundary as inclusive: exactly MAX_HEADLINE_LENGTH is still a
+    # headline, only *longer than* the cap is dropped.
+    headline = "x" * MAX_HEADLINE_LENGTH
+    reply = parse_moderator_reply(f"HEADLINE: {headline}\nStatement.")
+    assert reply.headline == headline
+    assert reply.body == "Statement."
 
 
 def test_parse_moderator_reply_drops_an_overlong_headline() -> None:

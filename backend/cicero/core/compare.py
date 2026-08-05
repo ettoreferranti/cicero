@@ -25,6 +25,8 @@ def summarize_run(chamber: Chamber) -> dict[str, Any]:
         "topic": chamber.topic,
         "status": chamber.status.value,
         "outcome": consensus.outcome.value if consensus is not None else None,
+        # The one line that makes two runs comparable at a glance (F5).
+        "headline": consensus.headline or None if consensus is not None else None,
         "winning_stance": (
             consensus.winning_stance.value
             if consensus is not None and consensus.winning_stance is not None

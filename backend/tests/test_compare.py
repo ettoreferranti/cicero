@@ -62,3 +62,22 @@ def test_compare_chambers_flags_topic_match() -> None:
     # Case and surrounding whitespace do not count as a different topic.
     d = _concluded_chamber(topic="  SHOULD WE COLONISE MARS?  ")
     assert compare_chambers(a, d)["same_topic"] is True
+
+
+def test_run_summary_carries_the_headline() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    chamber = make_chamber(ada)
+    chamber.consensus = ConsensusResult(
+        outcome=ConsensusOutcome.CONSENSUS,
+        statement="A long statement nobody wants to read twice.",
+        headline="Mars should wait.",
+        winning_stance=Stance.PRO,
+        final_stances={str(ada.id): Stance.PRO},
+        unparsed=[],
+    )
+    assert summarize_run(chamber)["headline"] == "Mars should wait."
+
+
+def test_run_summary_headline_is_none_before_an_outcome() -> None:
+    chamber = make_chamber(make_participant("Ada", Stance.PRO))
+    assert summarize_run(chamber)["headline"] is None

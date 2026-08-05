@@ -9,8 +9,9 @@ from cicero.core.consensus import (
     decide_outcome,
     is_consensus,
     majority_stance,
+    parse_directives,
+    parse_moderator_reply,
     parse_stance,
-    parse_verdict,
 )
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
 from cicero.domain.models import StancePoll
@@ -222,21 +223,99 @@ def test_majority_stance_rules() -> None:
 
 
 @pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("", {}),
+        ("Just prose.", {}),
+        ("WINNER: pro\nBody.", {"WINNER": "pro"}),
+        ("winner: CON\nBody.", {"WINNER": "CON"}),
+        ("HEADLINE: We should go.\nWINNER: pro\nBody.",
+         {"HEADLINE": "We should go.", "WINNER": "pro"}),
+        # Order must not matter: the two prompts are written independently.
+        ("WINNER: pro\nHEADLINE: We should go.\nBody.",
+         {"WINNER": "pro", "HEADLINE": "We should go."}),
+        ("  HEADLINE: Indented.\nBody.", {"HEADLINE": "Indented."}),
+        ("HEADLINE:\nBody.", {"HEADLINE": ""}),
+        # An unrecognised key is prose, and stops the peel.
+        ("VERDICT: pro\nHEADLINE: never reached.", {}),
+        # A directive after prose is prose.
+        ("Body.\nHEADLINE: too late.", {}),
+    ],
+)
+def test_parse_directives_peels_leading_keys(text: str, expected: dict[str, str]) -> None:
+    directives, _ = parse_directives(text, frozenset({"HEADLINE", "WINNER"}))
+    assert directives == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "body"),
+    [
+        ("WINNER: pro\nBody.", "Body."),
+        ("HEADLINE: One.\nWINNER: pro\nBody one.\nBody two.", "Body one.\nBody two."),
+        ("Just prose.", "Just prose."),
+        # Nothing left after the directives: the caller needs *something*, so the
+        # original text is returned rather than an empty statement.
+        ("WINNER: pro", "WINNER: pro"),
+    ],
+)
+def test_parse_directives_returns_remaining_body(text: str, body: str) -> None:
+    _, remaining = parse_directives(text, frozenset({"HEADLINE", "WINNER"}))
+    assert remaining == body
+
+
+@pytest.mark.parametrize(
     ("text", "winner", "body"),
     [
         ("WINNER: pro\nStrong case.", Stance.PRO, "Strong case."),
         ("winner: CON\nThe cons had it.", Stance.CON, "The cons had it."),
         ("WINNER: neutral\nNobody moved.", Stance.NEUTRAL, "Nobody moved."),
         ("No verdict line here.", None, "No verdict line here."),
-        ("WINNER: maybe\ntext", None, "WINNER: maybe\ntext"),
+        # A failed directive is not content: it is consumed, and no winner read.
+        ("WINNER: maybe\ntext", None, "text"),
     ],
 )
-def test_parse_verdict(text: str, winner: Stance | None, body: str) -> None:
-    assert parse_verdict(text) == (winner, body)
+def test_parse_moderator_reply_reads_the_winner(
+    text: str, winner: Stance | None, body: str
+) -> None:
+    reply = parse_moderator_reply(text)
+    assert reply.winner is winner
+    assert reply.body == body
 
 
-def test_parse_verdict_without_body_keeps_full_text() -> None:
-    assert parse_verdict("WINNER: pro") == (Stance.PRO, "WINNER: pro")
+def test_parse_moderator_reply_without_body_keeps_full_text() -> None:
+    reply = parse_moderator_reply("WINNER: pro")
+    assert reply.winner is Stance.PRO
+    assert reply.body == "WINNER: pro"
+
+
+def test_parse_moderator_reply_reads_the_headline() -> None:
+    reply = parse_moderator_reply("HEADLINE: Remote work should be the default.\nBecause X.")
+    assert reply.headline == "Remote work should be the default."
+    assert reply.body == "Because X."
+
+
+def test_parse_moderator_reply_without_a_headline_reports_none() -> None:
+    assert parse_moderator_reply("Just the statement.").headline == ""
+
+
+def test_parse_moderator_reply_ignores_an_empty_headline() -> None:
+    assert parse_moderator_reply("HEADLINE:\nStatement.").headline == ""
+
+
+def test_parse_moderator_reply_drops_an_overlong_headline() -> None:
+    # A moderator that put its whole statement on the HEADLINE line has not
+    # written a headline. Dropping the value (rather than truncating it) is what
+    # makes the display fall back instead of showing half a sentence as the
+    # chamber's conclusion.
+    reply = parse_moderator_reply("HEADLINE: " + "x" * 501 + "\nStatement.")
+    assert reply.headline == ""
+    assert reply.body == "Statement."
+
+
+def test_parse_moderator_reply_takes_only_the_first_line_as_headline() -> None:
+    reply = parse_moderator_reply("HEADLINE: One sentence.\nThe longer statement.\nMore.")
+    assert reply.headline == "One sentence."
+    assert reply.body == "The longer statement.\nMore."
 
 
 def test_decide_outcome_per_rule() -> None:

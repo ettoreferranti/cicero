@@ -53,6 +53,11 @@ class Citation(_Base):
 #: cap and not a target: a model that finishes in 200 tokens still costs 200.
 DEFAULT_MAX_TOKENS = 2048
 
+#: A headline is one sentence. A longer value means the moderator wrote its
+#: statement on the wrong line, so the value is dropped rather than truncated —
+#: half a sentence presented as the chamber's conclusion is worse than none.
+MAX_HEADLINE_LENGTH = 500
+
 
 class ParticipantTuning(_Base):
     """Per-participant generation settings (see FR-11).

@@ -129,7 +129,10 @@ MODERATOR_JUDGE_TASK = (
     "'WINNER: neutral', followed by a short VERDICT paragraph justifying the "
     "decision and noting the strongest losing argument."
 )
-VERDICT_WINNER_PREFIX = "WINNER:"
+#: Directive keys the moderator may open its reply with, peeled off by
+#: ``consensus.parse_moderator_reply``. Bare keys — the ``:`` is the parser's.
+DIRECTIVE_WINNER = "WINNER"
+DIRECTIVE_HEADLINE = "HEADLINE"
 MODERATOR_MOTION_LABEL = "Motion: {topic}"
 MODERATOR_POSITIONS_LABEL = "Final positions:"
 EMPTY_MODERATOR_STATEMENT = "(the moderator produced no statement)"

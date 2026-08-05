@@ -10,8 +10,9 @@
   Resolution, Verdict, or Summary of Disagreement.
 
 The pure parts (``parse_stance``, ``is_consensus``, ``majority_stance``,
-``parse_verdict``, ``decide_outcome``) are in the mutation-testing gate; the
-provider-driven parts are covered by tests with mock providers.
+``parse_directives``, ``parse_moderator_reply``, ``decide_outcome``) are in the
+mutation-testing gate; the provider-driven parts are covered by tests with mock
+providers.
 """
 
 from __future__ import annotations
@@ -26,10 +27,14 @@ from cicero.core.prompt_builder import (
     build_moderator_messages,
     build_stance_poll_messages,
 )
-from cicero.core.prompts import EMPTY_MODERATOR_STATEMENT, VERDICT_WINNER_PREFIX
+from cicero.core.prompts import (
+    DIRECTIVE_HEADLINE,
+    DIRECTIVE_WINNER,
+    EMPTY_MODERATOR_STATEMENT,
+)
 from cicero.core.roster import deciding_stances
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
-from cicero.domain.models import Chamber, ConsensusResult
+from cicero.domain.models import MAX_HEADLINE_LENGTH, Chamber, ConsensusResult
 from cicero.providers.base import GenerateOptions, Provider, ProviderError
 from cicero.providers.factory import ProviderFactory
 
@@ -133,21 +138,63 @@ def majority_stance(stances: dict[str, Stance]) -> Stance | None:
     return ranked[0][0]
 
 
-def parse_verdict(text: str) -> tuple[Stance | None, str]:
-    """Split a judge reply into (winning stance, statement body).
+#: Every directive key the moderator may open a reply with.
+MODERATOR_DIRECTIVES = frozenset({DIRECTIVE_HEADLINE, DIRECTIVE_WINNER})
 
-    The judge is instructed to open with ``WINNER: pro|con|neutral``. If that
-    line is missing or unparsable the whole text is returned with no winner.
+
+@dataclass(frozen=True)
+class ModeratorReply:
+    """A moderator reply split into its directives and its prose body."""
+
+    #: One declarative sentence, or ``""`` when none was given or it was unusable.
+    headline: str
+    #: The judge's winner, or ``None`` outside a verdict (or when unreadable).
+    winner: Stance | None
+    #: The statement itself, with the directive lines removed.
+    body: str
+
+
+def parse_directives(text: str, keys: frozenset[str]) -> tuple[dict[str, str], str]:
+    """Peel leading ``KEY: value`` lines off a reply, in any order.
+
+    The moderator prompts are written independently, so the order the directives
+    arrive in must not be load-bearing. Peeling stops at the first line that is
+    not a recognised directive, which is what keeps ordinary prose — including a
+    sentence that happens to contain a colon — out of the result.
+
+    Returns the directives found (keys upper-cased) and the remaining body. When
+    nothing remains, the original text is returned as the body: a reply that was
+    *only* a directive still has to yield a statement rather than an empty one.
     """
     stripped = text.strip()
-    first, _, rest = stripped.partition("\n")
-    if first.strip().upper().startswith(VERDICT_WINNER_PREFIX):
-        word = first.strip()[len(VERDICT_WINNER_PREFIX) :].strip()
-        winner = parse_stance(word)
-        if winner is not None:
-            body = rest.strip() or stripped
-            return winner, body
-    return None, stripped
+    remaining = stripped.split("\n")
+    found: dict[str, str] = {}
+    while remaining:
+        key, separator, value = remaining[0].strip().partition(":")
+        candidate = key.strip().upper()
+        if not separator or candidate not in keys or candidate in found:
+            break
+        found[candidate] = value.strip()
+        remaining = remaining[1:]
+    body = "\n".join(remaining).strip()
+    return found, body or stripped
+
+
+def parse_moderator_reply(text: str) -> ModeratorReply:
+    """Split a moderator reply into its headline, winner and statement body.
+
+    A recognised leading directive line is always consumed; whether its *value*
+    is usable only decides whether a value is extracted. An unusable directive is
+    a failed instruction, not content, and rendering ``WINNER: maybe`` at the top
+    of a statement would be worse than dropping it.
+    """
+    directives, body = parse_directives(text, MODERATOR_DIRECTIVES)
+    headline = directives.get(DIRECTIVE_HEADLINE, "")
+    if len(headline) > MAX_HEADLINE_LENGTH:
+        headline = ""
+    winner_word = directives.get(DIRECTIVE_WINNER)
+    winner = parse_stance(winner_word) if winner_word else None
+    return ModeratorReply(headline=headline, winner=winner, body=body)
 
 
 def decide_outcome(
@@ -250,9 +297,10 @@ class ConsensusEngine:
         messages = build_moderator_messages(chamber, stances, task)
         result = await self._moderator.generate(messages, self._moderator_options)
         statement = result.content.strip() or EMPTY_MODERATOR_STATEMENT
+        reply = parse_moderator_reply(statement)
+        statement = reply.body or EMPTY_MODERATOR_STATEMENT
         if outcome is ConsensusOutcome.VERDICT:
-            winner, body = parse_verdict(statement)
-            statement = body or EMPTY_MODERATOR_STATEMENT
+            winner = reply.winner
         return ConsensusResult(
             outcome=outcome,
             statement=statement,

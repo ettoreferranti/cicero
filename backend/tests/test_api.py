@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +18,7 @@ from cicero.api.dependencies import (
 from cicero.domain.models import ParticipantTuning
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers import ProviderError
+from cicero.providers.mock import MockProvider
 from tests.conftest import ConstantFactory, ScriptedProvider
 
 
@@ -801,3 +803,48 @@ def test_list_models_provider_error_returns_502() -> None:
     app.dependency_overrides.clear()
     assert resp.status_code == 502
     assert "not configured" in resp.json()["detail"]
+
+
+def test_outcome_endpoint_returns_the_derived_summary() -> None:
+    # The shared `client` fixture's ScriptedProvider moderator_reply ("We
+    # agree.") carries no HEADLINE directive, so it can never produce the
+    # sentence this test pins down. Only the real MockProvider (Task 9) emits
+    # that — its offline moderator branch is what this test has to exercise,
+    # so it needs its own client wired to that provider, not the shared one.
+    repo = InMemoryChamberRepository()
+    factory = ConstantFactory(
+        MockProvider(models=["scripted", "scripted-large"], poll_answer="pro")
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    with TestClient(app) as mock_client:
+        cid = _create_chamber(mock_client)
+        _add_participant(mock_client, cid, "Pro-A", "pro")
+        _add_participant(mock_client, cid, "Pro-B", "pro")
+        mock_client.post(f"/chambers/{cid}/run", params={"wait": "true"})
+
+        resp = mock_client.get(f"/chambers/{cid}/outcome")
+    app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # The mock moderator's fixed reply (Task 9) is what makes this deterministic.
+    assert body["headline"] == "The chamber reached a deterministic mock outcome."
+    assert body["support"] == "unanimous — all 2 debaters"
+    assert body["decided_by"] == "all debaters converged"
+    assert body["movements"] == []
+
+
+def test_outcome_endpoint_404s_before_the_debate_concludes(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Pro-A", "pro")
+    _add_participant(client, cid, "Pro-B", "pro")
+    resp = client.get(f"/chambers/{cid}/outcome")
+    assert resp.status_code == 404
+
+
+def test_outcome_endpoint_404s_for_an_unknown_chamber(client: TestClient) -> None:
+    resp = client.get(f"/chambers/{uuid4()}/outcome")
+    assert resp.status_code == 404

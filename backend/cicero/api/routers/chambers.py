@@ -42,6 +42,7 @@ from cicero.core.orchestrator import (
     TurnLimit,
     TurnListener,
 )
+from cicero.core.outcome import summarize_outcome
 from cicero.core.prompt_builder import KIND_MODERATOR_NOTE
 from cicero.core.roster import active_participants
 from cicero.domain.enums import ChamberStatus, ProviderType
@@ -586,3 +587,22 @@ def export_chamber(
 def get_metrics(chamber_id: UUID, repo: RepoDep) -> list[ParticipantMetrics]:
     chamber = _require_chamber(repo, chamber_id)
     return compute_participant_metrics(chamber)
+
+
+@router.get("/{chamber_id}/outcome")
+def get_outcome(chamber_id: UUID, repo: RepoDep) -> dict[str, object]:
+    """The concluded debate's headline and derived facts (F5, FR-23).
+
+    Served rather than re-derived in the UI so the wording has exactly one
+    implementation — the same reason ``/metrics`` is an endpoint.
+    """
+    chamber = _require_chamber(repo, chamber_id)
+    summary = summarize_outcome(chamber)
+    if summary is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "chamber has no outcome yet")
+    return {
+        "headline": summary.headline,
+        "support": summary.support,
+        "decided_by": summary.decided_by,
+        "movements": list(summary.movements),
+    }

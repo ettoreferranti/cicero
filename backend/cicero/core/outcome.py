@@ -68,13 +68,23 @@ def support_summary(chamber: Chamber) -> str:
     if not deciding:
         return UNMEASURED
     total = len(deciding)
-    if consensus.outcome is ConsensusOutcome.CONSENSUS:
-        return f"unanimous — all {total} debaters"
     winner = consensus.winning_stance
+    if consensus.outcome is ConsensusOutcome.CONSENSUS:
+        # ``winner`` should always be set here (is_consensus implies a single
+        # stance), but a chamber concluded before that invariant held is still
+        # read through this code path, so fall back rather than lie about it.
+        if winner is None:
+            return f"unanimous — all {total} debaters"
+        return f"unanimous — all {total} debaters on {winner.value}"
+    if consensus.outcome is ConsensusOutcome.VERDICT:
+        # Checked ahead of the shared "winner is None" guard below: a VERDICT
+        # whose WINNER: line could not be read must not be reported as
+        # "unresolved" — the judge did decide, it just could not be recorded.
+        if winner is None:
+            return "judge-decided — the judge's ruling could not be read"
+        return f"judge-decided — {winner.value} ruled, no majority among {total} debaters"
     if winner is None:
         return UNRESOLVED
-    if consensus.outcome is ConsensusOutcome.VERDICT:
-        return f"judge-decided — no majority among {total} debaters"
     held = Counter(deciding.values())[winner]
     return (
         f"contested — {held} of {total} debaters settled on {winner.value}, "

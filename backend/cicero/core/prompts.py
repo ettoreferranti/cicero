@@ -127,8 +127,8 @@ MODERATOR_DISAGREEMENT_TASK = (
     "DISAGREEMENT: the main positions, the key points of contention (cruxes), and "
     "what remains unresolved.\n\n"
     f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline names the crux that stayed "
-    "unresolved — for example 'The chamber did not converge: whether the onboarding "
-    "cost is decisive was never settled.'"
+    "unresolved — for example 'The chamber did not converge: whether X is decisive "
+    "was never settled.'"
 )
 MODERATOR_MAJORITY_TASK = (
     "A majority of participants — though not all — settled on the position "

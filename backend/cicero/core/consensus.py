@@ -170,8 +170,8 @@ def parse_directives(text: str, keys: frozenset[str]) -> tuple[dict[str, str], s
     *while more directives may still follow* (i.e. after at least one has
     already been found); once real content is seen the peel stops exactly as
     before, so a blank line does not let unrelated prose be mistaken for a
-    directive, and a blank line that opens the body itself does not get treated
-    as part of the directive block.
+    directive. A blank line that opens the body itself *is* consumed the same
+    way — it just does not matter, because ``body`` is stripped afterward.
 
     Returns the directives found (keys upper-cased) and the remaining body. When
     nothing remains, the original text is returned as the body: a reply that was
@@ -195,15 +195,23 @@ def parse_directives(text: str, keys: frozenset[str]) -> tuple[dict[str, str], s
     return found, body or stripped
 
 
-def parse_moderator_reply(text: str) -> ModeratorReply:
+def parse_moderator_reply(
+    text: str, keys: frozenset[str] = MODERATOR_DIRECTIVES
+) -> ModeratorReply:
     """Split a moderator reply into its headline, winner and statement body.
 
     A recognised leading directive line is always consumed; whether its *value*
     is usable only decides whether a value is extracted. An unusable directive is
     a failed instruction, not content, and rendering ``WINNER: maybe`` at the top
     of a statement would be worse than dropping it.
+
+    ``keys`` narrows which directives this reply is allowed to open with. Only a
+    verdict actually asked for ``WINNER:``; peeling it from any other outcome
+    risks eating a body sentence that happens to start the same way (e.g. "Winner:
+    the pro side, because..."), silently deleting it from the published
+    statement. Defaults to the full set so existing callers are unaffected.
     """
-    directives, body = parse_directives(text, MODERATOR_DIRECTIVES)
+    directives, body = parse_directives(text, keys)
     headline = directives.get(DIRECTIVE_HEADLINE, "")
     if len(headline) > MAX_HEADLINE_LENGTH:
         headline = ""
@@ -311,7 +319,16 @@ class ConsensusEngine:
         task = _moderator_task(outcome, winner)
         messages = build_moderator_messages(chamber, stances, task)
         result = await self._moderator.generate(messages, self._moderator_options)
-        reply = parse_moderator_reply(result.content.strip())
+        # Only a VERDICT reply was actually asked for a WINNER: line (see
+        # _moderator_task); narrowing the key set for the other three outcomes
+        # keeps a body sentence that happens to start "Winner: ..." from being
+        # peeled off and silently dropped from the published statement.
+        keys = (
+            MODERATOR_DIRECTIVES
+            if outcome is ConsensusOutcome.VERDICT
+            else frozenset({DIRECTIVE_HEADLINE})
+        )
+        reply = parse_moderator_reply(result.content.strip(), keys=keys)
         statement = reply.body.strip() or EMPTY_MODERATOR_STATEMENT
         if outcome is ConsensusOutcome.VERDICT:
             winner = reply.winner

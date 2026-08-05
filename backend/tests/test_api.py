@@ -832,7 +832,7 @@ def test_outcome_endpoint_returns_the_derived_summary() -> None:
     body = resp.json()
     # The mock moderator's fixed reply (Task 9) is what makes this deterministic.
     assert body["headline"] == "The chamber reached a deterministic mock outcome."
-    assert body["support"] == "unanimous — all 2 debaters"
+    assert body["support"] == "unanimous — all 2 debaters on pro"
     assert body["decided_by"] == "all debaters converged"
     assert body["movements"] == []
 

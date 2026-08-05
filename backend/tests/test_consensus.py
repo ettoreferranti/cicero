@@ -13,6 +13,7 @@ from cicero.core.consensus import (
     parse_moderator_reply,
     parse_stance,
 )
+from cicero.core.prompts import DIRECTIVE_HEADLINE
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
 from cicero.domain.models import MAX_HEADLINE_LENGTH, StancePoll
 from cicero.providers.base import GenerateOptions
@@ -388,6 +389,55 @@ def test_parse_moderator_reply_reads_the_winner_with_no_blank_line() -> None:
     assert reply.headline == "Title."
     assert reply.winner is Stance.PRO
     assert reply.body == "Body."
+
+
+def test_parse_moderator_reply_with_a_narrowed_key_set_keeps_a_winner_shaped_sentence() -> None:
+    # Only a VERDICT reply is actually asked for WINNER:. Outside that, a body
+    # sentence that happens to start "Winner: ..." must not be peeled off as a
+    # directive and silently deleted from the statement — passing a key set
+    # without DIRECTIVE_WINNER is what keeps it in the body.
+    text = (
+        "HEADLINE: Cities should invest in transit.\n"
+        "\n"
+        "Winner: the pro side, because the cost case was decisive.\n"
+        "\n"
+        "More reasoning."
+    )
+    reply = parse_moderator_reply(text, keys=frozenset({DIRECTIVE_HEADLINE}))
+    assert reply.headline == "Cities should invest in transit."
+    assert reply.winner is None
+    assert reply.body == (
+        "Winner: the pro side, because the cost case was decisive.\n\nMore reasoning."
+    )
+
+
+async def test_finalize_keeps_a_winner_shaped_sentence_for_a_non_verdict_outcome() -> None:
+    # End-to-end reproduction of the regression introduced by 475c20b: a
+    # CONSENSUS reply whose body opens with "Winner: ..." must keep that
+    # sentence in the published statement, because only VERDICT outcomes were
+    # ever prompted for a WINNER: directive.
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(
+        moderator_reply=(
+            "HEADLINE: Cities should invest in transit.\n"
+            "\n"
+            "Winner: the pro side, because the cost case was decisive.\n"
+            "\n"
+            "More reasoning."
+        )
+    )
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    assert result.outcome is ConsensusOutcome.CONSENSUS
+    assert result.statement == (
+        "Winner: the pro side, because the cost case was decisive.\n\nMore reasoning."
+    )
 
 
 def test_decide_outcome_per_rule() -> None:

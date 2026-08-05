@@ -58,6 +58,20 @@ def test_support_reports_unanimity() -> None:
         winner=Stance.PRO,
         unparsed=[],
     )
+    assert support_summary(chamber) == "unanimous — all 3 debaters on pro"
+
+
+def test_support_reports_unanimity_without_a_recorded_winner() -> None:
+    # Defensive fallback: is_consensus always implies a single winning stance,
+    # so this should not arise in practice, but a chamber that somehow reached
+    # CONSENSUS without one recorded must still get an honest sentence rather
+    # than crashing or silently naming ``None`` as the stance.
+    chamber = _concluded(
+        ConsensusOutcome.CONSENSUS,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.PRO},
+        winner=None,
+        unparsed=[],
+    )
     assert support_summary(chamber) == "unanimous — all 3 debaters"
 
 
@@ -80,7 +94,20 @@ def test_support_reports_a_judge_verdict() -> None:
         winner=Stance.PRO,
         unparsed=[],
     )
-    assert support_summary(chamber) == "judge-decided — no majority among 3 debaters"
+    assert support_summary(chamber) == "judge-decided — pro ruled, no majority among 3 debaters"
+
+
+def test_support_reports_a_judge_verdict_with_no_readable_winner() -> None:
+    # Reproduces the self-contradiction the review flagged: a VERDICT whose
+    # WINNER: line could not be read must not fall through to the shared
+    # "unresolved" text — the judge *did* decide, only the winner was lost.
+    chamber = _concluded(
+        ConsensusOutcome.VERDICT,
+        {"a": Stance.PRO, "b": Stance.CON, "c": Stance.NEUTRAL},
+        winner=None,
+        unparsed=[],
+    )
+    assert support_summary(chamber) == "judge-decided — the judge's ruling could not be read"
 
 
 def test_support_reports_disagreement_as_unresolved() -> None:
@@ -101,7 +128,7 @@ def test_support_excludes_a_muted_debater_from_the_denominator() -> None:
     )
     chamber.participants[2].muted = True
     # A muted debater does not vote (FR-13), so it cannot pad the support count.
-    assert support_summary(chamber) == "unanimous — all 2 debaters"
+    assert support_summary(chamber) == "unanimous — all 2 debaters on pro"
 
 
 def test_support_says_unmeasured_when_nothing_was_recorded() -> None:
@@ -127,7 +154,7 @@ def test_support_prefers_the_recorded_unparsed_set_over_a_stale_poll() -> None:
     chamber.stance_history = [
         StancePoll(round_index=0, stances={}, unparsed=[str(ada.id)]),
     ]
-    assert support_summary(chamber) == "unanimous — all 3 debaters"
+    assert support_summary(chamber) == "unanimous — all 3 debaters on pro"
 
 
 def test_support_falls_back_to_the_last_poll_for_a_historical_chamber() -> None:
@@ -140,7 +167,7 @@ def test_support_falls_back_to_the_last_poll_for_a_historical_chamber() -> None:
     ada = chamber.participants[0]
     # Never measured anywhere, so deciding_stances drops it.
     chamber.stance_history = [StancePoll(round_index=0, stances={}, unparsed=[str(ada.id)])]
-    assert support_summary(chamber) == "unanimous — all 2 debaters"
+    assert support_summary(chamber) == "unanimous — all 2 debaters on pro"
 
 
 def test_support_for_a_historical_chamber_without_history_counts_everyone() -> None:
@@ -150,7 +177,7 @@ def test_support_for_a_historical_chamber_without_history_counts_everyone() -> N
         winner=Stance.PRO,
         unparsed=None,
     )
-    assert support_summary(chamber) == "unanimous — all 3 debaters"
+    assert support_summary(chamber) == "unanimous — all 3 debaters on pro"
 
 
 def test_decision_basis_per_outcome() -> None:
@@ -275,7 +302,7 @@ def test_summarize_outcome_bundles_the_headline_with_the_derived_values() -> Non
     summary = summarize_outcome(chamber)
     assert summary is not None
     assert summary.headline == "Mars should wait."
-    assert summary.support == "unanimous — all 3 debaters"
+    assert summary.support == "unanimous — all 3 debaters on pro"
     assert summary.decided_by == "all debaters converged"
     assert summary.movements == ()
 

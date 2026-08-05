@@ -804,6 +804,13 @@ def run_demo(
         bool(statement.strip()),
         f"{len(statement)} chars",
     )
+    headline = str(consensus.get("headline") or "")
+    report.check(
+        "FR-23",
+        "outcome carries a one-sentence headline",
+        bool(headline.strip()),
+        f"{headline[:60]!r}" if headline else "missing",
+    )
     if outcome == "disagreement":
         report.check(
             "FR-24",

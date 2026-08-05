@@ -106,11 +106,14 @@ describe("outcome card", () => {
     expect(
       await screen.findByText("Mars should wait for cheaper launch costs."),
     ).toBeInTheDocument();
+    // The derived facts arrive via a second, dependent effect (fired only once
+    // `consensus` is set) — await them instead of asserting synchronously so
+    // the assertion retries until that effect's re-render lands.
     expect(
-      screen.getByText(/contested — 2 of 3 debaters settled on neutral/),
+      await screen.findByText(/contested — 2 of 3 debaters settled on neutral/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/majority of final positions/)).toBeInTheDocument();
-    expect(screen.getByText(/Ada \(pro→neutral\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/majority of final positions/)).toBeInTheDocument();
+    expect(await screen.findByText(/Ada \(pro→neutral\)/)).toBeInTheDocument();
     // The stance word is evidence in the support line, not the headline.
     expect(screen.queryByText("Winning position:")).not.toBeInTheDocument();
   });
@@ -158,9 +161,13 @@ describe("outcome card", () => {
     await screen.findByText("Mars should wait.");
     // Positive proof the derived-facts block did render — otherwise the absence
     // of "Positions moved" below is indistinguishable from the whole block
-    // never rendering.
-    expect(screen.getByText("unanimous — all 2 debaters")).toBeInTheDocument();
-    expect(screen.getByText("all debaters converged")).toBeInTheDocument();
+    // never rendering. These are driven by the second, dependent effect (fired
+    // only once `consensus` is set), so await them rather than asserting
+    // synchronously — otherwise this races that effect's re-render. The
+    // negative assertion below must stay after these awaited positives, so the
+    // block is known to have rendered before we assert one row of it absent.
+    expect(await screen.findByText("unanimous — all 2 debaters")).toBeInTheDocument();
+    expect(await screen.findByText("all debaters converged")).toBeInTheDocument();
     expect(screen.queryByText(/Positions moved/)).not.toBeInTheDocument();
   });
 

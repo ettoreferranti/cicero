@@ -5,6 +5,15 @@ import { ChamberDetail } from "./ChamberDetail";
 import { DEFAULT_TUNING } from "./types";
 import type { Chamber, ConsensusResult, OutcomeSummary } from "./types";
 
+// No @types/node in this project (see tsconfig.json's explicit `types` list),
+// so `process` isn't ambiently typed even though it exists at runtime under
+// Vitest's Node-hosted jsdom environment. Declared locally, scoped to this
+// file, rather than widening the project's global type surface for one test.
+declare const process: {
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+};
+
 vi.mock("./useDebateStream", () => ({
   useDebateStream: () => ({ liveTurns: [], status: null, consensus: null, done: false }),
 }));
@@ -158,22 +167,36 @@ describe("outcome card", () => {
   it("still shows the headline from consensus when the outcome fetch 404s", async () => {
     // The stream can announce consensus before the chamber (and its derived
     // outcome facts) are readable — getOutcome legitimately 404s in that
-    // window, and the card must still render from `consensus` alone.
-    getChamber.mockResolvedValue(
-      chamber({
-        outcome: "consensus",
-        statement: "Agreed.",
-        headline: "Mars should wait.",
-        winning_stance: "neutral",
-        final_stances: {},
-        unparsed: [],
-      }),
-    );
-    getOutcome.mockRejectedValue(new ApiError(404, "not found"));
+    // window, and the card must still render from `consensus` alone. The
+    // rejection must also be caught inside the effect: if it escapes as an
+    // unhandled rejection, that's a real defect even though it doesn't
+    // affect what gets rendered here (headline comes from `consensus`, not
+    // `outcome`), so we assert on the rejection itself rather than on
+    // rendered output.
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+    try {
+      getChamber.mockResolvedValue(
+        chamber({
+          outcome: "consensus",
+          statement: "Agreed.",
+          headline: "Mars should wait.",
+          winning_stance: "neutral",
+          final_stances: {},
+          unparsed: [],
+        }),
+      );
+      getOutcome.mockRejectedValue(new ApiError(404, "not found"));
 
-    render(<ChamberDetail chamberId="c1" onBack={vi.fn()} />);
+      render(<ChamberDetail chamberId="c1" onBack={vi.fn()} />);
 
-    expect(await screen.findByText("Mars should wait.")).toBeInTheDocument();
-    expect(screen.queryByText(/failed to/i)).not.toBeInTheDocument();
+      expect(await screen.findByText("Mars should wait.")).toBeInTheDocument();
+      // Let the rejected getOutcome() microtask settle before checking.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
   });
 });

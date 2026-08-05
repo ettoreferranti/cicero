@@ -12,6 +12,8 @@ from cicero.domain import (
     Chamber,
     ChamberStatus,
     Citation,
+    ConsensusOutcome,
+    ConsensusResult,
     Participant,
     ProviderType,
     Stance,
@@ -115,3 +117,43 @@ def test_citation_url_required() -> None:
     with pytest.raises(ValidationError):
         Citation(url="")  # type: ignore[call-arg]
     assert Citation(url="https://example.org").title == ""
+
+
+def test_consensus_result_defaults_to_no_headline_and_unrecorded_unparsed() -> None:
+    result = ConsensusResult(outcome=ConsensusOutcome.CONSENSUS, statement="Agreed.")
+    assert result.headline == ""
+    # None is "never recorded", which is not the same claim as "none failed".
+    assert result.unparsed is None
+
+
+def test_consensus_result_accepts_a_headline_and_an_unparsed_list() -> None:
+    result = ConsensusResult(
+        outcome=ConsensusOutcome.CONSENSUS,
+        statement="Agreed.",
+        headline="The office should be kept at 21 degrees.",
+        unparsed=["abc"],
+    )
+    assert result.headline == "The office should be kept at 21 degrees."
+    assert result.unparsed == ["abc"]
+
+
+def test_consensus_result_rejects_an_overlong_headline() -> None:
+    with pytest.raises(ValidationError):
+        ConsensusResult(
+            outcome=ConsensusOutcome.CONSENSUS, statement="Agreed.", headline="x" * 501
+        )
+
+
+def test_consensus_result_loads_a_chamber_persisted_before_the_headline_existed() -> None:
+    # Chambers persist as JSON and _Base forbids extra keys, so backward
+    # compatibility rests entirely on these defaults. This is the regression that
+    # would take out every debate already in the database.
+    legacy = {
+        "outcome": "majority",
+        "statement": "The majority prevailed.",
+        "winning_stance": "neutral",
+        "final_stances": {},
+    }
+    result = ConsensusResult.model_validate(legacy)
+    assert result.headline == ""
+    assert result.unparsed is None

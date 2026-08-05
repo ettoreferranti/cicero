@@ -170,6 +170,16 @@ class ConsensusResult(_Base):
     #: The position that prevailed; ``None`` only when the debate ended in
     #: disagreement (or a judge verdict could not name a side).
     winning_stance: Stance | None = None
+    #: One declarative sentence stating what the chamber concluded — the TL;DR a
+    #: stance word cannot carry. Empty when the moderator produced none that was
+    #: usable; never fabricated from the statement.
+    headline: str = Field(default="", max_length=MAX_HEADLINE_LENGTH)
+    #: Ids whose final position could not be read, exactly as passed to
+    #: ``ConsensusEngine.finalize``. ``None`` means *not recorded* — a chamber
+    #: concluded before this field existed — which is a different claim from
+    #: ``[]`` ("every position was read"). Kept here rather than derived from
+    #: ``stance_history`` because the final poll is not always recorded there.
+    unparsed: list[str] | None = None
     # Each participant's final stance, keyed by participant id (as string).
     final_stances: dict[str, Stance] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=_utcnow)

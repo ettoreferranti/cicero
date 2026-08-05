@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { ApiError } from "./api";
 import { ChamberDetail } from "./ChamberDetail";
 import { DEFAULT_TUNING } from "./types";
 import type { Chamber, ConsensusResult, OutcomeSummary } from "./types";
@@ -146,6 +147,33 @@ describe("outcome card", () => {
     });
 
     await screen.findByText("Mars should wait.");
+    // Positive proof the derived-facts block did render — otherwise the absence
+    // of "Positions moved" below is indistinguishable from the whole block
+    // never rendering.
+    expect(screen.getByText("unanimous — all 2 debaters")).toBeInTheDocument();
+    expect(screen.getByText("all debaters converged")).toBeInTheDocument();
     expect(screen.queryByText(/Positions moved/)).not.toBeInTheDocument();
+  });
+
+  it("still shows the headline from consensus when the outcome fetch 404s", async () => {
+    // The stream can announce consensus before the chamber (and its derived
+    // outcome facts) are readable — getOutcome legitimately 404s in that
+    // window, and the card must still render from `consensus` alone.
+    getChamber.mockResolvedValue(
+      chamber({
+        outcome: "consensus",
+        statement: "Agreed.",
+        headline: "Mars should wait.",
+        winning_stance: "neutral",
+        final_stances: {},
+        unparsed: [],
+      }),
+    );
+    getOutcome.mockRejectedValue(new ApiError(404, "not found"));
+
+    render(<ChamberDetail chamberId="c1" onBack={vi.fn()} />);
+
+    expect(await screen.findByText("Mars should wait.")).toBeInTheDocument();
+    expect(screen.queryByText(/failed to/i)).not.toBeInTheDocument();
   });
 });

@@ -1196,9 +1196,8 @@ from cicero.core.outcome import summarize_outcome
 Replace lines 82-88 (`if chamber.consensus is not None:` through the trailing `lines.append("")`) with:
 
 ```python
-    if chamber.consensus is not None:
-        summary = summarize_outcome(chamber)
-        assert summary is not None  # noqa: S101 — guarded by the branch above
+    summary = summarize_outcome(chamber)
+    if chamber.consensus is not None and summary is not None:
         if chamber.consensus.headline:
             lines.append("## Outcome")
             lines.append("")
@@ -1221,7 +1220,7 @@ Replace lines 82-88 (`if chamber.consensus is not None:` through the trailing `l
         lines.append("")
 ```
 
-`ruff` selects `S` (bandit), which flags bare `assert` — hence the `noqa`. If you prefer, replace the assert with an early `summary = summarize_outcome(chamber) or OutcomeSummary("", "", "", ())`; the assert is clearer about the invariant.
+The two conditions are checked together rather than asserting the second: `ruff` selects `S` (bandit), which flags bare `assert` in non-test code, and `summarize_outcome` returns `None` exactly when `chamber.consensus` is `None`, so one combined guard is both mypy-clean and honest.
 
 - [ ] **Step 4: Implement the JSON block**
 

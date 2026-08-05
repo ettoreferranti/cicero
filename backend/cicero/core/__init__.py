@@ -10,6 +10,13 @@ from cicero.core.consensus import ConsensusEngine, is_consensus, parse_stance
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.metrics import ParticipantMetrics, compute_participant_metrics
 from cicero.core.orchestrator import DebateEngine, TurnListener
+from cicero.core.outcome import (
+    OutcomeSummary,
+    decision_basis,
+    movements,
+    summarize_outcome,
+    support_summary,
+)
 from cicero.core.prompt_builder import (
     build_moderator_messages,
     build_stance_poll_messages,
@@ -30,6 +37,7 @@ __all__ = [
     "DebateBudget",
     "DebateEngine",
     "InvalidTransition",
+    "OutcomeSummary",
     "ParticipantMetrics",
     "StopReason",
     "TurnListener",
@@ -38,9 +46,13 @@ __all__ = [
     "build_turn_messages",
     "can_transition",
     "compute_participant_metrics",
+    "decision_basis",
     "is_consensus",
+    "movements",
     "parse_stance",
     "render_transcript",
+    "summarize_outcome",
+    "support_summary",
     "to_export_dict",
     "to_markdown",
     "transition",

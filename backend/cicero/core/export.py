@@ -5,15 +5,28 @@ Pure and deterministic — part of the mutation-testing gate.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
+from cicero.core.outcome import summarize_outcome
 from cicero.core.prompt_builder import system_speaker_label
 from cicero.domain.models import Chamber
 
 
 def to_export_dict(chamber: Chamber) -> dict[str, Any]:
-    """A JSON-serialisable snapshot of the whole chamber."""
-    return chamber.model_dump(mode="json")
+    """A JSON-serialisable snapshot of the whole chamber, plus its outcome summary.
+
+    The summary is a **sibling** of the chamber rather than a key inside it, so
+    the chamber remains an exact dump of the model. Nothing consumes this export
+    as input, so the added key breaks no round-trip.
+    """
+    summary = summarize_outcome(chamber)
+    return {
+        "chamber": chamber.model_dump(mode="json"),
+        "outcome_summary": asdict(summary) | {"movements": list(summary.movements)}
+        if summary is not None
+        else None,
+    }
 
 
 def _stance_history_header(chamber: Chamber) -> str:
@@ -79,11 +92,26 @@ def to_markdown(chamber: Chamber) -> str:
             )
         lines.append("")
 
-    if chamber.consensus is not None:
-        lines.append(f"## Outcome: {chamber.consensus.outcome.value}")
-        if chamber.consensus.winning_stance is not None:
-            lines.append(f"**Winning position:** {chamber.consensus.winning_stance.value}")
+    summary = summarize_outcome(chamber)
+    if chamber.consensus is not None and summary is not None:
+        if chamber.consensus.headline:
+            lines.append("## Outcome")
             lines.append("")
+            lines.append(f"**The chamber concluded:** {chamber.consensus.headline}")
+        else:
+            # No usable headline: fall back to the pre-F5 shape rather than
+            # showing a heading with nothing under it.
+            lines.append(f"## Outcome: {chamber.consensus.outcome.value}")
+            if chamber.consensus.winning_stance is not None:
+                lines.append(
+                    f"**Winning position:** {chamber.consensus.winning_stance.value}"
+                )
+        lines.append("")
+        lines.append(f"- **Support:** {summary.support}")
+        lines.append(f"- **How decided:** {summary.decided_by}")
+        if summary.movements:
+            lines.append(f"- **Positions moved:** {', '.join(summary.movements)}")
+        lines.append("")
         lines.append(chamber.consensus.statement)
         lines.append("")
 

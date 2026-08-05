@@ -415,7 +415,7 @@ def test_export_json_and_markdown(client: TestClient) -> None:
 
     as_json = client.get(f"/chambers/{cid}/export", params={"format": "json"})
     assert as_json.status_code == 200
-    assert as_json.json()["topic"] == "Should we colonise Mars?"
+    assert as_json.json()["chamber"]["topic"] == "Should we colonise Mars?"
 
     as_md = client.get(f"/chambers/{cid}/export", params={"format": "markdown"})
     assert as_md.status_code == 200

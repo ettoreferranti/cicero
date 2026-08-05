@@ -1,6 +1,7 @@
 import type {
   Chamber,
   DebateSettings,
+  OutcomeSummary,
   ParticipantMetrics,
   ParticipantTuning,
   Provider,
@@ -175,6 +176,10 @@ export function stepDebate(id: string): Promise<Chamber> {
 
 export function getMetrics(id: string): Promise<ParticipantMetrics[]> {
   return request<ParticipantMetrics[]>(`/chambers/${id}/metrics`);
+}
+
+export function getOutcome(id: string): Promise<OutcomeSummary> {
+  return request<OutcomeSummary>(`/chambers/${id}/outcome`);
 }
 
 export async function listModels(provider: Provider): Promise<string[]> {

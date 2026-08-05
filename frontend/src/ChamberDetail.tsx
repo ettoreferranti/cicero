@@ -20,6 +20,7 @@ import type {
   Chamber,
   DebateSettings,
   DecisionRule,
+  OutcomeSummary,
   ParticipantMetrics,
   Turn,
 } from "./types";
@@ -72,6 +73,38 @@ export function ChamberDetail({
   } | null>(null);
 
   const stream = useDebateStream(chamberId, streaming);
+  // The outcome can arrive from the live SSE stream before the chamber is
+  // reloaded, or from the persisted chamber once it is — same precedence as
+  // the rest of the live/persisted split above. Computed here, ahead of the
+  // `!chamber` early return below, so the hooks that key off it (next) run
+  // unconditionally on every render.
+  const consensus = stream.consensus ?? chamber?.consensus ?? null;
+
+  const [outcome, setOutcome] = useState<OutcomeSummary | null>(null);
+
+  // The headline comes with `consensus`; the derived lines are served separately
+  // so their wording has one implementation (backend `core/outcome.py`).
+  useEffect(() => {
+    if (!consensus) {
+      setOutcome(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .getOutcome(chamberId)
+      .then((summary) => {
+        if (!cancelled) setOutcome(summary);
+      })
+      .catch(() => {
+        // The card still renders from `consensus` alone — the derived lines are
+        // an enhancement, not a prerequisite. A 404 here just means the stream
+        // announced the outcome before the chamber was readable.
+        if (!cancelled) setOutcome(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chamberId, consensus]);
 
   const load = useCallback(async () => {
     try {
@@ -278,7 +311,6 @@ export function ChamberDetail({
     ? mergeTurns(chamber.turns, stream.liveTurns)
     : chamber.turns;
   const rounds = groupTurnsByRound(liveTurns);
-  const consensus = stream.consensus ?? chamber.consensus;
   const liveStatus = streaming ? (stream.status ?? "running") : chamber.status;
   const runnable = canRun(chamber.status, chamber.participants.length);
   const resumable = canResume(chamber.status, chamber.participants.length);
@@ -728,14 +760,34 @@ export function ChamberDetail({
 
       {consensus && (
         <div className="card">
-          <h2>Outcome: {outcomeLabel(consensus.outcome)}</h2>
-          {consensus.winning_stance && (
-            <p>
-              Winning position:{" "}
-              <span className={`stance ${consensus.winning_stance}`}>
-                {stanceLabel(consensus.winning_stance)}
-              </span>
-            </p>
+          {consensus.headline ? (
+            <h2>{consensus.headline}</h2>
+          ) : (
+            <>
+              <h2>Outcome: {outcomeLabel(consensus.outcome)}</h2>
+              {consensus.winning_stance && (
+                <p>
+                  Winning position:{" "}
+                  <span className={`stance ${consensus.winning_stance}`}>
+                    {stanceLabel(consensus.winning_stance)}
+                  </span>
+                </p>
+              )}
+            </>
+          )}
+          {outcome && (
+            <dl className="outcome-facts">
+              <dt>Support</dt>
+              <dd>{outcome.support}</dd>
+              <dt>How decided</dt>
+              <dd>{outcome.decided_by}</dd>
+              {outcome.movements.length > 0 && (
+                <>
+                  <dt>Positions moved</dt>
+                  <dd>{outcome.movements.join(", ")}</dd>
+                </>
+              )}
+            </dl>
           )}
           <p style={{ whiteSpace: "pre-wrap" }}>{consensus.statement}</p>
         </div>

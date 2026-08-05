@@ -86,8 +86,22 @@ export interface StancePoll {
 export interface ConsensusResult {
   outcome: Outcome;
   statement: string;
+  // One declarative sentence stating what the chamber concluded. Empty when the
+  // moderator produced none that was usable — the card then falls back.
+  headline: string;
   winning_stance: Stance | null;
   final_stances: Record<string, Stance>;
+  // Ids whose final position could not be read. null means "not recorded" — a
+  // chamber concluded before this field existed — not "none failed".
+  unparsed: string[] | null;
+}
+
+/** Derived outcome facts, served by GET /chambers/{id}/outcome. */
+export interface OutcomeSummary {
+  headline: string;
+  support: string;
+  decided_by: string;
+  movements: string[];
 }
 
 export interface Chamber {

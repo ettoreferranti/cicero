@@ -16,7 +16,13 @@ from cicero.core.consensus import (
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
 from cicero.domain.models import MAX_HEADLINE_LENGTH, StancePoll
 from cicero.providers.base import GenerateOptions
-from tests.conftest import ScriptedProvider, StubFactory, make_chamber, make_participant
+from tests.conftest import (
+    ConstantFactory,
+    ScriptedProvider,
+    StubFactory,
+    make_chamber,
+    make_participant,
+)
 
 MOD_OPTS = GenerateOptions(model="mod")
 
@@ -406,3 +412,86 @@ async def test_finalize_uses_fallback_when_moderator_is_empty() -> None:
     engine = ConsensusEngine(StubFactory({}), moderator, MOD_OPTS)
     result = await engine.finalize(chamber, {str(a.id): Stance.PRO, str(b.id): Stance.PRO})
     assert result.statement == EMPTY_MODERATOR_STATEMENT
+
+
+async def test_finalize_records_the_moderator_headline() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(
+        moderator_reply="HEADLINE: Mars should wait.\nThe cost case was decisive."
+    )
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    assert result.headline == "Mars should wait."
+    assert result.statement == "The cost case was decisive."
+
+
+async def test_finalize_leaves_the_headline_empty_when_the_moderator_omits_it() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(moderator_reply="They agreed on the cost case.")
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    # Never back-filled from the statement: a summary the moderator did not write
+    # must not be presented as one it did.
+    assert result.headline == ""
+    assert result.statement == "They agreed on the cost case."
+
+
+async def test_finalize_records_the_unparsed_set_it_decided_on() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(moderator_reply="HEADLINE: Unclear.\nNo agreement.")
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}, unparsed=[str(zeno.id)]
+    )
+
+    assert result.unparsed == [str(zeno.id)]
+
+
+async def test_finalize_records_an_empty_unparsed_set_rather_than_none() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(moderator_reply="HEADLINE: Agreed.\nBoth sides aligned.")
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    # A freshly concluded chamber always knows; only historical ones say None.
+    assert result.unparsed == []
+
+
+async def test_finalize_reads_a_verdict_that_also_carries_a_headline() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(ada, zeno)
+    chamber.settings.decision_rule = DecisionRule.JUDGE
+    provider = ScriptedProvider(
+        moderator_reply="HEADLINE: The pro case won.\nWINNER: pro\nBetter evidence."
+    )
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+    )
+
+    assert result.outcome is ConsensusOutcome.VERDICT
+    assert result.winning_stance is Stance.PRO
+    assert result.headline == "The pro case won."
+    assert result.statement == "Better evidence."

@@ -296,14 +296,15 @@ class ConsensusEngine:
         task = _moderator_task(outcome, winner)
         messages = build_moderator_messages(chamber, stances, task)
         result = await self._moderator.generate(messages, self._moderator_options)
-        statement = result.content.strip() or EMPTY_MODERATOR_STATEMENT
-        reply = parse_moderator_reply(statement)
-        statement = reply.body or EMPTY_MODERATOR_STATEMENT
+        reply = parse_moderator_reply(result.content.strip())
+        statement = reply.body.strip() or EMPTY_MODERATOR_STATEMENT
         if outcome is ConsensusOutcome.VERDICT:
             winner = reply.winner
         return ConsensusResult(
             outcome=outcome,
             statement=statement,
+            headline=reply.headline,
             winning_stance=winner,
             final_stances=dict(stances),
+            unparsed=list(unparsed),
         )

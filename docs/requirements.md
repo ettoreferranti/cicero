@@ -125,8 +125,11 @@ Requirements use MoSCoW priority: **M**ust / **S**hould / **C**ould / **W**on't 
 ### 5.4 Consensus
 - **FR-22 (M)** Detect convergence and drive the chamber to a `concluded` state.
 - **FR-23 (M)** Produce a **Consensus Statement**: a synthesized final position
-  the participants endorse, plus a record of each participant's final
-  stance/agreement level.
+  with each participant's final stance. Every outcome — consensus, majority,
+  verdict, or disagreement — additionally carries a **one-sentence headline**
+  stating what the chamber concluded (for a disagreement, the unresolved crux),
+  because a stance word alone cannot express a compromise and collapses to
+  `neutral`.
 - **FR-24 (S)** If no consensus is reached within budget, produce a **Summary of
   Disagreement** instead (positions, key cruxes, unresolved points).
 - **FR-25 (S)** Record stance changes over time (who moved, when, why) for

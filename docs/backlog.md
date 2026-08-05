@@ -193,6 +193,7 @@
 | F2 | As a user, on convergence the chamber produces a Consensus Statement (or majority Resolution / judge's Verdict, incl. the winning stance) plus each participant's final stance/agreement. | FR-23 | M | 5 | ✅ done |
 | F3 | As a user, if no consensus within budget, I get a Summary of Disagreement (positions, cruxes, open points). | FR-24 | S | 5 | ✅ done |
 | F4 | As an evaluator, stance changes over time are recorded and viewable. | FR-25 | S | 3 | ✅ done — every convergence poll is persisted as a `StancePoll` on `chamber.stance_history` (one per round, never double-recorded across steps), surfaced in the API, both exports, and a **Stance history** table in the UI that flags who moved |
+| F5 | As a reader, every outcome opens with a one-sentence headline saying what the chamber concluded, plus how firmly it was held, how it was decided, and who moved. | FR-23 | S | 3 | ✅ done — the moderator emits a `HEADLINE:` directive on the existing call (no extra request); `core/outcome.py` derives support/basis/movement from data already recorded, so chambers concluded before F5 gain them retroactively. `ConsensusResult` also stores the `unparsed` set it decided on, because the final poll is not always in `stance_history`. Served by `GET /chambers/{id}/outcome`; falls back to the pre-F5 display when no usable headline was produced |
 
 ## Epic G — Evidence / Web Access (opt-in, sandboxed) — **v1 scope (approved D-3)**
 *Goal: participants can cite web evidence — safely. Built behind security controls from the start.*

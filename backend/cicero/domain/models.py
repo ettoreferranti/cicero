@@ -185,6 +185,26 @@ class ConsensusResult(_Base):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class Moderator(_Base):
+    """Who writes the outcome. Not a debater: no stance, no turns, no vote.
+
+    This used to be implicit — the engine took ``chamber.participants[0]``'s provider
+    and model and paired them with two module-level constants in the API router. That
+    made the arbiter depend on roster order, and made its token budget unreachable:
+    at the old 2048, a reasoning model spent the whole budget thinking and returned
+    empty content, producing no readable ``WINNER:`` on 5 of 9 measured judge calls.
+    """
+
+    provider: ProviderType
+    model: str = Field(min_length=1, max_length=200)
+    #: 4096 cleared all 9 measured judge calls where 2048 failed 5; 8192 gained
+    #: nothing. A cap, not a target — a model that answers in 300 tokens costs 300.
+    max_tokens: int = Field(default=4096, gt=0, le=32768)
+    #: Was an invisible module constant. Exposed so a comparison run that wants
+    #: reproducible verdicts can set it to 0.
+    temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+
+
 class Chamber(_Base):
     """A debate context: a topic plus its participants and transcript."""
 
@@ -194,6 +214,9 @@ class Chamber(_Base):
     description: str = Field(default="", max_length=5000)
     status: ChamberStatus = ChamberStatus.DRAFT
     settings: DebateSettings = Field(default_factory=DebateSettings)
+    #: Who writes the outcome. ``None`` means the first participant, which is
+    #: what the engine did before this field existed.
+    moderator: Moderator | None = None
     config: dict[str, object] = Field(default_factory=dict)
     participants: list[Participant] = Field(default_factory=list)
     turns: list[Turn] = Field(default_factory=list)

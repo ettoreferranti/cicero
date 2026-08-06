@@ -19,7 +19,7 @@ from cicero.domain import (
     Stance,
     Turn,
 )
-from cicero.domain.models import ParticipantTuning
+from cicero.domain.models import Moderator, ParticipantTuning
 
 
 def _participant(**overrides: object) -> Participant:
@@ -157,3 +157,36 @@ def test_consensus_result_loads_a_chamber_persisted_before_the_headline_existed(
     result = ConsensusResult.model_validate(legacy)
     assert result.headline == ""
     assert result.unparsed is None
+
+
+def test_moderator_defaults_to_a_budget_a_reasoning_model_can_answer_within() -> None:
+    mod = Moderator(provider=ProviderType.OLLAMA, model="qwen3:30b")
+    # 2048 left qwen3:30b no room to answer after thinking — measured at 5 failed
+    # judge calls in 9. 4096 cleared all 9; 8192 gained nothing.
+    assert mod.max_tokens == 4096
+    assert mod.temperature == 0.3
+
+
+def test_moderator_rejects_out_of_range_tuning() -> None:
+    for bad in (
+        {"max_tokens": 0},
+        {"max_tokens": 32769},
+        {"temperature": -0.1},
+        {"temperature": 2.1},
+    ):
+        with pytest.raises(ValidationError):
+            Moderator(provider=ProviderType.OLLAMA, model="m", **bad)  # type: ignore[arg-type]
+
+
+def test_moderator_has_no_debater_fields() -> None:
+    # It does not argue, take turns, or vote. Reusing Participant would drag in
+    # stance/persona/instructions/muted and invite code that iterates the roster
+    # into picking it up.
+    with pytest.raises(ValidationError):
+        Moderator(provider=ProviderType.OLLAMA, model="m", stance="pro")  # type: ignore[call-arg]
+
+
+def test_chamber_without_a_moderator_is_valid() -> None:
+    # None means "use the first participant" — the behaviour before this field
+    # existed, preserved for any caller that omits it.
+    assert Chamber(topic="Should we colonise Mars?").moderator is None

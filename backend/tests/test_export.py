@@ -238,11 +238,11 @@ def test_markdown_lists_who_moved() -> None:
                                            str(kant.id): Stance.CON}),
     ]
     md = to_markdown(chamber)
-    assert "- **Positions moved:** Ada (pro→neutral), Zeno (con→neutral)" in md
+    assert "- **Recorded stance changes:** Ada (pro→neutral), Zeno (con→neutral)" in md
 
 
 def test_markdown_omits_the_movement_line_when_nobody_moved() -> None:
-    assert "**Positions moved:**" not in to_markdown(_concluded_with_headline())
+    assert "**Recorded stance changes:**" not in to_markdown(_concluded_with_headline())
 
 
 def test_markdown_falls_back_to_the_old_shape_without_a_headline() -> None:
@@ -402,7 +402,9 @@ def test_markdown_matches_expected_layout_for_the_headline_with_movements() -> N
             "",
             "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)",
             "- **How decided:** majority of final positions",
-            "- **Positions moved:** Ada (pro→neutral), Zeno (con→neutral)",
+            "- **Recorded stance changes:** Ada (pro→neutral), Zeno (con→neutral)",
+            "",
+            f"*{STANCE_CAVEAT}*",
             "",
             "The majority prevailed.",
             "",
@@ -436,6 +438,11 @@ def test_markdown_matches_expected_layout_for_the_fallback_without_a_headline() 
             "",
             "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)",
             "- **How decided:** majority of final positions",
+            "",
+            # No stance history in this fixture, so no movement line — but the
+            # deciding stances include neutral, so the caveat still applies to the
+            # Support line above it.
+            f"*{STANCE_CAVEAT}*",
             "",
             "The majority prevailed.",
             "",
@@ -477,3 +484,32 @@ def test_markdown_matches_expected_layout_for_a_verdict_with_a_winner() -> None:
             "",
         ]
     )
+
+
+def test_markdown_labels_movement_as_the_poll_record() -> None:
+    chamber = _concluded_with_headline()
+    ada = chamber.participants[0]
+    chamber.stance_history = [
+        StancePoll(round_index=0, stances={str(ada.id): Stance.PRO}),
+        StancePoll(round_index=1, stances={str(ada.id): Stance.CON}),
+    ]
+    md = to_markdown(chamber)
+    # "Positions moved" reads as a claim about the debater; this is a poll record.
+    assert "- **Recorded stance changes:**" in md
+    assert "**Positions moved:**" not in md
+
+
+def test_markdown_carries_the_stance_caveat_when_neutral_is_involved() -> None:
+    assert STANCE_CAVEAT in to_markdown(_concluded_with_headline())
+
+
+def test_markdown_omits_the_caveat_when_no_neutral_is_involved() -> None:
+    chamber = _concluded_with_headline()
+    ada, zeno, kant = chamber.participants
+    chamber.consensus.final_stances = {
+        str(ada.id): Stance.PRO,
+        str(zeno.id): Stance.PRO,
+        str(kant.id): Stance.CON,
+    }
+    chamber.consensus.winning_stance = Stance.PRO
+    assert STANCE_CAVEAT not in to_markdown(chamber)

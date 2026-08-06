@@ -110,7 +110,13 @@ def to_markdown(chamber: Chamber) -> str:
         lines.append(f"- **Support:** {summary.support}")
         lines.append(f"- **How decided:** {summary.decided_by}")
         if summary.movements:
-            lines.append(f"- **Positions moved:** {', '.join(summary.movements)}")
+            # "Recorded stance changes", not "Positions moved": this is what the
+            # one-word poll captured, which is not the same claim as a description
+            # of where the debater actually ended up.
+            lines.append(f"- **Recorded stance changes:** {', '.join(summary.movements)}")
+        if summary.caveat:
+            lines.append("")
+            lines.append(f"*{summary.caveat}*")
         lines.append("")
         lines.append(chamber.consensus.statement)
         lines.append("")

@@ -500,10 +500,28 @@ def test_caveat_prose_is_pinned_verbatim() -> None:
     summary = summarize_outcome(chamber)
     assert summary is not None
     assert summary.caveat == (
-        "Stance labels are the poll's three-word record. A debater who moved to a "
-        "compromise is recorded as neutral; the statement below describes what "
-        "actually changed."
+        "Stance labels record how each debater answered a three-word poll, not what "
+        "they argued. A neutral answer covers both holding no position and holding a "
+        "compromise the poll has no word for — read the transcript for what a debater "
+        "actually held."
     )
+
+
+def test_caveat_does_not_vouch_for_the_moderator_statement() -> None:
+    # An earlier wording ended "the statement below describes what actually changed".
+    # A real debate then produced a statement claiming a debater had endorsed a
+    # position his final turn explicitly rejected, so the caveat was directing readers
+    # to a fabrication and asserting it was reliable. It points at the transcript now.
+    chamber = _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.NEUTRAL},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert "transcript" in summary.caveat
+    assert "statement" not in summary.caveat
 
 
 def _no_neutral_majority():  # type: ignore[no-untyped-def]

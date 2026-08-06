@@ -117,21 +117,10 @@ MODERATOR_HEADLINE_DIRECTIVE = (
     "single thing this chamber concluded — not a description of what was discussed. "
     "Then continue with the rest of your reply on the following lines."
 )
-#: Appended to every moderator task. The one-word poll records a debater who moved to
-#: a compromise as "neutral", so the derived fields cannot say what actually changed.
-#: The statement can, and measurably does once asked: on a real three-model debate this
-#: made the weaker moderator name the mover it had otherwise left anonymous.
-MODERATOR_MOVEMENT_CLAUSE = (
-    " Where a debater's position changed during the debate, name them and say what "
-    "they moved to in your own words — describe the position they arrived at, not the "
-    "one-word label it was recorded under, since a debater who moved to a specific "
-    "compromise is recorded only as 'neutral'."
-)
 MODERATOR_CONSENSUS_TASK = (
     "The participants have converged. Write a single CONSENSUS STATEMENT (one short "
     "paragraph) that captures the shared position they can all endorse.\n\n"
     f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline states the shared position."
-    f"{MODERATOR_MOVEMENT_CLAUSE}"
 )
 MODERATOR_DISAGREEMENT_TASK = (
     "The participants did NOT reach consensus. Write a concise SUMMARY OF "
@@ -140,7 +129,6 @@ MODERATOR_DISAGREEMENT_TASK = (
     f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline names the crux that stayed "
     "unresolved — for example 'The chamber did not converge: whether X is decisive "
     "was never settled.'"
-    f"{MODERATOR_MOVEMENT_CLAUSE}"
 )
 MODERATOR_MAJORITY_TASK = (
     "A majority of participants — though not all — settled on the position "
@@ -148,7 +136,6 @@ MODERATOR_MAJORITY_TASK = (
     "winning position and the strongest reasons it prevailed, then briefly note "
     "the remaining dissent.\n\n"
     f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline states the prevailing position."
-    f"{MODERATOR_MOVEMENT_CLAUSE}"
 )
 MODERATOR_JUDGE_TASK = (
     "The participants did not settle on a single position. Acting as the JUDGE, "
@@ -157,7 +144,6 @@ MODERATOR_JUDGE_TASK = (
     "'WINNER: con', or 'WINNER: neutral', followed by a short VERDICT paragraph "
     "justifying the decision and noting the strongest losing argument.\n\n"
     f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline states the position you ruled for."
-    f"{MODERATOR_MOVEMENT_CLAUSE}"
 )
 #: Directive keys the moderator may open its reply with, peeled off by
 #: ``consensus.parse_moderator_reply``. Bare keys — the ``:`` is the parser's.

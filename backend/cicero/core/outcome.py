@@ -27,10 +27,16 @@ UNRESOLVED = "unresolved — no position prevailed"
 #: debater rather than as what the poll recorded. ``neutral`` is the one overloaded
 #: label — it means both "holds no position" and "holds a position the poll cannot
 #: name" — so a debate that never touches it gets no caveat and no noise.
+#:
+#: Points at the *transcript*, deliberately, not at the moderator's statement. An
+#: earlier wording said "the statement below describes what actually changed"; a real
+#: debate then produced a statement claiming a debater had endorsed a position his
+#: final turn explicitly rejected. The transcript is the primary record; the statement
+#: is another model's reading of it, and vouching for it is not this caveat's job.
 STANCE_CAVEAT = (
-    "Stance labels are the poll's three-word record. A debater who moved to a "
-    "compromise is recorded as neutral; the statement below describes what "
-    "actually changed."
+    "Stance labels record how each debater answered a three-word poll, not what they "
+    "argued. A neutral answer covers both holding no position and holding a compromise "
+    "the poll has no word for — read the transcript for what a debater actually held."
 )
 
 _BASIS: dict[ConsensusOutcome, str] = {

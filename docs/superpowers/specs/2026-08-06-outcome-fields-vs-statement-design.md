@@ -37,7 +37,6 @@ are presented as a compact, authoritative list *above* the prose that corrects t
 ## Goals
 
 - A reader can tell that stance labels are a coarse poll record, not a characterisation.
-- The statement reliably names who moved and what they moved *to*, in its own words.
 - No new stored fields, no new parsing, no schema change.
 
 ## Non-goals
@@ -62,8 +61,14 @@ renaming the key would break the API contract a second time for a display concer
 When the outcome block contains the label `neutral` anywhere — in the Support
 breakdown or in a stance change — a single muted line appears beneath the fields:
 
-> *Stance labels are the poll's three-word record. A debater who moved to a compromise
-> is recorded as `neutral`; the statement below describes what actually changed.*
+> *Stance labels record how each debater answered a three-word poll, not what they
+> argued. A neutral answer covers both holding no position and holding a compromise
+> the poll has no word for — read the transcript for what a debater actually held.*
+
+It points at the **transcript**, deliberately, not at the moderator's statement. The
+first wording ended "the statement below describes what actually changed"; §3 explains
+why vouching for the statement turned out to be unsafe. The transcript is the primary
+record — the statement is another model's reading of it.
 
 The `neutral` trigger is deliberate rather than always-on. `neutral` is the one label
 that is overloaded — it means both "holds no position" and "holds a position the poll
@@ -72,28 +77,36 @@ gets no caveat and no noise.
 
 Derived from the already-computed `support` and `movements` strings, so no new state.
 
-### 3. The statement names the movement
+### 3. The statement names the movement — BUILT, THEN REVERTED
 
-Each of the four `MODERATOR_*_TASK` prompts gains one sentence:
+Each of the four `MODERATOR_*_TASK` prompts gained one sentence asking the moderator to
+name any debater whose position changed and say what they moved to.
 
-> Where a debater's position changed during the debate, name them and say what they
-> moved to in your own words — describe the position they arrived at, not the one-word
-> label it was recorded under, since a debater who moved to a specific compromise is
-> recorded only as `neutral`.
+**This was shipped and then reverted. Do not reinstate it without new evidence.**
 
-No new field, no directive, no parsing — this only enriches prose that is already
-produced and already displayed.
+The justification was a measured gain: on the original test debate `command-r:latest`
+named the mover it had otherwise left anonymous, and `qwen3:30b` was unaffected. That
+gain was real but marginal, and it was traded against a much worse failure.
 
-**Measured effect, not assumed.** Tested against two moderators on the real debate:
+On the next real debate the shipped statement claimed a debater *"ultimately endorsed
+this compromise"*, when his final turn opens *"I respectfully disagree with Alice's
+updated position"* and proposes an alternative to the very course the headline
+advocates. A controlled re-run on that transcript — same model, temperature 0, the
+clause as the only variable — reproduced it:
 
-| moderator | shipped prompt | with the clause |
-|---|---|---|
-| `qwen3:30b` | already narrates Bob's move well | comparable; no clear gain |
-| `command-r:latest` | describes the dissent without naming who | **names Bob and his position** |
+| prompt | what it said about the dissenting debater |
+|---|---|
+| without the clause | *"Bob's dissent centers on whether this requires a standalone course…"* — accurate |
+| with the clause | *"he ultimately accepted it as the optimal compromise… rendering his earlier dissent moot"* — **false** |
 
-So: a real improvement on the weaker model, no regression on the stronger one. This is
-a modest, honest gain — it is included because it costs one sentence, not because it
-transforms the output.
+Asking a model to narrate movement induces it to manufacture a conversion arc when
+there is none. This spec's own Risks section flagged the possibility and it was shipped
+anyway on the strength of one weak positive; that was the wrong trade. Fabricating a
+debater's position is strictly worse than the field/statement contradiction this spec
+set out to fix — especially since §2's caveat then pointed readers at the statement.
+
+The `{winner}`-placeholder regression test added alongside the clause was kept: it
+guards a real trap in `MODERATOR_MAJORITY_TASK` independently of this.
 
 ### Considered and rejected
 
@@ -115,10 +128,10 @@ without giving that up.
   when nothing moved (existing behaviour must not regress).
 - JSON `outcome_summary.movements` keeps its key and value shape.
 
-**Moderator prompts:** the clause is present in all four task texts, and the
-`{winner}` placeholder in `MODERATOR_MAJORITY_TASK` still formats — that string mixes
-f-string interpolation with a runtime `.format()` placeholder and has broken this way
-before.
+**Moderator prompts:** the `{winner}` placeholder in `MODERATOR_MAJORITY_TASK` still
+formats — that string mixes f-string interpolation with a runtime `.format()`
+placeholder and has broken this way before. (The clause-presence test went with the
+clause; this one stays.)
 
 **Frontend:** caveat renders when present, absent when not; label text updated;
 existing outcome-card tests still pass.
@@ -131,8 +144,16 @@ rule limits this but does not eliminate it. If it proves noisy in practice, the 
 move is to show it only when a stance *change ends on* `neutral` — the specific shape
 that misleads — rather than on any occurrence.
 
-**The clause could make statements worse.** It lengthens a prompt that currently works,
-and F5 has precedent for prompt edits degrading output: rewriting `POLL_USER_INSTRUCTION`
-during the experiments flipped two debaters' stances. The measurement above shows no
-regression on either model tested, but it is two models on one debate. Worth re-reading
-a real statement after this ships.
+**The clause made statements worse — this risk materialised.** It was flagged here
+before shipping, shipped anyway on one weak positive, and produced a fabricated
+endorsement on the next real debate. See §3. The general lesson: a two-model, one-debate
+measurement is not enough to justify editing a prompt that already works, and the
+failure mode to watch for is not a worse-written statement but a *confidently wrong* one.
+
+**Stance movement is invisible when a debater changes sides of an argument without
+changing label.** In the debate that exposed §3, all three debaters moved substantively
+and `movements` was empty: one reversed her position entirely while both readings scored
+`pro`, one never registered his assigned `con` at all, and one moved and moved back.
+The caveat covers the `neutral` case; it does not cover this one, and first-vs-last
+comparison over three words cannot. Not fixed here — recorded so the next attempt starts
+from it.

@@ -100,7 +100,7 @@ describe("outcome card", () => {
         support: "contested — 2 of 3 debaters settled on neutral (1 con)",
         decided_by: "majority of final positions",
         movements: ["Ada (pro→neutral)"],
-        caveat: "Stance labels are the poll's three-word record.",
+        caveat: "Stance labels record how each debater answered a three-word poll.",
       },
     });
 
@@ -189,12 +189,12 @@ describe("outcome card", () => {
         support: "contested — 2 of 3 debaters settled on pro (1 neutral)",
         decided_by: "majority of final positions",
         movements: ["Ada (con→neutral)"],
-        caveat: "Stance labels are the poll's three-word record.",
+        caveat: "Stance labels record how each debater answered a three-word poll.",
       },
     });
 
     expect(await screen.findByText("Mars should wait.")).toBeInTheDocument();
-    expect(await screen.findByText(/three-word record/)).toBeInTheDocument();
+    expect(await screen.findByText(/three-word poll/)).toBeInTheDocument();
     // "Positions moved" would read as a claim about the debater.
     expect(await screen.findByText("Recorded stance changes")).toBeInTheDocument();
     expect(screen.queryByText("Positions moved")).not.toBeInTheDocument();
@@ -224,7 +224,7 @@ describe("outcome card", () => {
     expect(
       await screen.findByText(/majority of final positions/),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/three-word record/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/three-word poll/)).not.toBeInTheDocument();
   });
 
   it("still shows the headline from consensus when the outcome fetch 404s", async () => {

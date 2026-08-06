@@ -835,6 +835,10 @@ def test_outcome_endpoint_returns_the_derived_summary() -> None:
     assert body["support"] == "unanimous — all 2 debaters on pro"
     assert body["decided_by"] == "all debaters converged"
     assert body["movements"] == []
+    # Both mock debaters answer "pro", so no stance label here can be mistaken for
+    # a characterisation and the caveat must stay empty — the endpoint serves the
+    # field either way.
+    assert body["caveat"] == ""
 
 
 def test_outcome_endpoint_404s_before_the_debate_concludes(client: TestClient) -> None:

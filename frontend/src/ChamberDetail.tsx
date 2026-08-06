@@ -783,11 +783,19 @@ export function ChamberDetail({
               <dd>{outcome.decided_by}</dd>
               {outcome.movements.length > 0 && (
                 <>
-                  <dt>Positions moved</dt>
+                  {/* Not "Positions moved": this is what the one-word poll
+                      captured, which is a weaker claim than a description of
+                      where the debater actually ended up. */}
+                  <dt>Recorded stance changes</dt>
                   <dd>{outcome.movements.join(", ")}</dd>
                 </>
               )}
             </dl>
+          )}
+          {outcome?.caveat && (
+            <p className="muted" style={{ fontSize: "0.85rem" }}>
+              {outcome.caveat}
+            </p>
           )}
           <p style={{ whiteSpace: "pre-wrap" }}>{consensus.statement}</p>
         </div>

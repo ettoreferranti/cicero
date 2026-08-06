@@ -102,6 +102,10 @@ export interface OutcomeSummary {
   support: string;
   decided_by: string;
   movements: string[];
+  // Qualifies the stance labels above when they could be read as a
+  // characterisation of a debater rather than as what the poll recorded.
+  // Empty when no label on display can mislead.
+  caveat: string;
 }
 
 export interface Chamber {

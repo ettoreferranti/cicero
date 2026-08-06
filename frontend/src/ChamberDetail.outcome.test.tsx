@@ -100,6 +100,7 @@ describe("outcome card", () => {
         support: "contested — 2 of 3 debaters settled on neutral (1 con)",
         decided_by: "majority of final positions",
         movements: ["Ada (pro→neutral)"],
+        caveat: "Stance labels are the poll's three-word record.",
       },
     });
 
@@ -133,6 +134,7 @@ describe("outcome card", () => {
         support: "contested — 2 of 3 debaters settled on neutral (1 con)",
         decided_by: "majority of final positions",
         movements: [],
+        caveat: "",
       },
     });
 
@@ -155,6 +157,7 @@ describe("outcome card", () => {
         support: "unanimous — all 2 debaters",
         decided_by: "all debaters converged",
         movements: [],
+        caveat: "",
       },
     });
 
@@ -169,6 +172,59 @@ describe("outcome card", () => {
     expect(await screen.findByText("unanimous — all 2 debaters")).toBeInTheDocument();
     expect(await screen.findByText("all debaters converged")).toBeInTheDocument();
     expect(screen.queryByText(/Positions moved/)).not.toBeInTheDocument();
+  });
+
+  it("shows the stance caveat and labels movement as the poll record", async () => {
+    renderChamber({
+      consensus: {
+        outcome: "majority",
+        statement: "The majority prevailed.",
+        headline: "Mars should wait.",
+        winning_stance: "neutral",
+        final_stances: {},
+        unparsed: [],
+      },
+      outcome: {
+        headline: "Mars should wait.",
+        support: "contested — 2 of 3 debaters settled on pro (1 neutral)",
+        decided_by: "majority of final positions",
+        movements: ["Ada (con→neutral)"],
+        caveat: "Stance labels are the poll's three-word record.",
+      },
+    });
+
+    expect(await screen.findByText("Mars should wait.")).toBeInTheDocument();
+    expect(await screen.findByText(/three-word record/)).toBeInTheDocument();
+    // "Positions moved" would read as a claim about the debater.
+    expect(await screen.findByText("Recorded stance changes")).toBeInTheDocument();
+    expect(screen.queryByText("Positions moved")).not.toBeInTheDocument();
+  });
+
+  it("omits the caveat when the backend sends none", async () => {
+    renderChamber({
+      consensus: {
+        outcome: "majority",
+        statement: "The majority prevailed.",
+        headline: "Mars should wait.",
+        winning_stance: "pro",
+        final_stances: {},
+        unparsed: [],
+      },
+      outcome: {
+        headline: "Mars should wait.",
+        support: "contested — 2 of 3 debaters settled on pro (1 con)",
+        decided_by: "majority of final positions",
+        movements: [],
+        caveat: "",
+      },
+    });
+
+    // Await a fact from the same second effect first, so absence is measured
+    // after that render lands rather than before it.
+    expect(
+      await screen.findByText(/majority of final positions/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/three-word record/)).not.toBeInTheDocument();
   });
 
   it("still shows the headline from consensus when the outcome fetch 404s", async () => {

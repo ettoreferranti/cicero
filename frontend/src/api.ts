@@ -64,6 +64,17 @@ export function createChamber(input: {
   });
 }
 
+/** Set who writes the outcome, while the chamber is a draft (F8). */
+export function updateModerator(
+  id: string,
+  moderator: { provider: Provider; model: string },
+): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ moderator }),
+  });
+}
+
 /** Edit topic/category/description while the chamber is a draft (FR-3). */
 export function updateChamber(
   id: string,

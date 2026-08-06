@@ -108,6 +108,14 @@ export interface OutcomeSummary {
   caveat: string;
 }
 
+/** Who writes the outcome. Not a debater: no stance, no turns, no vote. */
+export interface Moderator {
+  provider: Provider;
+  model: string;
+  max_tokens: number;
+  temperature: number;
+}
+
 export interface Chamber {
   id: string;
   topic: string;
@@ -119,6 +127,9 @@ export interface Chamber {
   turns: Turn[];
   stance_history: StancePoll[];
   consensus: ConsensusResult | null;
+  // null means "the first participant", which is what the engine did before this
+  // field existed.
+  moderator: Moderator | null;
   config: Record<string, unknown>;
   created_at: string;
 }

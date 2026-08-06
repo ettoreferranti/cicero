@@ -59,8 +59,9 @@ function chamber(status: Chamber["status"], muted: string[] = []): Chamber {
     turns: [],
     stance_history: [],
     consensus: null,
+    moderator: null,
     created_at: "2026-08-04T09:15:55Z",
-  } as unknown as Chamber;
+  };
 }
 
 beforeEach(() => {

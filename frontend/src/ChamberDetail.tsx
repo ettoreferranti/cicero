@@ -53,6 +53,7 @@ export function ChamberDetail({
   const [stepping, setStepping] = useState(false);
   const [settingsForm, setSettingsForm] = useState<DebateSettings | null>(null);
   const [note, setNote] = useState("");
+  const [moderatorModel, setModeratorModel] = useState("");
   // null = unknown (config not loaded); the checkbox stays usable then.
   const [webAccessEnabled, setWebAccessEnabled] = useState<boolean | null>(null);
 
@@ -137,6 +138,21 @@ export function ChamberDetail({
       void api.getMetrics(chamberId).then(setMetrics).catch(() => undefined);
     }
   }, [stream.done, load, chamberId]);
+
+  async function onSetModerator() {
+    const [provider, ...rest] = moderatorModel.split("/");
+    setError(null);
+    try {
+      setChamber(
+        await api.updateModerator(chamberId, {
+          provider: provider as Chamber["participants"][number]["provider"],
+          model: rest.join("/"),
+        }),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to set the moderator");
+    }
+  }
 
   async function onAddParticipant(draft: ParticipantDraft) {
     setError(null);
@@ -551,6 +567,61 @@ export function ChamberDetail({
                 ? " · web research (unavailable on this server)"
                 : " · web research")}
           </p>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>
+          Moderator <span className="scope-badge">writes the outcome</span>
+        </h2>
+        <p className="muted scope-note">
+          Writes the headline and statement, and on the <code>judge</code> rule names
+          the winner when there is no majority. It does not debate.
+        </p>
+        {chamber.moderator ? (
+          <p>
+            <strong>
+              {chamber.moderator.provider}/{chamber.moderator.model}
+            </strong>{" "}
+            <span className="muted" style={{ fontSize: "0.85rem" }}>
+              {chamber.moderator.max_tokens} tok · temp {chamber.moderator.temperature}
+            </span>
+          </p>
+        ) : (
+          <p className="muted">
+            {chamber.participants.length > 0 ? (
+              <>
+                Defaults to the first debater —{" "}
+                <strong>
+                  {chamber.participants[0].provider}/{chamber.participants[0].model}
+                </strong>
+                . A debater judging its own debate is worth choosing deliberately.
+              </>
+            ) : (
+              "Defaults to the first debater added."
+            )}
+          </p>
+        )}
+        {chamber.status === "draft" && chamber.participants.length > 0 && (
+          <div className="row">
+            <select
+              aria-label="moderator model"
+              value={moderatorModel}
+              onChange={(e) => setModeratorModel(e.target.value)}
+            >
+              <option value="">— choose a model —</option>
+              {[...new Set(chamber.participants.map((p) => `${p.provider}/${p.model}`))].map(
+                (option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ),
+              )}
+            </select>
+            <button type="button" onClick={() => void onSetModerator()} disabled={!moderatorModel}>
+              Set moderator
+            </button>
+          </div>
         )}
       </div>
 

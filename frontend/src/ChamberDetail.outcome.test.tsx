@@ -68,8 +68,9 @@ function chamber(consensus: ConsensusResult | null): Chamber {
     turns: [],
     stance_history: [],
     consensus,
+    moderator: null,
     created_at: "2026-08-04T09:15:55Z",
-  } as unknown as Chamber;
+  };
 }
 
 function renderChamber({

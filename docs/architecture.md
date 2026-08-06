@@ -106,8 +106,10 @@ flowchart TB
   load-bearing: the operator's `instructions` are placed *before*
   `TURN_GUIDANCE`/`FIRST_PERSON_RULE`/`SAFETY_RULE` so those keep the last word,
   and they are injected into **turn prompts only** — never the stance poll
-  (whose one-word answer they would corrupt) or the moderator (impartial by
-  design).
+  (whose one-word answer they would corrupt) or the moderator, which carries no
+  persona or instructions at all. "Impartial" is deliberately not claimed: the
+  moderator is a configured model that does not debate (F8), which is a weaker and
+  truer statement than impartiality.
 - **Consensus Engine** — hybrid detector (see §6). Produces Consensus Statement
   or Disagreement Summary.
 - **Chamber State Machine** — validates lifecycle transitions (FR-4).
@@ -143,6 +145,7 @@ erDiagram
     text description
     enum status
     json settings
+    json moderator "null = the first participant"
     json config
     datetime created_at
   }
@@ -171,8 +174,10 @@ erDiagram
     uuid id
     enum outcome
     text statement
-    enum winning_stance "null only on disagreement"
+    string headline "one-sentence conclusion; empty if none usable"
+    enum winning_stance "null on disagreement, or an unreadable verdict"
     json final_stances
+    json unparsed "null = not recorded, distinct from []"
   }
   CITATION {
     uuid id

@@ -71,7 +71,10 @@ reach consensus.
 - **Consensus** — the terminal state where participants converge; produces a
   **Consensus Statement**.
 - **Moderator** — the system role that orchestrates turns, enforces rules, and
-  drives consensus detection (may itself be LLM-assisted).
+  drives consensus detection. It is LLM-backed and **configured per chamber**
+  (provider, model, token budget, temperature): it writes the headline and the
+  final statement, and under the `judge` decision rule it names the winner when
+  no majority exists. It does not debate and holds no stance.
 
 ## 5. Functional Requirements
 

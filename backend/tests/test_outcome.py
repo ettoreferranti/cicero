@@ -75,16 +75,57 @@ def test_support_reports_unanimity_without_a_recorded_winner() -> None:
     assert support_summary(chamber) == "unanimous — all 3 debaters"
 
 
-def test_support_reports_a_contested_majority_with_its_dissent() -> None:
+def test_support_reports_a_contested_majority_naming_the_non_winning_stance() -> None:
     chamber = _concluded(
         ConsensusOutcome.MAJORITY,
         {"a": Stance.NEUTRAL, "b": Stance.NEUTRAL, "c": Stance.CON},
         winner=Stance.NEUTRAL,
         unparsed=[],
     )
-    assert support_summary(chamber) == (
-        "contested — 2 of 3 debaters settled on neutral, 1 dissent"
+    # Non-winners are all one stance (con) — must be named as "con", not
+    # blanket "dissent": a debater who did not settle on the winning stance did
+    # not necessarily oppose it.
+    assert support_summary(chamber) == "contested — 2 of 3 debaters settled on neutral (1 con)"
+
+
+def test_support_orders_a_mixed_non_winning_breakdown_by_enum_declaration() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    kant = make_participant("Kant", Stance.NEUTRAL)
+    otto = make_participant("Otto", Stance.PRO)
+    chamber = make_chamber(ada, zeno, kant, otto)
+    chamber.consensus = ConsensusResult(
+        outcome=ConsensusOutcome.MAJORITY,
+        statement="Statement.",
+        headline="",
+        winning_stance=Stance.PRO,
+        final_stances={
+            str(ada.id): Stance.PRO,
+            str(zeno.id): Stance.CON,
+            str(kant.id): Stance.NEUTRAL,
+            str(otto.id): Stance.PRO,
+        },
+        unparsed=[],
     )
+    # con is declared before neutral on the Stance enum, so it must appear
+    # first regardless of insertion order or which has the higher count — this
+    # is the case a count- or dict-ordered breakdown would get wrong.
+    assert support_summary(chamber) == (
+        "contested — 2 of 4 debaters settled on pro (1 con, 1 neutral)"
+    )
+
+
+def test_support_guards_a_majority_with_no_non_winning_stance() -> None:
+    # decide_outcome never actually produces this (everyone agreeing yields
+    # CONSENSUS, not MAJORITY), but support_summary must not emit a dangling
+    # "()" if a MAJORITY outcome with no non-winning stance is ever reached.
+    chamber = _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.PRO},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+    assert support_summary(chamber) == "contested — 3 of 3 debaters settled on pro"
 
 
 def test_support_reports_a_judge_verdict() -> None:

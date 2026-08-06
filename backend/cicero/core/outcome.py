@@ -17,7 +17,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from cicero.core.roster import deciding_stances
-from cicero.domain.enums import ConsensusOutcome
+from cicero.domain.enums import ConsensusOutcome, Stance
 from cicero.domain.models import Chamber
 
 UNMEASURED = "unmeasured — no debater's final position could be read"
@@ -85,11 +85,25 @@ def support_summary(chamber: Chamber) -> str:
         return f"judge-decided — {winner.value} ruled, no majority among {total} debaters"
     if winner is None:
         return UNRESOLVED
-    held = Counter(deciding.values())[winner]
-    return (
-        f"contested — {held} of {total} debaters settled on {winner.value}, "
-        f"{total - held} dissent"
+    counts = Counter(deciding.values())
+    held = counts[winner]
+    # Name what the non-winners actually held instead of calling all of them
+    # "dissent" — a debater who ended on NEUTRAL declined to take a side (or
+    # proposed the compromise the headline states), which is not the same claim
+    # as opposing the winner. Ordered by the enum's own declaration order so the
+    # sentence is deterministic, not by count or dict insertion order.
+    breakdown = ", ".join(
+        f"{counts[stance]} {stance.value}"
+        for stance in Stance
+        if stance is not winner and counts[stance] > 0
     )
+    if not breakdown:
+        # Unreachable for MAJORITY in practice (everyone agreeing yields
+        # CONSENSUS, not MAJORITY), but if it ever is reached there is no
+        # non-winning stance to name — say so plainly rather than emitting a
+        # dangling "()".
+        return f"contested — {held} of {total} debaters settled on {winner.value}"
+    return f"contested — {held} of {total} debaters settled on {winner.value} ({breakdown})"
 
 
 def decision_basis(chamber: Chamber) -> str:

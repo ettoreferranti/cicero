@@ -69,7 +69,7 @@ UI with exports and metrics). Milestone 3 adds:
   PASS/FAIL per requirement (see [Release demo](#release-demo)).
 - **Outcomes that say something (F5)** — every concluded debate opens with a
   one-sentence headline of what the chamber actually concluded, above the
-  support (`contested — 2 of 3 debaters settled on neutral, 1 dissent`), how it
+  support (`contested — 2 of 3 debaters settled on neutral (1 con)`), how it
   was decided, and who changed position. `**Winning position:** neutral` was
   never a result — it is what a compromise collapses to when the only vocabulary
   is pro/con/neutral. The stance word is still shown, as evidence rather than

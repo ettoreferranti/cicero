@@ -189,9 +189,9 @@ def test_export_dict_roundtrips_key_fields() -> None:
 
 def _concluded_with_headline():  # type: ignore[no-untyped-def]
     # A genuine majority: two of three debaters (Ada, Zeno) settle on neutral,
-    # the third (Kant) dissents on con. A 2-of-2 "majority" is unreachable —
+    # the third (Kant) holds con. A 2-of-2 "majority" is unreachable —
     # decide_outcome reports that as CONSENSUS — so a real MAJORITY fixture
-    # needs the dissenter.
+    # needs the non-winner.
     chamber = _chamber_with_debate()
     ada, zeno = chamber.participants
     kant = make_participant("Kant", Stance.CON)
@@ -221,7 +221,7 @@ def test_markdown_leads_with_the_headline() -> None:
 
 def test_markdown_shows_the_derived_outcome_facts() -> None:
     md = to_markdown(_concluded_with_headline())
-    assert "- **Support:** contested — 2 of 3 debaters settled on neutral, 1 dissent" in md
+    assert "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)" in md
     assert "- **How decided:** majority of final positions" in md
 
 
@@ -252,7 +252,7 @@ def test_markdown_falls_back_to_the_old_shape_without_a_headline() -> None:
     # derived facts are shown alongside it.
     assert "## Outcome: majority" in md
     assert "**Winning position:** neutral" in md
-    assert "- **Support:** contested — 2 of 3 debaters settled on neutral, 1 dissent" in md
+    assert "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)" in md
 
 
 def test_json_export_carries_the_derived_summary_beside_the_chamber() -> None:
@@ -263,7 +263,7 @@ def test_json_export_carries_the_derived_summary_beside_the_chamber() -> None:
     )
     assert data["outcome_summary"] == {
         "headline": "Mars should wait for cheaper launch costs.",
-        "support": "contested — 2 of 3 debaters settled on neutral, 1 dissent",
+        "support": "contested — 2 of 3 debaters settled on neutral (1 con)",
         "decided_by": "majority of final positions",
         "movements": [],
     }
@@ -397,7 +397,7 @@ def test_markdown_matches_expected_layout_for_the_headline_with_movements() -> N
             "",
             "**The chamber concluded:** Mars should wait for cheaper launch costs.",
             "",
-            "- **Support:** contested — 2 of 3 debaters settled on neutral, 1 dissent",
+            "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)",
             "- **How decided:** majority of final positions",
             "- **Positions moved:** Ada (pro→neutral), Zeno (con→neutral)",
             "",
@@ -431,7 +431,7 @@ def test_markdown_matches_expected_layout_for_the_fallback_without_a_headline() 
             "## Outcome: majority",
             "**Winning position:** neutral",
             "",
-            "- **Support:** contested — 2 of 3 debaters settled on neutral, 1 dissent",
+            "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)",
             "- **How decided:** majority of final positions",
             "",
             "The majority prevailed.",

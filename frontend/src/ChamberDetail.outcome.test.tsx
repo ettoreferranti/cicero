@@ -97,7 +97,7 @@ describe("outcome card", () => {
       },
       outcome: {
         headline: "Mars should wait for cheaper launch costs.",
-        support: "contested — 2 of 3 debaters settled on neutral, 1 dissent",
+        support: "contested — 2 of 3 debaters settled on neutral (1 con)",
         decided_by: "majority of final positions",
         movements: ["Ada (pro→neutral)"],
       },
@@ -130,7 +130,7 @@ describe("outcome card", () => {
       },
       outcome: {
         headline: "",
-        support: "contested — 2 of 3 debaters settled on neutral, 1 dissent",
+        support: "contested — 2 of 3 debaters settled on neutral (1 con)",
         decided_by: "majority of final positions",
         movements: [],
       },

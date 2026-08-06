@@ -124,6 +124,9 @@ Requirements use MoSCoW priority: **M**ust / **S**hould / **C**ould / **W**on't 
 
 ### 5.4 Consensus
 - **FR-22 (M)** Detect convergence and drive the chamber to a `concluded` state.
+  Convergence requires more than an unchanged stance poll: the one-word poll is a
+  coarse instrument that does not reliably track what debaters argue, so an early
+  stop also requires that the round produced no new argument.
 - **FR-23 (M)** Produce a **Consensus Statement**: a synthesized final position
   with each participant's final stance. Every outcome — consensus, majority,
   verdict, or disagreement — additionally carries a **one-sentence headline**

@@ -23,6 +23,12 @@ def summarize_run(chamber: Chamber) -> dict[str, Any]:
     return {
         "chamber_id": str(chamber.id),
         "topic": chamber.topic,
+        # Which model judged is exactly the variable a two-run comparison isolates.
+        "moderator": (
+            f"{chamber.moderator.provider.value}/{chamber.moderator.model}"
+            if chamber.moderator is not None
+            else None
+        ),
         "status": chamber.status.value,
         "outcome": consensus.outcome.value if consensus is not None else None,
         # The one line that makes two runs comparable at a glance (F5).

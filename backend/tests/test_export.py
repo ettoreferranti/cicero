@@ -7,8 +7,8 @@ from uuid import uuid4
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.outcome import STANCE_CAVEAT
 from cicero.core.prompt_builder import KIND_EVIDENCE, KIND_MODERATOR_NOTE
-from cicero.domain.enums import ConsensusOutcome, Stance
-from cicero.domain.models import Citation, ConsensusResult, StancePoll, Turn
+from cicero.domain.enums import ConsensusOutcome, ProviderType, Stance
+from cicero.domain.models import Citation, ConsensusResult, Moderator, StancePoll, Turn
 from tests.conftest import make_chamber, make_participant
 
 
@@ -538,3 +538,20 @@ def test_markdown_omits_the_caveat_when_no_neutral_is_involved() -> None:
     }
     chamber.consensus.winning_stance = Stance.PRO
     assert STANCE_CAVEAT not in to_markdown(chamber)
+
+
+def test_markdown_names_the_moderator() -> None:
+    chamber = _chamber_with_debate()
+    chamber.moderator = Moderator(provider=ProviderType.MOCK, model="judge-model")
+    # A transcript that does not say who judged is missing something material —
+    # the moderator writes the headline and, on a tie, names the winner.
+    md = to_markdown(chamber)
+    # Whole line, not substring: a substring check still matches when the line has
+    # been padded around it, so it cannot see the rendered line actually surviving.
+    assert "**Moderator:** mock/judge-model" in md.split("\n")
+    # And the blank line that separates it from the next heading.
+    assert "**Moderator:** mock/judge-model\n\n## Transcript" in md
+
+
+def test_markdown_omits_the_moderator_line_when_unset() -> None:
+    assert "**Moderator:**" not in to_markdown(_chamber_with_debate())

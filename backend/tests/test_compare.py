@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from cicero.core.compare import compare_chambers, summarize_run
-from cicero.domain.enums import ConsensusOutcome, Stance
-from cicero.domain.models import ConsensusResult
+from cicero.domain.enums import ConsensusOutcome, ProviderType, Stance
+from cicero.domain.models import ConsensusResult, Moderator
 from tests.conftest import make_chamber, make_participant
 
 
@@ -95,3 +95,15 @@ def test_run_summary_empty_headline_converts_to_none() -> None:
         unparsed=[],
     )
     assert summarize_run(chamber)["headline"] is None
+
+
+def test_run_summary_carries_the_moderator() -> None:
+    chamber = make_chamber(make_participant("Ada", Stance.PRO))
+    chamber.moderator = Moderator(provider=ProviderType.MOCK, model="judge-model")
+    # Which model judged is exactly the variable a two-run comparison isolates.
+    assert summarize_run(chamber)["moderator"] == "mock/judge-model"
+
+
+def test_run_summary_moderator_is_none_when_unset() -> None:
+    chamber = make_chamber(make_participant("Ada", Stance.PRO))
+    assert summarize_run(chamber)["moderator"] is None

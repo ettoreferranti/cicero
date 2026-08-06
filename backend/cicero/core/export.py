@@ -51,6 +51,13 @@ def to_markdown(chamber: Chamber) -> str:
             f"stance: {participant.stance.value}"
         )
     lines.append("")
+    if chamber.moderator is not None:
+        # Who judged is part of the record: the moderator writes the headline and,
+        # on a tie, names the winning position.
+        lines.append(
+            f"**Moderator:** {chamber.moderator.provider.value}/{chamber.moderator.model}"
+        )
+        lines.append("")
 
     lines.append("## Transcript")
     for turn in chamber.turns:

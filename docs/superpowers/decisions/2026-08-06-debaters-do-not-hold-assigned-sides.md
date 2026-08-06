@@ -62,7 +62,55 @@ variant of the failure; plain non-compliance appears more common.
 
 So this is not about phrasing, and not an artifact of the poll.
 
-## Open hypothesis, untested
+## Second hypothesis: the truth-seeking clause — REFUTED
+
+`STANCE_INSTRUCTION` ends: "you are a truth-seeking debater, not a lawyer: if the case
+against proves stronger, you are expected to say so and update your position." At round
+0 there is no case against, so the suspicion was that models apply that licence to their
+own priors.
+
+Two arms differing only in that sentence, 12 con-assigned opening turns each, judged by
+**reading the prose** (the stance poll is unreliable and confounded the previous attempt):
+
+| model | shipped prompt | clause removed |
+|---|---|---|
+| `llama3.1:latest` | **4/4** held con | **4/4** held con |
+| `apertus:8b` | 2/4 | 3/4 |
+| `command-r:latest` | **1/4** | **0/4** |
+| total | **7/12** | **7/12** |
+
+No difference. Refuted.
+
+## What it actually is: a per-model capability
+
+The same table read by row rather than by column is the finding. `llama3.1` held the
+assigned contrarian side 8 times out of 8; `command-r` held it 1 time out of 8. That gap
+dwarfs any prompt effect measured here, and no prompt variant moved it.
+
+**Whether a debate is genuinely adversarial therefore depends on which models are cast
+as the opposition**, not on how the instruction is worded. In the five-debater run above,
+the assigned `con` was `apertus` (5/8 here) and the roster also included `command-r`,
+which almost never sustains a contrarian position. The "unanimous consensus" was
+substantially a property of the roster.
+
+Two corrections to earlier notes in this document:
+
+- The severity was overstated. An initial spot check of 4 turns suggested 3 in 4 argued
+  the wrong side; at n=12 per arm it is 5 in 12. The problem is real and smaller.
+- A keyword classifier written for this experiment reported 1/12 where hand-reading gave
+  7/12 — it matched words like "essential" from passages *rebutting* the pro case.
+  Automated prose classification was wrong by a factor of seven here. Read the turns.
+
+## Where to look next, if anywhere
+
+Not `prompts.py`. Three prompt-level hypotheses have now been refuted by measurement
+(poll transcript labels, question phrasing, the truth-seeking clause). The remaining
+options are model-selection guidance, or **measuring compliance per debater** — "this
+debater argued against its assigned side" is checkable against a known assignment for a
+single turn, which is a far narrower judgement than the semantic classification tasks
+these models have repeatedly failed.
+
+## Superseded: open hypothesis, untested
 
 `STANCE_INSTRUCTION` ends: "you are a truth-seeking debater, not a lawyer: if the
 case against proves stronger, you are expected to say so and update your position."

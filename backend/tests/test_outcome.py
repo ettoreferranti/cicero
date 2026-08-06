@@ -7,6 +7,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from cicero.core.outcome import (
+    STANCE_CAVEAT,
     OutcomeSummary,
     decision_basis,
     movements,
@@ -388,6 +389,194 @@ def test_movements_reports_the_last_measurement_not_the_second() -> None:
 
 
 def test_outcome_summary_is_frozen() -> None:
-    summary = OutcomeSummary(headline="", support="", decided_by="", movements=())
+    summary = OutcomeSummary(
+        headline="", support="", decided_by="", movements=(), caveat=""
+    )
     with pytest.raises(FrozenInstanceError):
         summary.headline = "changed"
+
+
+def test_caveat_appears_when_a_deciding_stance_is_neutral() -> None:
+    chamber = _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.NEUTRAL},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == STANCE_CAVEAT
+
+
+def test_caveat_appears_when_a_movement_ends_on_neutral() -> None:
+    chamber = _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.PRO},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+    ada = chamber.participants[0]
+    chamber.stance_history = [
+        StancePoll(round_index=0, stances={str(ada.id): Stance.CON}),
+        StancePoll(round_index=1, stances={str(ada.id): Stance.NEUTRAL}),
+    ]
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == STANCE_CAVEAT
+
+
+def test_caveat_is_absent_when_no_neutral_is_involved() -> None:
+    # The case that keeps the trigger honest: an always-on caveat would pass every
+    # other test in this group.
+    chamber = _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.CON},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+    ada = chamber.participants[0]
+    chamber.stance_history = [
+        StancePoll(round_index=0, stances={str(ada.id): Stance.CON}),
+        StancePoll(round_index=1, stances={str(ada.id): Stance.PRO}),
+    ]
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == ""
+
+
+def test_caveat_ignores_a_neutral_only_in_an_unparsed_poll() -> None:
+    # A carried-forward value is not a measurement, so it must not trigger a
+    # caveat about what the poll recorded.
+    chamber = _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.CON},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+    ada = chamber.participants[0]
+    chamber.stance_history = [
+        StancePoll(round_index=0, stances={str(ada.id): Stance.CON}),
+        StancePoll(
+            round_index=1,
+            stances={str(ada.id): Stance.NEUTRAL},
+            unparsed=[str(ada.id)],
+        ),
+    ]
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == ""
+
+
+def test_caveat_needs_an_actual_movement_not_just_a_neutral_reading() -> None:
+    chamber = _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.CON},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+    ada = chamber.participants[0]
+    # Neutral in the middle, but first and last measurements match, so `movements`
+    # reports nothing and there is no label for the caveat to qualify.
+    chamber.stance_history = [
+        StancePoll(round_index=0, stances={str(ada.id): Stance.PRO}),
+        StancePoll(round_index=1, stances={str(ada.id): Stance.NEUTRAL}),
+        StancePoll(round_index=2, stances={str(ada.id): Stance.PRO}),
+    ]
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == ""
+
+
+def test_caveat_prose_is_pinned_verbatim() -> None:
+    # Every other caveat test compares against STANCE_CAVEAT, which is a tautology:
+    # mutating the constant mutates both sides. A substring check does not help
+    # either — the wording is user-visible, so pin it exactly, here and nowhere else.
+    chamber = _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.NEUTRAL},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == (
+        "Stance labels are the poll's three-word record. A debater who moved to a "
+        "compromise is recorded as neutral; the statement below describes what "
+        "actually changed."
+    )
+
+
+def _no_neutral_majority():  # type: ignore[no-untyped-def]
+    """A chamber whose deciding stances contain no neutral.
+
+    The caveat's first check short-circuits on a neutral final stance, so the
+    movement loop below it is only reachable when none of them is neutral.
+    """
+    return _concluded(
+        ConsensusOutcome.MAJORITY,
+        {"a": Stance.PRO, "b": Stance.PRO, "c": Stance.CON},
+        winner=Stance.PRO,
+        unparsed=[],
+    )
+
+
+def _history(chamber, trajectories):  # type: ignore[no-untyped-def]
+    """Build stance_history from {participant index: [stance per round]}."""
+    rounds = max(len(v) for v in trajectories.values())
+    chamber.stance_history = [
+        StancePoll(
+            round_index=index,
+            stances={
+                str(chamber.participants[i].id): traj[index]
+                for i, traj in trajectories.items()
+                if index < len(traj)
+            },
+        )
+        for index in range(rounds)
+    ]
+    return chamber
+
+
+def test_caveat_compares_the_last_measurement_not_the_second() -> None:
+    # pro, pro, neutral: first and SECOND are equal but first and LAST differ, so a
+    # check reading measured[1] instead of measured[-1] would skip a real movement.
+    chamber = _history(
+        _no_neutral_majority(), {0: [Stance.PRO, Stance.PRO, Stance.NEUTRAL]}
+    )
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == STANCE_CAVEAT
+
+
+def test_caveat_checks_the_first_measurement_not_the_second() -> None:
+    # neutral, pro, con: only the FIRST measurement is neutral, so a check reading
+    # measured[1] in place of measured[0] would miss it.
+    chamber = _history(
+        _no_neutral_majority(), {0: [Stance.NEUTRAL, Stance.PRO, Stance.CON]}
+    )
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == STANCE_CAVEAT
+
+
+def test_caveat_checks_the_last_measurement_not_the_second() -> None:
+    # con, pro, neutral: only the LAST measurement is neutral, so a check reading
+    # measured[1] in place of measured[-1] would miss it.
+    chamber = _history(
+        _no_neutral_majority(), {0: [Stance.CON, Stance.PRO, Stance.NEUTRAL]}
+    )
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == STANCE_CAVEAT
+
+
+def test_caveat_keeps_scanning_past_a_debater_who_never_moved() -> None:
+    # Ada holds her position; Zeno moves to neutral. A `break` in place of the
+    # `continue` would stop at Ada and never see Zeno.
+    chamber = _history(
+        _no_neutral_majority(),
+        {0: [Stance.PRO, Stance.PRO], 1: [Stance.CON, Stance.NEUTRAL]},
+    )
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.caveat == STANCE_CAVEAT

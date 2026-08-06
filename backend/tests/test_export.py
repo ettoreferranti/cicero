@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from cicero.core.export import to_export_dict, to_markdown
+from cicero.core.outcome import STANCE_CAVEAT
 from cicero.core.prompt_builder import KIND_EVIDENCE, KIND_MODERATOR_NOTE
 from cicero.domain.enums import ConsensusOutcome, Stance
 from cicero.domain.models import Citation, ConsensusResult, StancePoll, Turn
@@ -266,6 +267,8 @@ def test_json_export_carries_the_derived_summary_beside_the_chamber() -> None:
         "support": "contested — 2 of 3 debaters settled on neutral (1 con)",
         "decided_by": "majority of final positions",
         "movements": [],
+        # Two debaters settled on neutral, so the labels above need qualifying.
+        "caveat": STANCE_CAVEAT,
     }
 
 

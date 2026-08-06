@@ -18,10 +18,20 @@ from dataclasses import dataclass
 
 from cicero.core.roster import deciding_stances
 from cicero.domain.enums import ConsensusOutcome, Stance
-from cicero.domain.models import Chamber
+from cicero.domain.models import Chamber, ConsensusResult, Participant
 
 UNMEASURED = "unmeasured — no debater's final position could be read"
 UNRESOLVED = "unresolved — no position prevailed"
+
+#: Shown only when a stance label on display could be read as a characterisation of a
+#: debater rather than as what the poll recorded. ``neutral`` is the one overloaded
+#: label — it means both "holds no position" and "holds a position the poll cannot
+#: name" — so a debate that never touches it gets no caveat and no noise.
+STANCE_CAVEAT = (
+    "Stance labels are the poll's three-word record. A debater who moved to a "
+    "compromise is recorded as neutral; the statement below describes what "
+    "actually changed."
+)
 
 _BASIS: dict[ConsensusOutcome, str] = {
     ConsensusOutcome.CONSENSUS: "all debaters converged",
@@ -38,6 +48,10 @@ class OutcomeSummary:
     support: str
     decided_by: str
     movements: tuple[str, ...]
+    #: Qualifies the stance labels above, or empty when they cannot mislead. No
+    #: default: every construction should state whether the labels need qualifying,
+    #: rather than silently inheriting "they don't".
+    caveat: str
 
 
 def _effective_unparsed(chamber: Chamber) -> tuple[str, ...]:
@@ -117,22 +131,53 @@ def decision_basis(chamber: Chamber) -> str:
     return f"unresolved under the {chamber.settings.decision_rule.value} rule"
 
 
-def movements(chamber: Chamber) -> tuple[str, ...]:
-    """Who changed position between their first and last *measured* poll.
+def _measured_trajectory(chamber: Chamber, participant: Participant) -> list[Stance]:
+    """A participant's stances across the polls that actually read them.
 
-    Polls where a debater's reply could not be read are skipped for that debater:
-    the value there was carried forward, and reporting it would present a parse
-    failure as someone changing their mind — the exact confusion
-    ``StancePoll.unparsed`` exists to prevent.
+    Polls where the reply could not be read are skipped: the value there was carried
+    forward, not measured, and treating it as evidence is the exact confusion
+    ``StancePoll.unparsed`` exists to prevent. Shared by ``movements`` and the caveat
+    check so the two cannot drift apart about what counts as a measurement.
     """
+    key = str(participant.id)
+    return [
+        poll.stances[key]
+        for poll in chamber.stance_history
+        if key in poll.stances and key not in poll.unparsed
+    ]
+
+
+def _stance_caveat(chamber: Chamber, consensus: ConsensusResult) -> str:
+    """Whether the stance labels on display need qualifying (see ``STANCE_CAVEAT``).
+
+    Computed from the ``Stance`` values rather than by matching the rendered strings:
+    a debater whose display name happens to contain "neutral" must not trigger it.
+
+    Takes the already-narrowed ``consensus`` rather than re-reading it off the chamber,
+    so there is no unreachable "no consensus" branch here for a caller that has just
+    checked it.
+    """
+    deciding = deciding_stances(
+        chamber, consensus.final_stances, _effective_unparsed(chamber)
+    )
+    if any(stance is Stance.NEUTRAL for stance in deciding.values()):
+        return STANCE_CAVEAT
+    for participant in chamber.participants:
+        measured = _measured_trajectory(chamber, participant)
+        # Only a reported movement can mislead; a neutral passed through mid-debate
+        # never reaches the display.
+        if len(measured) < 2 or measured[0] is measured[-1]:
+            continue
+        if Stance.NEUTRAL in (measured[0], measured[-1]):
+            return STANCE_CAVEAT
+    return ""
+
+
+def movements(chamber: Chamber) -> tuple[str, ...]:
+    """Who changed position between their first and last *measured* poll."""
     moved: list[str] = []
     for participant in chamber.participants:
-        key = str(participant.id)
-        measured = [
-            poll.stances[key]
-            for poll in chamber.stance_history
-            if key in poll.stances and key not in poll.unparsed
-        ]
+        measured = _measured_trajectory(chamber, participant)
         if len(measured) < 2 or measured[0] is measured[-1]:
             continue
         # Muted debaters are still polled (FR-13), so they still have a
@@ -155,4 +200,5 @@ def summarize_outcome(chamber: Chamber) -> OutcomeSummary | None:
         support=support_summary(chamber),
         decided_by=decision_basis(chamber),
         movements=movements(chamber),
+        caveat=_stance_caveat(chamber, consensus),
     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from cicero.core import prompts
 from cicero.core.consensus import (
     ConsensusEngine,
     decide_outcome,
@@ -621,3 +622,21 @@ async def test_finalize_reads_a_verdict_with_a_blank_line_before_winner() -> Non
     assert result.winning_stance is Stance.PRO
     assert result.headline == "The pro case won."
     assert result.statement == "Better evidence."
+
+
+def test_every_moderator_task_asks_the_statement_to_name_movement() -> None:
+    for task in (
+        prompts.MODERATOR_CONSENSUS_TASK,
+        prompts.MODERATOR_DISAGREEMENT_TASK,
+        prompts.MODERATOR_MAJORITY_TASK,
+        prompts.MODERATOR_JUDGE_TASK,
+    ):
+        assert prompts.MODERATOR_MOVEMENT_CLAUSE in task
+
+
+def test_majority_task_still_formats_its_winner_placeholder() -> None:
+    # This string mixes f-string interpolation with a runtime .format() placeholder
+    # and has broken that way before.
+    formatted = prompts.MODERATOR_MAJORITY_TASK.format(winner="pro")
+    assert "pro" in formatted
+    assert "{winner}" not in formatted

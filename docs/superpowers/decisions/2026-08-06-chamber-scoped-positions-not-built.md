@@ -70,6 +70,40 @@ Asking the moderator for `MOVED: <name> — <from, to>` lines:
   `MOVED: Bob — against the motion to in favour of a specific new proposal`.
   Which specific proposal, it does not say.
 
+### 3b. Self-consistency sampling — tested later, also fails
+
+Proposed after the above: leave the prompt alone, sample the poll N times at
+temperature 0.7, and where no clear plurality emerges record the position as
+*unmeasured* rather than inventing one — reusing the `unparsed` path, on the existing
+principle that only real evidence should vote. It needs no prompt change, which is its
+main appeal given the failures above.
+
+Measured over 39 debater-rounds (three real debates, every round, every debater,
+N=5) plus an earlier N=7 pass. It fails three ways:
+
+**Agreement is stratified by model, not by answer.**
+
+| model | n | mean agreement | range |
+|---|---|---|---|
+| `qwen3:30b` | 13 | 4.92 / 5 | 4-5 |
+| `apertus:8b` | 13 | 3.85 / 5 | 3-5 |
+| `command-r:latest` | 13 | 3.69 / 5 | 2-5 |
+
+A "require 5/5" rule keeps 12 of 13 `qwen3` answers and 3 of 13 for each of the
+others. Since `deciding_stances` excludes unmeasured debaters from the vote, the
+outcome would be decided by whoever runs the strongest model rather than by whoever
+argued best.
+
+**Agreement does not predict correctness.** Scored against what each debater's final
+turn argues: two wrong answers at 4/5 agreement (`command-r` in two debates, answering
+`neutral` for a debater who proposed a mandatory course), and a right answer at 3/5.
+The signal does not separate the cases it would need to separate.
+
+**Sampling is worse than the shipped greedy decode.** For `command-r`, temperature-0
+greedy returns the correct `pro` in both those cases; majority-of-5 at 0.7 returns
+`neutral` at 4/5 confidence. The mechanism would add cost and noise to degrade answers
+the current code already gets right.
+
 ### 4. The pattern
 
 | mechanism | outcome |
@@ -77,6 +111,9 @@ Asking the moderator for `MOVED: <name> — <from, to>` lines:
 | debaters self-label with `NEW:` | 0/3 used it |
 | observer classifies a turn | test broken; no result |
 | moderator emits structured movement lines | format failure, or compliant and vacuous |
+| reworded poll (direction / disambiguation) | errors relocate, not removed; one confident inversion |
+| stance labels removed from the poll transcript | worse — an unambiguously pro debater flipped to `con` |
+| self-consistency sampling (§3b) | model-stratified, uncorrelated with correctness, worse than greedy |
 | **F5 headline (shipped)** | **works on real runs** |
 
 These models **argue** well and **generate** well. What they do not do reliably is
@@ -97,6 +134,19 @@ debate, already reads:
 
 That is Bob's compromise, named precisely, in production, today. Four experiments were
 spent trying to add machinery to capture something the system was already capturing.
+
+**Correction, added after further runs.** This conclusion was drawn too broadly. The
+statement is *not* an independent read of the transcript: `build_moderator_messages`
+feeds it `_stance_tally`, and `MODERATOR_MAJORITY_TASK` is formatted with the winning
+stance, so the moderator is **told** what the tally says. When the tally is right the
+statement inherits truth; when it is wrong it inherits the error. A later debate whose
+tally resolved to `neutral` produced a statement opening *"The debate resolved in favor
+of a neutral position…"* — parroting the label for what the transcript shows was a
+substantive compromise everyone had converged on.
+
+So "the statement already carries it" is a property of that run, not of the system. The
+finding that survives is narrower: the transcript is the only artifact on the page that
+is not downstream of the poll. That is why F6's caveat points readers there.
 
 ## What the defect actually is
 

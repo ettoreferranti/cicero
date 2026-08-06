@@ -47,9 +47,9 @@ from cicero.core.prompt_builder import KIND_MODERATOR_NOTE
 from cicero.core.roster import active_participants
 from cicero.domain.enums import ChamberStatus, ProviderType
 from cicero.domain.models import (
-    DEFAULT_MAX_TOKENS,
     Chamber,
     DebateSettings,
+    Moderator,
     Participant,
     ParticipantTuning,
     Turn,
@@ -67,11 +67,6 @@ ManagerDep = Annotated[DebateManager, Depends(get_debate_manager)]
 EvidenceDep = Annotated[EvidenceService | None, Depends(get_evidence_service)]
 
 MIN_PARTICIPANTS = 2
-# The moderator is the first participant's model, so it can be a reasoning model
-# too — and then its hidden thinking eats the same budget as the statement it is
-# supposed to write. Matches the per-turn default for the same reason.
-_MODERATOR_MAX_TOKENS = DEFAULT_MAX_TOKENS
-_MODERATOR_TEMPERATURE = 0.3
 # Spelled as a literal: Starlette renamed HTTP_422_UNPROCESSABLE_ENTITY to
 # ..._CONTENT, and the constant we can rely on across the supported range is the
 # number itself.
@@ -140,12 +135,19 @@ def _build_engine(
     mutes: MuteSource | None = None,
 ) -> tuple[DebateEngine, DebateBudget]:
     """Assemble the engine + budget for a debate. May raise ProviderError."""
-    moderator_source = chamber.participants[0]
-    moderator = factory.get(moderator_source)  # impartial moderator = first participant
+    moderator_config = chamber.moderator
+    if moderator_config is None:
+        # Pre-F8 chambers, and any caller that omits the field: the arbiter is the
+        # first participant, which is what the engine did before it was explicit.
+        source = chamber.participants[0]
+        moderator_config = Moderator(provider=source.provider, model=source.model)
+    # get_for_type, not get: the factory's get takes a Participant, and a moderator
+    # is deliberately not one.
+    moderator = factory.get_for_type(moderator_config.provider)
     moderator_options = GenerateOptions(
-        model=moderator_source.model,
-        max_tokens=_MODERATOR_MAX_TOKENS,
-        temperature=_MODERATOR_TEMPERATURE,
+        model=moderator_config.model,
+        max_tokens=moderator_config.max_tokens,
+        temperature=moderator_config.temperature,
     )
     consensus = ConsensusEngine(factory, moderator, moderator_options)
     engine = DebateEngine(

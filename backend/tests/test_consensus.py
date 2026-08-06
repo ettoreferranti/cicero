@@ -17,7 +17,7 @@ from cicero.core.consensus import (
 from cicero.core.prompts import DIRECTIVE_HEADLINE
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
 from cicero.domain.models import MAX_HEADLINE_LENGTH, StancePoll
-from cicero.providers.base import GenerateOptions
+from cicero.providers.base import GenerateOptions, GenerateResult
 from tests.conftest import (
     ConstantFactory,
     ScriptedProvider,
@@ -630,3 +630,76 @@ def test_majority_task_still_formats_its_winner_placeholder() -> None:
     formatted = prompts.MODERATOR_MAJORITY_TASK.format(winner="pro")
     assert "pro" in formatted
     assert "{winner}" not in formatted
+
+
+class _FlakyJudge(ScriptedProvider):
+    """Emits no WINNER line until the nth moderator call."""
+
+    def __init__(self, succeed_on: int) -> None:
+        super().__init__()
+        self._succeed_on = succeed_on
+        self.moderator_calls = 0
+
+    async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+        if "moderator" in messages[0].content.lower():
+            self.moderator_calls += 1
+            body = (
+                "HEADLINE: The pro case won.\n\nWINNER: pro\n\nBecause."
+                if self.moderator_calls >= self._succeed_on
+                else "HEADLINE: Unclear.\n\nI cannot decide."
+            )
+            return GenerateResult(content=body, prompt_tokens=3, completion_tokens=3)
+        return await super().generate(messages, options)
+
+
+def _judge_chamber():  # type: ignore[no-untyped-def]
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(ada, zeno)
+    chamber.settings.decision_rule = DecisionRule.JUDGE
+    return chamber, ada, zeno
+
+
+async def test_the_judge_is_retried_until_it_names_a_winner() -> None:
+    chamber, ada, zeno = _judge_chamber()
+    provider = _FlakyJudge(succeed_on=2)
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+    )
+
+    assert result.winning_stance is Stance.PRO
+    assert provider.moderator_calls == 2
+
+
+async def test_an_exhausted_judge_records_no_winner_rather_than_inventing_one() -> None:
+    chamber, ada, zeno = _judge_chamber()
+    provider = _FlakyJudge(succeed_on=99)
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+    )
+
+    assert result.outcome is ConsensusOutcome.VERDICT
+    assert result.winning_stance is None
+    assert provider.moderator_calls == 3
+
+
+async def test_a_non_verdict_outcome_is_never_retried() -> None:
+    # The other three tasks have no WINNER: line to fail on, so retrying them
+    # would cost three moderator calls on every debate for nothing. Without this
+    # assertion no other test would notice.
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = _FlakyJudge(succeed_on=99)
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    assert result.outcome is ConsensusOutcome.CONSENSUS
+    assert provider.moderator_calls == 1

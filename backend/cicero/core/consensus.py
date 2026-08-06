@@ -89,6 +89,14 @@ _SCANNED_STANCE_WORDS: dict[str, Stance] = {
 #: a <think> block first; too tight a cap truncates the answer itself.
 _POLL_MAX_TOKENS = 512
 
+#: A judge that names no winner is re-asked this many times before giving up.
+#: The failure is stochastic rather than a deterministic inability — measured at
+#: 5 of 9 judge calls on the old 2048-token moderator budget, 0 of 9 on the
+#: current 4096 — so re-asking usually succeeds. Distinct from the provider's own
+#: retry, which fires on an *empty* reply and, because it re-asks with reasoning
+#: suppressed, makes a reasoning model narrate instead of answering.
+_JUDGE_ATTEMPTS = 3
+
 
 @dataclass(frozen=True)
 class StanceReport:
@@ -318,19 +326,25 @@ class ConsensusEngine:
         )
         task = _moderator_task(outcome, winner)
         messages = build_moderator_messages(chamber, stances, task)
-        result = await self._moderator.generate(messages, self._moderator_options)
         # Only a VERDICT reply was actually asked for a WINNER: line (see
         # _moderator_task); narrowing the key set for the other three outcomes
         # keeps a body sentence that happens to start "Winner: ..." from being
         # peeled off and silently dropped from the published statement.
-        keys = (
-            MODERATOR_DIRECTIVES
-            if outcome is ConsensusOutcome.VERDICT
-            else frozenset({DIRECTIVE_HEADLINE})
-        )
-        reply = parse_moderator_reply(result.content.strip(), keys=keys)
+        is_verdict = outcome is ConsensusOutcome.VERDICT
+        keys = MODERATOR_DIRECTIVES if is_verdict else frozenset({DIRECTIVE_HEADLINE})
+        # Only the verdict path can fail in a way re-asking fixes; retrying the
+        # other three would cost extra moderator calls on every debate for nothing.
+        # The bound and the break condition below each enforce that independently,
+        # so a mutation run reports widening the bound as surviving — it is
+        # equivalent, not uncovered. Both are kept: the bound states the intent
+        # where a reader looks for it, the break is what actually holds the line.
+        for _ in range(_JUDGE_ATTEMPTS if is_verdict else 1):
+            result = await self._moderator.generate(messages, self._moderator_options)
+            reply = parse_moderator_reply(result.content.strip(), keys=keys)
+            if not is_verdict or reply.winner is not None:
+                break
         statement = reply.body.strip() or EMPTY_MODERATOR_STATEMENT
-        if outcome is ConsensusOutcome.VERDICT:
+        if is_verdict:
             winner = reply.winner
         return ConsensusResult(
             outcome=outcome,

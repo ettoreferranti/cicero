@@ -39,6 +39,22 @@ class DebateSettingsIn(BaseModel):
         return self
 
 
+class ModeratorIn(BaseModel):
+    """Who writes the outcome (F8).
+
+    Tuning is optional: unset fields fall through to the domain defaults rather
+    than being pinned here, so the measured 4096-token judge budget lives in one
+    place.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    provider: ProviderType
+    model: str = Field(min_length=1, max_length=200)
+    max_tokens: int | None = Field(default=None, gt=0, le=32768)
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+
+
 class ChamberCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -46,6 +62,7 @@ class ChamberCreate(BaseModel):
     category: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=5000)
     settings: DebateSettingsIn | None = None
+    moderator: ModeratorIn | None = None
 
 
 class ChamberUpdate(BaseModel):
@@ -60,6 +77,7 @@ class ChamberUpdate(BaseModel):
     topic: str | None = Field(default=None, min_length=1, max_length=1000)
     category: str | None = Field(default=None, max_length=100)
     description: str | None = Field(default=None, max_length=5000)
+    moderator: ModeratorIn | None = None
 
 
 class ModeratorNoteIn(BaseModel):

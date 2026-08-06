@@ -25,6 +25,7 @@ from cicero.api.schemas import (
     ChamberCreate,
     ChamberUpdate,
     DebateSettingsIn,
+    ModeratorIn,
     ModeratorNoteIn,
     MuteIn,
     ParticipantCreate,
@@ -125,6 +126,11 @@ async def _validate_model(
         )
 
 
+def _moderator_from(payload: ModeratorIn) -> Moderator:
+    """Convert the wire shape, dropping unset tuning so domain defaults apply."""
+    return Moderator(**payload.model_dump(exclude_none=True))
+
+
 def _build_engine(
     chamber: Chamber,
     repo: ChamberRepository,
@@ -173,30 +179,47 @@ def _build_engine(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=Chamber)
-def create_chamber(payload: ChamberCreate, repo: RepoDep) -> Chamber:
+async def create_chamber(
+    payload: ChamberCreate, repo: RepoDep, factory: FactoryDep
+) -> Chamber:
     settings = (
         DebateSettings(**payload.settings.model_dump())
         if payload.settings is not None
         else DebateSettings()
     )
+    moderator = None
+    if payload.moderator is not None:
+        # Checked here for the same reason a participant's model is (C4/FR-12):
+        # otherwise a wrong moderator model surfaces only after the whole debate
+        # has run and been paid for.
+        await _validate_model(factory, payload.moderator.provider, payload.moderator.model)
+        moderator = _moderator_from(payload.moderator)
     chamber = Chamber(
         topic=payload.topic,
         category=payload.category,
         description=payload.description,
         settings=settings,
+        moderator=moderator,
     )
     return repo.add(chamber)
 
 
 @router.patch("/{chamber_id}", response_model=Chamber)
-def update_chamber(chamber_id: UUID, payload: ChamberUpdate, repo: RepoDep) -> Chamber:
+async def update_chamber(
+    chamber_id: UUID, payload: ChamberUpdate, repo: RepoDep, factory: FactoryDep
+) -> Chamber:
     """Edit topic/category/description while the chamber is a draft (FR-3).
 
     Only the fields actually sent are applied. A cloned chamber is a fresh
     draft, so this is how a rerun gets retargeted before it starts.
     """
     chamber = _require_draft(repo, chamber_id, "a chamber")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if payload.moderator is not None:
+        await _validate_model(factory, payload.moderator.provider, payload.moderator.model)
+        # The dump would otherwise assign a ModeratorIn where a Moderator belongs.
+        changes["moderator"] = _moderator_from(payload.moderator)
+    for field, value in changes.items():
         setattr(chamber, field, value)
     return repo.update(chamber)
 

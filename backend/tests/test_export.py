@@ -104,6 +104,18 @@ def test_markdown_skips_empty_turns() -> None:
     assert "Round 1" not in md  # the empty turn produced no heading
 
 
+def test_markdown_keeps_rendering_turns_after_an_empty_one() -> None:
+    # An empty turn must be *skipped*, not treated as the end of the transcript:
+    # a `break` in place of the `continue` would silently drop every later turn,
+    # and a test with only one empty turn cannot tell the two apart.
+    a = make_participant("Ada", Stance.PRO)
+    chamber = make_chamber(a)
+    chamber.turns.append(Turn(participant_id=a.id, round_index=0, content="   "))
+    chamber.turns.append(Turn(participant_id=a.id, round_index=1, content="A real point."))
+    md = to_markdown(chamber)
+    assert "A real point." in md
+
+
 def test_markdown_without_consensus_has_no_outcome_section() -> None:
     a = make_participant("Ada", Stance.PRO)
     md = to_markdown(make_chamber(a))
@@ -117,7 +129,10 @@ def test_markdown_omits_empty_category_and_includes_description() -> None:
 
     chamber.description = "Framing: assume a 20-year horizon."
     md = to_markdown(chamber)
-    assert "Framing: assume a 20-year horizon." in md
+    # Adjacency, not just presence: the description is followed by a blank line
+    # that separates it from the next heading, and a bare substring check cannot
+    # see whether that separator survived.
+    assert "Framing: assume a 20-year horizon.\n\n## Participants" in md
 
 
 def test_markdown_labels_system_authored_turns() -> None:
@@ -130,7 +145,11 @@ def test_markdown_labels_system_authored_turns() -> None:
         Turn(round_index=0, content="Background reading.", metadata={"kind": KIND_EVIDENCE})
     )
     md = to_markdown(chamber)
-    # System turns are attributed to their role, never to a debater.
+    # System turns are attributed to their role, never to a debater. Assert the
+    # rendered heading, not just the content: dropping the speaker label entirely
+    # would leave the content present and only the attribution wrong.
+    assert "### Round 1 — Moderator note" in md
+    assert "### Round 1 — Research (web evidence)" in md
     assert "Stay concrete." in md
     assert "Background reading." in md
     assert "Ada" not in md.split("## Transcript")[1]
@@ -157,10 +176,16 @@ def test_markdown_renders_citations_with_title_or_url_fallback() -> None:
         )
     )
     md = to_markdown(chamber)
-    assert "Sources:" in md
-    assert "- [A study](https://example.org/a)" in md
+    # Whole lines, not substrings: a substring check still matches when the line
+    # has been padded or reworded around it, so it cannot see the separator or
+    # the list marker actually surviving.
+    rendered = md.split("\n")
+    assert "Sources:" in rendered
+    assert "- [A study](https://example.org/a)" in rendered
     # A blank title falls back to the URL as the link label.
-    assert "- [https://example.org/b](https://example.org/b)" in md
+    assert "- [https://example.org/b](https://example.org/b)" in rendered
+    # The blank line that separates the sources block from the turn above it.
+    assert "Evidence supports this.\n\nSources:\n" in md
 
 
 def test_markdown_reports_the_winning_stance() -> None:

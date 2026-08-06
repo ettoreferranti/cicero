@@ -133,7 +133,11 @@ Requirements use MoSCoW priority: **M**ust / **S**hould / **C**ould / **W**on't 
 - **FR-24 (S)** If no consensus is reached within budget, produce a **Summary of
   Disagreement** instead (positions, key cruxes, unresolved points).
 - **FR-25 (S)** Record stance changes over time (who moved, when, why) for
-  post-hoc analysis.
+  post-hoc analysis. Recorded changes are presented as **what the poll captured**,
+  not as a characterisation of the debater: the three-word vocabulary records a
+  debater who moved to a compromise as `neutral`, so where that label could be
+  misread the display says so and defers to the moderator's statement for what
+  actually changed.
 
 ### 5.5 Evidence / web access (optional capability)
 - **FR-26 (S)** Participants may request web evidence via a controlled **tool**

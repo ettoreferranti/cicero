@@ -190,3 +190,15 @@ def test_chamber_without_a_moderator_is_valid() -> None:
     # None means "use the first participant" — the behaviour before this field
     # existed, preserved for any caller that omits it.
     assert Chamber(topic="Should we colonise Mars?").moderator is None
+
+
+def test_compliance_measurement_is_on_by_default() -> None:
+    from cicero.domain.models import DebateSettings
+
+    assert DebateSettings().measure_compliance is True
+
+
+def test_compliance_measurement_can_be_disabled() -> None:
+    from cicero.domain.models import DebateSettings
+
+    assert DebateSettings(measure_compliance=False).measure_compliance is False

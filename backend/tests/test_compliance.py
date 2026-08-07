@@ -1,13 +1,18 @@
+import dataclasses
+
 import pytest
 
 from cicero.core.compliance import (
     ARGUED_KEY,
+    UNOPPOSED_CAVEAT,
     ComplianceRecord,
     argued_stance,
+    compliance_caveat,
     debater_compliance,
+    noncompliance_lines,
 )
-from cicero.domain.enums import ProviderType, Stance
-from cicero.domain.models import Chamber, Participant, Turn
+from cicero.domain.enums import ConsensusOutcome, ProviderType, Stance
+from cicero.domain.models import Chamber, ConsensusResult, Participant, Turn
 
 
 def _debater(stance: Stance, name: str = "Bob") -> Participant:
@@ -100,3 +105,244 @@ def test_a_system_turn_belongs_to_no_debater() -> None:
     system_turn = Turn(round_index=0, content="a note", metadata={ARGUED_KEY: "pro"})
     chamber.turns = [system_turn]
     assert debater_compliance(chamber, bob).judged == 0
+
+
+def test_compliance_still_counts_a_turn_after_another_debaters_turn() -> None:
+    """A mismatched participant must be skipped, not treated as a reason to stop
+    scanning: the loop has to look past it to the target debater's own turns
+    later in the transcript."""
+    bob = _debater(Stance.CON, "Bob")
+    ada = _debater(Stance.PRO, "Ada")
+    chamber = Chamber(topic="a motion", participants=[ada, bob])
+    chamber.turns = [_turn(ada, "pro", 0), _turn(bob, "con", 1)]
+    assert debater_compliance(chamber, bob) == ComplianceRecord(
+        assigned=Stance.CON, judged=1, held=1, argued_against=0
+    )
+
+
+def test_compliance_still_counts_a_turn_after_an_earlier_unjudged_one() -> None:
+    """An unjudged turn must be skipped, not treated as a reason to stop scanning:
+    a judge failure early in the transcript must not silently drop every turn
+    that comes after it — that is the exact bug class this guards against."""
+    bob = _debater(Stance.CON)
+    chamber = Chamber(topic="a motion", participants=[bob])
+    chamber.turns = [_turn(bob, None, 0), _turn(bob, "con", 1)]
+    assert debater_compliance(chamber, bob) == ComplianceRecord(
+        assigned=Stance.CON, judged=1, held=1, argued_against=0
+    )
+
+
+def test_compliance_accumulates_held_across_multiple_turns() -> None:
+    """Holding the assigned side is a count, not a flag: two turns that both hold
+    must add up to two, not saturate at one."""
+    bob = _debater(Stance.CON)
+    chamber = Chamber(topic="a motion", participants=[bob])
+    chamber.turns = [_turn(bob, "con", 0), _turn(bob, "con", 1)]
+    assert debater_compliance(chamber, bob) == ComplianceRecord(
+        assigned=Stance.CON, judged=2, held=2, argued_against=0
+    )
+
+
+def test_argued_key_is_the_literal_string_argued() -> None:
+    """Pinned, not just consistent with itself: a later task exports this key in
+    a JSON payload, so the stored wire format must not be free to drift."""
+    assert ARGUED_KEY == "argued"
+
+
+def test_compliance_record_is_immutable() -> None:
+    """A record like this gets handed around and rendered from; nothing should
+    be able to rewrite a debater's counted history after the fact."""
+    record = ComplianceRecord(assigned=Stance.CON, judged=1, held=1, argued_against=0)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        record.held = 2  # type: ignore[misc]
+
+
+def _concluded(
+    participants: list[Participant],
+    turns: list[Turn],
+    winner: Stance | None,
+    outcome: ConsensusOutcome = ConsensusOutcome.CONSENSUS,
+) -> Chamber:
+    chamber = Chamber(topic="a motion", participants=participants)
+    chamber.turns = turns
+    chamber.consensus = ConsensusResult(
+        outcome=outcome,
+        statement="the chamber said something",
+        winning_stance=winner,
+        final_stances={str(p.id): p.stance for p in participants},
+    )
+    return chamber
+
+
+def test_unopposed_caveat_wording_is_pinned() -> None:
+    """This is user-facing copy, not an internal sentinel — compared here against
+    a literal rather than the imported symbol so a change to the wording is a
+    deliberate edit to this test, not something that can drift silently."""
+    assert UNOPPOSED_CAVEAT == (
+        "No debater was judged to argue against the winning position, though one "
+        "was assigned to. This outcome records agreement that was never "
+        "contested — read the transcript before treating it as convergence."
+    )
+
+
+def test_caveat_fires_when_the_losing_side_was_never_argued() -> None:
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [ada, bob],
+        [_turn(ada, "pro", 0), _turn(bob, "pro", 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == UNOPPOSED_CAVEAT
+
+
+def test_no_caveat_when_the_losing_side_was_argued() -> None:
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [ada, bob],
+        [_turn(ada, "pro", 0), _turn(bob, "con", 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == ""
+
+
+def test_no_caveat_when_the_opposing_debater_was_never_judged() -> None:
+    """Condition 3, and the one a loose implementation gets wrong.
+
+    Bob is the only con-assigned debater and none of his turns were judged, while
+    every pro turn was. An implementation that asks only "was anything judged?"
+    fires the caveat here — publishing a finding the debate never measured. The
+    other side was not absent; it was unmeasured."""
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [ada, bob],
+        [_turn(ada, "pro", 0), _turn(bob, None, 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == ""
+
+
+def test_no_caveat_when_nothing_at_all_was_judged() -> None:
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [ada, bob],
+        [_turn(ada, None, 0), _turn(bob, None, 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == ""
+
+
+def test_no_caveat_when_nobody_was_assigned_the_opposing_side() -> None:
+    """Two pro debaters agreeing is not a suppressed opposition — there was none."""
+    ada, eve = _debater(Stance.PRO, "Ada"), _debater(Stance.PRO, "Eve")
+    chamber = _concluded(
+        [ada, eve],
+        [_turn(ada, "pro", 0), _turn(eve, "pro", 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == ""
+
+
+def test_no_caveat_for_a_neutral_winner() -> None:
+    """NEUTRAL has no polar opposite, so 'the other side' names nothing."""
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [ada, bob],
+        [_turn(ada, "neutral", 0), _turn(bob, "neutral", 0)],
+        winner=Stance.NEUTRAL,
+    )
+    assert compliance_caveat(chamber) == ""
+
+
+def test_no_caveat_without_a_winner() -> None:
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [ada, bob],
+        [_turn(ada, "pro", 0), _turn(bob, "pro", 0)],
+        winner=None,
+        outcome=ConsensusOutcome.DISAGREEMENT,
+    )
+    assert compliance_caveat(chamber) == ""
+
+
+def test_no_caveat_before_the_debate_concludes() -> None:
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    chamber = Chamber(topic="a motion", participants=[ada, bob])
+    chamber.turns = [_turn(ada, "pro", 0), _turn(bob, "pro", 0)]
+    assert compliance_caveat(chamber) == ""
+
+
+def test_the_opposite_side_counts_from_any_debater() -> None:
+    """The claim is about the chamber, not about one debater: if anyone argued
+    con, the chamber heard con, whoever was assigned it."""
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [ada, bob],
+        [_turn(ada, "con", 0), _turn(bob, "pro", 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == ""
+
+
+def test_noncompliance_names_a_debater_that_abandoned_its_side() -> None:
+    bob = _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [bob], [_turn(bob, "pro", 0), _turn(bob, "pro", 1), _turn(bob, "pro", 2)],
+        winner=Stance.PRO,
+    )
+    assert noncompliance_lines(chamber) == (
+        "Bob (assigned con) argued pro in 3 of 3 judged turns",
+    )
+
+
+def test_noncompliance_is_silent_for_a_debater_that_held_its_side() -> None:
+    bob = _debater(Stance.CON, "Bob")
+    chamber = _concluded([bob], [_turn(bob, "con", 0)], winner=Stance.CON)
+    assert noncompliance_lines(chamber) == ()
+
+
+def test_noncompliance_reports_a_partial_count() -> None:
+    """Held it, then conceded. That is the truth-seeking clause working, and the
+    count says so rather than flattening it to non-compliance."""
+    bob = _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [bob], [_turn(bob, "con", 0), _turn(bob, "pro", 1)], winner=Stance.PRO
+    )
+    assert noncompliance_lines(chamber) == (
+        "Bob (assigned con) argued pro in 1 of 2 judged turns",
+    )
+
+
+def test_noncompliance_never_reports_a_neutral_assigned_debater() -> None:
+    """STANCE_INSTRUCTION[NEUTRAL] tells it to follow the evidence, so a neutral
+    debater arguing pro is the instruction being obeyed, not broken."""
+    eve = _debater(Stance.NEUTRAL, "Eve")
+    chamber = _concluded([eve], [_turn(eve, "pro", 0)], winner=Stance.PRO)
+    assert noncompliance_lines(chamber) == ()
+
+
+def test_noncompliance_continues_past_a_neutral_participant() -> None:
+    """A neutral participant has no side to skip past — it must not be treated
+    as a reason to stop scanning the roster before reaching a debater that
+    actually abandoned its assigned side."""
+    eve = _debater(Stance.NEUTRAL, "Eve")
+    bob = _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [eve, bob], [_turn(eve, "pro", 0), _turn(bob, "pro", 0)], winner=Stance.PRO
+    )
+    assert noncompliance_lines(chamber) == (
+        "Bob (assigned con) argued pro in 1 of 1 judged turns",
+    )
+
+
+def test_noncompliance_continues_past_a_compliant_participant() -> None:
+    """A debater with nothing to report must not be treated as a reason to stop
+    scanning the roster before reaching one that does have something to
+    report."""
+    ada = _debater(Stance.PRO, "Ada")
+    bob = _debater(Stance.CON, "Bob")
+    chamber = _concluded(
+        [ada, bob], [_turn(ada, "pro", 0), _turn(bob, "pro", 0)], winner=Stance.PRO
+    )
+    assert noncompliance_lines(chamber) == (
+        "Bob (assigned con) argued pro in 1 of 1 judged turns",
+    )

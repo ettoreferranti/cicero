@@ -87,3 +87,76 @@ def debater_compliance(chamber: Chamber, participant: Participant) -> Compliance
         held=held,
         argued_against=argued_against,
     )
+
+
+#: Shown when the chamber's winning position was never argued against by anyone,
+#: while at least one debater was assigned to argue against it — and that debater
+#: was actually measured. Deliberately narrow: it reports what the transcript
+#: does not contain, which is a weaker and more defensible claim than saying a
+#: debater failed.
+UNOPPOSED_CAVEAT = (
+    "No debater was judged to argue against the winning position, though one was "
+    "assigned to. This outcome records agreement that was never contested — read "
+    "the transcript before treating it as convergence."
+)
+
+
+def _judged_sides(chamber: Chamber) -> set[Stance]:
+    """Every side any judged turn in the chamber was found to argue."""
+    return {
+        side for turn in chamber.turns if (side := argued_stance(turn)) is not None
+    }
+
+
+def compliance_caveat(chamber: Chamber) -> str:
+    """Whether this chamber's outcome went uncontested (see ``UNOPPOSED_CAVEAT``).
+
+    Fires only when all four hold:
+
+    1. the outcome names a ``PRO`` or ``CON`` winner — ``NEUTRAL`` has no polar
+       opposite and a disagreement has no winner at all;
+    2. some debater was *assigned* that opposite;
+    3. at least one turn **by such a debater** was judged;
+    4. no judged turn in the chamber argued that opposite.
+
+    Condition 3 is narrower than "anything was judged" on purpose. If the only
+    con-assigned debater's turns all failed to judge while the pro turns
+    succeeded, the loose version fires and reports an absence that was really a
+    gap in measurement.
+    """
+    consensus = chamber.consensus
+    if consensus is None or consensus.winning_stance is None:
+        return ""
+    opposite = opposite_of(consensus.winning_stance)
+    if opposite is None:
+        return ""
+    opposing = [p for p in chamber.participants if p.stance is opposite]
+    if not opposing:
+        return ""
+    if not any(debater_compliance(chamber, p).judged for p in opposing):
+        return ""
+    if opposite in _judged_sides(chamber):
+        return ""
+    return UNOPPOSED_CAVEAT
+
+
+def noncompliance_lines(chamber: Chamber) -> tuple[str, ...]:
+    """One line per debater that argued against its assigned side at least once.
+
+    Only ``PRO``- and ``CON``-assigned debaters can appear: a neutral debater is
+    told to follow the evidence, so it has no side to abandon.
+    """
+    lines: list[str] = []
+    for participant in chamber.participants:
+        against = opposite_of(participant.stance)
+        if against is None:
+            continue
+        record = debater_compliance(chamber, participant)
+        if record.argued_against == 0:
+            continue
+        lines.append(
+            f"{participant.display_name} (assigned {record.assigned.value}) "
+            f"argued {against.value} in {record.argued_against} of "
+            f"{record.judged} judged turns"
+        )
+    return tuple(lines)

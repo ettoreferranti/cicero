@@ -148,8 +148,8 @@ terminal artifact; per-turn judging is neither, and it is already 356 lines.
 
 ### 4. Wiring
 
-The judge is injected into `DebateOrchestrator` as an optional collaborator, exactly
-as the evidence gatherer already is:
+The judge is injected into `DebateEngine` (in `core/orchestrator.py`) as an optional
+collaborator, exactly as the evidence gatherer already is:
 
 ```python
 judge = self._judge if chamber.settings.measure_compliance else None

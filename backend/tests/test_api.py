@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +18,7 @@ from cicero.api.dependencies import (
 from cicero.domain.models import ParticipantTuning
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers import ProviderError
+from cicero.providers.mock import MockProvider
 from tests.conftest import ConstantFactory, ScriptedProvider
 
 
@@ -415,7 +417,7 @@ def test_export_json_and_markdown(client: TestClient) -> None:
 
     as_json = client.get(f"/chambers/{cid}/export", params={"format": "json"})
     assert as_json.status_code == 200
-    assert as_json.json()["topic"] == "Should we colonise Mars?"
+    assert as_json.json()["chamber"]["topic"] == "Should we colonise Mars?"
 
     as_md = client.get(f"/chambers/{cid}/export", params={"format": "markdown"})
     assert as_md.status_code == 200
@@ -801,3 +803,122 @@ def test_list_models_provider_error_returns_502() -> None:
     app.dependency_overrides.clear()
     assert resp.status_code == 502
     assert "not configured" in resp.json()["detail"]
+
+
+def test_outcome_endpoint_returns_the_derived_summary() -> None:
+    # The shared `client` fixture's ScriptedProvider moderator_reply ("We
+    # agree.") carries no HEADLINE directive, so it can never produce the
+    # sentence this test pins down. Only the real MockProvider (Task 9) emits
+    # that — its offline moderator branch is what this test has to exercise,
+    # so it needs its own client wired to that provider, not the shared one.
+    repo = InMemoryChamberRepository()
+    factory = ConstantFactory(
+        MockProvider(models=["scripted", "scripted-large"], poll_answer="pro")
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    with TestClient(app) as mock_client:
+        cid = _create_chamber(mock_client)
+        _add_participant(mock_client, cid, "Pro-A", "pro")
+        _add_participant(mock_client, cid, "Pro-B", "pro")
+        mock_client.post(f"/chambers/{cid}/run", params={"wait": "true"})
+
+        resp = mock_client.get(f"/chambers/{cid}/outcome")
+    app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    # The mock moderator's fixed reply (Task 9) is what makes this deterministic.
+    assert body["headline"] == "The chamber reached a deterministic mock outcome."
+    assert body["support"] == "unanimous — all 2 debaters on pro"
+    assert body["decided_by"] == "all debaters converged"
+    assert body["movements"] == []
+    # Both mock debaters answer "pro", so no stance label here can be mistaken for
+    # a characterisation and the caveat must stay empty — the endpoint serves the
+    # field either way.
+    assert body["caveat"] == ""
+
+
+def test_outcome_endpoint_404s_before_the_debate_concludes(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Pro-A", "pro")
+    _add_participant(client, cid, "Pro-B", "pro")
+    resp = client.get(f"/chambers/{cid}/outcome")
+    assert resp.status_code == 404
+
+
+def test_outcome_endpoint_404s_for_an_unknown_chamber(client: TestClient) -> None:
+    resp = client.get(f"/chambers/{uuid4()}/outcome")
+    assert resp.status_code == 404
+
+
+def test_configured_moderator_is_used_instead_of_the_first_participant() -> None:
+    """The arbiter comes from the chamber's own config, not from roster order."""
+    repo = InMemoryChamberRepository()
+    seen: list[str] = []
+
+    class _Recording(MockProvider):
+        async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+            seen.append(options.model)
+            return await super().generate(messages, options)
+
+    factory = ConstantFactory(_Recording(models=["scripted", "moderator-model"]))
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/chambers",
+            json={
+                "topic": "Should we colonise Mars?",
+                "moderator": {"provider": "mock", "model": "moderator-model"},
+            },
+        )
+        assert resp.status_code == 201
+        cid = resp.json()["id"]
+        _add_participant(client, cid, "Pro-A", "pro")
+        _add_participant(client, cid, "Pro-B", "pro")
+        client.post(f"/chambers/{cid}/run", params={"wait": "true"})
+    app.dependency_overrides.clear()
+
+    # Debater turns run on "scripted"; only the moderator call uses its own model.
+    assert "moderator-model" in seen
+
+
+def test_moderator_model_is_validated_at_creation(client: TestClient) -> None:
+    # Without this a wrong moderator model surfaces only after the whole debate
+    # has run and been paid for.
+    resp = client.post(
+        "/chambers",
+        json={"topic": "t", "moderator": {"provider": "mock", "model": "nope"}},
+    )
+    assert resp.status_code == 422
+    assert "nope" in resp.text
+
+
+def test_moderator_is_editable_while_draft(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    resp = client.patch(
+        f"/chambers/{cid}",
+        json={"moderator": {"provider": "mock", "model": "scripted-large"}},
+    )
+    assert resp.status_code == 200
+    body = resp.json()["moderator"]
+    assert body["model"] == "scripted-large"
+    # Unset tuning falls through to the domain defaults rather than being pinned
+    # by the wire schema.
+    assert body["max_tokens"] == 4096
+
+
+def test_moderator_is_frozen_once_the_debate_has_run(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Pro-A", "pro")
+    _add_participant(client, cid, "Pro-B", "pro")
+    client.post(f"/chambers/{cid}/run", params={"wait": "true"})
+    resp = client.patch(
+        f"/chambers/{cid}", json={"moderator": {"provider": "mock", "model": "scripted"}}
+    )
+    assert resp.status_code == 409

@@ -53,6 +53,11 @@ class Citation(_Base):
 #: cap and not a target: a model that finishes in 200 tokens still costs 200.
 DEFAULT_MAX_TOKENS = 2048
 
+#: A headline is one sentence. A longer value means the moderator wrote its
+#: statement on the wrong line, so the value is dropped rather than truncated —
+#: half a sentence presented as the chamber's conclusion is worse than none.
+MAX_HEADLINE_LENGTH = 500
+
 
 class ParticipantTuning(_Base):
     """Per-participant generation settings (see FR-11).
@@ -165,9 +170,39 @@ class ConsensusResult(_Base):
     #: The position that prevailed; ``None`` only when the debate ended in
     #: disagreement (or a judge verdict could not name a side).
     winning_stance: Stance | None = None
+    #: One declarative sentence stating what the chamber concluded — the TL;DR a
+    #: stance word cannot carry. Empty when the moderator produced none that was
+    #: usable; never fabricated from the statement.
+    headline: str = Field(default="", max_length=MAX_HEADLINE_LENGTH)
+    #: Ids whose final position could not be read, exactly as passed to
+    #: ``ConsensusEngine.finalize``. ``None`` means *not recorded* — a chamber
+    #: concluded before this field existed — which is a different claim from
+    #: ``[]`` ("every position was read"). Kept here rather than derived from
+    #: ``stance_history`` because the final poll is not always recorded there.
+    unparsed: list[str] | None = None
     # Each participant's final stance, keyed by participant id (as string).
     final_stances: dict[str, Stance] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Moderator(_Base):
+    """Who writes the outcome. Not a debater: no stance, no turns, no vote.
+
+    This used to be implicit — the engine took ``chamber.participants[0]``'s provider
+    and model and paired them with two module-level constants in the API router. That
+    made the arbiter depend on roster order, and made its token budget unreachable:
+    at the old 2048, a reasoning model spent the whole budget thinking and returned
+    empty content, producing no readable ``WINNER:`` on 5 of 9 measured judge calls.
+    """
+
+    provider: ProviderType
+    model: str = Field(min_length=1, max_length=200)
+    #: 4096 cleared all 9 measured judge calls where 2048 failed 5; 8192 gained
+    #: nothing. A cap, not a target — a model that answers in 300 tokens costs 300.
+    max_tokens: int = Field(default=4096, gt=0, le=32768)
+    #: Was an invisible module constant. Exposed so a comparison run that wants
+    #: reproducible verdicts can set it to 0.
+    temperature: float = Field(default=0.3, ge=0.0, le=2.0)
 
 
 class Chamber(_Base):
@@ -179,6 +214,9 @@ class Chamber(_Base):
     description: str = Field(default="", max_length=5000)
     status: ChamberStatus = ChamberStatus.DRAFT
     settings: DebateSettings = Field(default_factory=DebateSettings)
+    #: Who writes the outcome. ``None`` means the first participant, which is
+    #: what the engine did before this field existed.
+    moderator: Moderator | None = None
     config: dict[str, object] = Field(default_factory=dict)
     participants: list[Participant] = Field(default_factory=list)
     turns: list[Turn] = Field(default_factory=list)

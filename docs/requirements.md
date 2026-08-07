@@ -71,7 +71,10 @@ reach consensus.
 - **Consensus** — the terminal state where participants converge; produces a
   **Consensus Statement**.
 - **Moderator** — the system role that orchestrates turns, enforces rules, and
-  drives consensus detection (may itself be LLM-assisted).
+  drives consensus detection. It is LLM-backed and **configured per chamber**
+  (provider, model, token budget, temperature): it writes the headline and the
+  final statement, and under the `judge` decision rule it names the winner when
+  no majority exists. It does not debate and holds no stance.
 
 ## 5. Functional Requirements
 
@@ -124,13 +127,23 @@ Requirements use MoSCoW priority: **M**ust / **S**hould / **C**ould / **W**on't 
 
 ### 5.4 Consensus
 - **FR-22 (M)** Detect convergence and drive the chamber to a `concluded` state.
+  Convergence requires more than an unchanged stance poll: the one-word poll is a
+  coarse instrument that does not reliably track what debaters argue, so an early
+  stop also requires that the round produced no new argument.
 - **FR-23 (M)** Produce a **Consensus Statement**: a synthesized final position
-  the participants endorse, plus a record of each participant's final
-  stance/agreement level.
+  with each participant's final stance. Every outcome — consensus, majority,
+  verdict, or disagreement — additionally carries a **one-sentence headline**
+  stating what the chamber concluded (for a disagreement, the unresolved crux),
+  because a stance word alone cannot express a compromise and collapses to
+  `neutral`.
 - **FR-24 (S)** If no consensus is reached within budget, produce a **Summary of
   Disagreement** instead (positions, key cruxes, unresolved points).
 - **FR-25 (S)** Record stance changes over time (who moved, when, why) for
-  post-hoc analysis.
+  post-hoc analysis. Recorded changes are presented as **what the poll captured**,
+  not as a characterisation of the debater: the three-word vocabulary records a
+  debater who moved to a compromise as `neutral`, so where that label could be
+  misread the display says so and defers to the moderator's statement for what
+  actually changed.
 
 ### 5.5 Evidence / web access (optional capability)
 - **FR-26 (S)** Participants may request web evidence via a controlled **tool**

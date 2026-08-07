@@ -1,6 +1,7 @@
 import type {
   Chamber,
   DebateSettings,
+  OutcomeSummary,
   ParticipantMetrics,
   ParticipantTuning,
   Provider,
@@ -60,6 +61,17 @@ export function createChamber(input: {
   return request<Chamber>("/chambers", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+/** Set who writes the outcome, while the chamber is a draft (F8). */
+export function updateModerator(
+  id: string,
+  moderator: { provider: Provider; model: string },
+): Promise<Chamber> {
+  return request<Chamber>(`/chambers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ moderator }),
   });
 }
 
@@ -175,6 +187,10 @@ export function stepDebate(id: string): Promise<Chamber> {
 
 export function getMetrics(id: string): Promise<ParticipantMetrics[]> {
   return request<ParticipantMetrics[]>(`/chambers/${id}/metrics`);
+}
+
+export function getOutcome(id: string): Promise<OutcomeSummary> {
+  return request<OutcomeSummary>(`/chambers/${id}/outcome`);
 }
 
 export async function listModels(provider: Provider): Promise<string[]> {

@@ -147,7 +147,15 @@ async def test_debate_runs_to_max_rounds_on_disagreement() -> None:
     assert len(result.turns) == 4  # 2 participants x 2 rounds
 
 
-async def test_debate_stops_early_on_stable_stances() -> None:
+async def test_a_stance_stalemate_pulls_the_convergence_phase_forward() -> None:
+    """Stable stances still fast-forward convergence — they just no longer stop.
+
+    Previously this scenario ended the debate with STANCES_STABLE. It must not: these
+    debaters make a genuinely new point every turn, and the poll being unchanged says
+    nothing about whether they have finished arguing (F7). What survives is the
+    stalemate handling — the engine stops burning adversarial rounds and moves into
+    the convergence phase early.
+    """
     a = make_participant("A", Stance.PRO)
     b = make_participant("B", Stance.CON)
     chamber = make_chamber(a, b)
@@ -157,16 +165,15 @@ async def test_debate_stops_early_on_stable_stances() -> None:
     )
     engine = _engine(factory, repo)
 
-    result = await engine.run(chamber, DebateBudget(max_rounds=9, max_total_tokens=100_000))
+    result = await engine.run(chamber, DebateBudget(max_rounds=5, max_total_tokens=100_000))
 
-    assert result.config["stop_reason"] == "stances_stable"
-    # Stable after round 2 → the engine fast-forwards into the convergence phase
-    # for round 3; still stable there → stops, well short of max_rounds.
-    assert result.config["rounds_completed"] == 3
-    assert len(result.turns) == 6
-    # Round 3 was prompted as the convergence phase.
-    assert result.turns[-1].metadata["phase"] == "converge"
+    assert result.config["stop_reason"] == "max_rounds"
+    assert result.config["rounds_completed"] == 5
     assert result.turns[0].metadata["phase"] == "open"
+    # Without the stalemate fast-forward, convergence_rounds=2 of max_rounds=5 would
+    # make round 2 (turns 4-5) still adversarial. The stalemate at round 1 pulls
+    # converge_start to 2, so it is prompted as convergence instead.
+    assert result.turns[4].metadata["phase"] == "converge"
     assert result.consensus is not None
     # Default rule is JUDGE: a pro/con tie goes to the moderator's verdict.
     assert result.consensus.outcome is ConsensusOutcome.VERDICT
@@ -1123,3 +1130,114 @@ async def test_mute_requested_in_the_last_round_is_not_silently_dropped() -> Non
     stored = repo.get(chamber.id)
     assert stored is not None
     assert stored.participant_by_id(b.id).muted is True  # type: ignore[union-attr]
+
+
+async def test_stable_stances_do_not_end_a_debate_while_arguments_are_new() -> None:
+    """The F7 regression: an unchanged poll is not convergence.
+
+    A real debate ended at round 3 of 8 on three identical polls, in a round where one
+    debater announced a reversal ("I've reconsidered") and another moved from opposition
+    to explicit support. The one-word poll is an unreliable instrument and saw none of
+    it, so stance stability alone must not be enough to stop.
+    """
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    # Fixed stance words => every poll identical. ScriptedProvider still makes a
+    # genuinely new point each turn, so nobody has stopped arguing.
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="con")}
+    )
+    engine = _engine(factory, repo)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=6, max_total_tokens=100_000))
+
+    assert result.config["stop_reason"] != "stances_stable"
+    assert result.config["rounds_completed"] == 6
+
+
+async def test_stable_stances_end_the_debate_once_nobody_says_anything_new() -> None:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    # Repetition-stopping off, so the deterministic signal still corroborates stance
+    # stability without ending the debate on its own — this is the path the setting
+    # must not disable, and the reason the measurement is computed unconditionally.
+    chamber.settings.stop_on_repetition = False
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {
+            a.id: RepeatingProvider(stance_word="pro", fresh_turns=1),
+            b.id: RepeatingProvider(stance_word="con", fresh_turns=1),
+        }
+    )
+    engine = _engine(factory, repo)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=9, max_total_tokens=100_000))
+
+    assert result.config["stop_reason"] == "stances_stable"
+    assert result.config["rounds_completed"] < 9
+
+
+async def test_stop_on_repetition_off_does_not_stop_on_repetition_alone() -> None:
+    """The setting still does its own job: only the REPETITION stop is gated by it."""
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    chamber.settings.stop_on_repetition = False
+    chamber.settings.convergence_rounds = 0
+    repo = InMemoryChamberRepository()
+    factory = StubFactory(
+        {
+            a.id: RepeatingProvider(stance_word="pro", fresh_turns=1),
+            b.id: RepeatingProvider(stance_word="con", fresh_turns=1),
+        }
+    )
+    engine = _engine(factory, repo)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=4, max_total_tokens=100_000))
+
+    assert result.config["stop_reason"] != "repetition"
+
+
+async def test_repetition_still_stops_a_debate_whose_stances_keep_changing() -> None:
+    """The REPETITION path is unchanged: it does not depend on the poll settling."""
+
+    class _RepeatingCycler(Provider):
+        """Cycles its reported stance, but repeats the same argument every turn."""
+
+        provider_type = ProviderType.MOCK
+
+        def __init__(self, sequence: list[str]) -> None:
+            self._seq = sequence
+            self._i = 0
+
+        async def generate(
+            self, messages: list[Message], options: GenerateOptions
+        ) -> GenerateResult:
+            if "reply with exactly one word" in messages[-1].content.lower():
+                word = self._seq[self._i % len(self._seq)]
+                self._i += 1
+                return GenerateResult(content=word, prompt_tokens=1, completion_tokens=1)
+            return GenerateResult(content="The same point again.", prompt_tokens=5,
+                                  completion_tokens=5)
+
+        async def list_models(self) -> list[str]:
+            return ["repeating-cycler"]
+
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    repo = InMemoryChamberRepository()
+    # Out of phase, so they never agree and the CONSENSUS stop cannot pre-empt this.
+    factory = StubFactory({
+        a.id: _RepeatingCycler(["pro", "con"]),
+        b.id: _RepeatingCycler(["con", "pro"]),
+    })
+    engine = _engine(factory, repo)
+
+    result = await engine.run(chamber, DebateBudget(max_rounds=9, max_total_tokens=100_000))
+
+    assert result.config["stop_reason"] == "repetition"
+    assert result.config["rounds_completed"] < 9

@@ -92,14 +92,20 @@ export function App() {
             Create chamber
           </button>
         </div>
-        {/* Debaters take a pro/con stance on the motion, so a topic with no
-            side to take (an either/or question) leaves the stance record
-            meaningless. Advice, not validation — plenty of good motions are
-            phrased as questions. */}
+        {/* Debaters still only ever land on pro/con/neutral, so a topic with no
+            side to take (an either/or question) still leaves that vote
+            meaningless — but the moderator headline now summarises the debate
+            without referencing the stance vocabulary, so it reads fine
+            regardless. The failure mode is no longer an obviously broken
+            result; it is a confident headline sitting over a Support line and
+            winning position that are noise. Advice, not validation — plenty
+            of good motions are phrased as questions. */}
         <p id="topic-hint" className="muted" style={{ fontSize: "0.85rem", margin: "0.5rem 0 0" }}>
           Phrase the topic as something debaters can agree or disagree with. An
-          either/or question (“do X, or do Y?”) gives them no side to take, so
-          their recorded stances will not mean much.
+          either/or question (“do X, or do Y?”) still gives them no pro, con,
+          or neutral side to take. The eventual headline will read fine
+          regardless — that is the trap, because the Support line and winning
+          position beneath it will not mean anything.
         </p>
       </form>
 

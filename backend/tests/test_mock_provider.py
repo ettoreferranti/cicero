@@ -6,6 +6,7 @@ import pytest
 
 from cicero.core import prompts
 from cicero.core.consensus import parse_stance
+from cicero.core.prompts import MODERATOR_SYSTEM
 from cicero.domain.enums import ProviderType, Stance
 from cicero.providers import (
     GenerateOptions,
@@ -14,7 +15,7 @@ from cicero.providers import (
     ProviderError,
     Role,
 )
-from cicero.providers.mock import POLL_MARKER
+from cicero.providers.mock import MODERATOR_MARKER, POLL_MARKER
 
 OPTS = GenerateOptions(model="mock-small")
 
@@ -135,3 +136,54 @@ def test_poll_marker_still_matches_the_real_poll_prompt() -> None:
     # The marker is duplicated to keep the provider layer independent of
     # core.prompts; this is what stops the two drifting apart.
     assert POLL_MARKER in prompts.POLL_USER_INSTRUCTION.lower()
+
+
+async def test_mock_answers_a_moderator_prompt_with_a_headline() -> None:
+    provider = MockProvider()
+    result = await provider.generate(
+        [
+            Message(role=Role.SYSTEM, content=MODERATOR_SYSTEM),
+            Message(role=Role.USER, content="Motion: x\n\nWrite a CONSENSUS STATEMENT."),
+        ],
+        GenerateOptions(model="mock-small"),
+    )
+    # The offline acceptance path has to exercise the real directive parser, not
+    # a shape that only looks like a moderator reply.
+    assert result.content.startswith("HEADLINE: ")
+    assert "\n" in result.content
+    # Pins the full reply text, not just the prefix, so a mutation to the body
+    # line (after the headline) is caught rather than passing on a partial match.
+    assert result.content == (
+        "HEADLINE: The chamber reached a deterministic mock outcome.\n"
+        "This is a mock synthesis of the debate."
+    )
+
+
+async def test_mock_moderator_marker_matches_the_real_moderator_prompt() -> None:
+    # Kept as a literal so the provider layer stays independent of core.prompts;
+    # this is what stops the two drifting apart (same contract as POLL_MARKER).
+    assert MODERATOR_MARKER in MODERATOR_SYSTEM.lower()
+
+
+async def test_mock_still_echoes_for_a_debate_turn() -> None:
+    provider = MockProvider()
+    result = await provider.generate(
+        [
+            Message(role=Role.SYSTEM, content='You are "Ada", a participant.'),
+            Message(role=Role.USER, content="Give your next contribution."),
+        ],
+        GenerateOptions(model="mock-small"),
+    )
+    assert result.content.startswith("[mock:mock-small]")
+
+
+async def test_mock_scripted_replies_still_win_over_the_moderator_branch() -> None:
+    provider = MockProvider(scripted=["exact reply"])
+    result = await provider.generate(
+        [
+            Message(role=Role.SYSTEM, content=MODERATOR_SYSTEM),
+            Message(role=Role.USER, content="Write a CONSENSUS STATEMENT."),
+        ],
+        GenerateOptions(model="mock-small"),
+    )
+    assert result.content == "exact reply"

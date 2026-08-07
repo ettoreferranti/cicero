@@ -67,6 +67,13 @@ UI with exports and metrics). Milestone 3 adds:
 - **Restart resilience (J3)** and an **executable release demo (J4)** —
   `make demo` walks the whole acceptance path against a live API and reports
   PASS/FAIL per requirement (see [Release demo](#release-demo)).
+- **Outcomes that say something (F5)** — every concluded debate opens with a
+  one-sentence headline of what the chamber actually concluded, above the
+  support (`contested — 2 of 3 debaters settled on neutral (1 con)`), how it
+  was decided, and who changed position. `**Winning position:** neutral` was
+  never a result — it is what a compromise collapses to when the only vocabulary
+  is pro/con/neutral. The stance word is still shown, as evidence rather than
+  as the headline.
 
 Fully runnable end-to-end with the deterministic mock provider — no keys required.
 See [`docs/backlog.md`](./docs/backlog.md) for milestone progress and the

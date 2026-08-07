@@ -72,6 +72,24 @@ textarea {
   background: #141821;
 }
 
+/* Derived outcome facts (support, how decided, positions moved) on the
+   outcome card — a compact label/value grid, not prose, so they scan next to
+   the headline rather than competing with it. */
+.outcome-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.outcome-facts dt {
+  color: #9aa0aa;
+}
+
+.outcome-facts dd {
+  margin: 0;
+}
+
 .row {
   display: flex;
   gap: 0.5rem;

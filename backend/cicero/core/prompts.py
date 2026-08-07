@@ -107,29 +107,48 @@ MODERATOR_SYSTEM = (
     "You are the impartial MODERATOR of a structured debate. Synthesise the "
     "discussion faithfully and neutrally. " + SAFETY_RULE
 )
+#: Prepended to every moderator task. The headline is the one thing a stance word
+#: cannot carry — "neutral" is what a compromise collapses to, not what it says.
+#: Demanding a *claim* is deliberate: a compliant but vacuous headline ("the
+#: debate covered several perspectives") looks like a result and is worse than none.
+MODERATOR_HEADLINE_DIRECTIVE = (
+    "Your reply MUST begin with a line of exactly 'HEADLINE: <one sentence>'. That "
+    "sentence must be a concrete claim a reader could agree or disagree with — the "
+    "single thing this chamber concluded — not a description of what was discussed. "
+    "Then continue with the rest of your reply on the following lines."
+)
 MODERATOR_CONSENSUS_TASK = (
     "The participants have converged. Write a single CONSENSUS STATEMENT (one short "
-    "paragraph) that captures the shared position they can all endorse."
+    "paragraph) that captures the shared position they can all endorse.\n\n"
+    f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline states the shared position."
 )
 MODERATOR_DISAGREEMENT_TASK = (
     "The participants did NOT reach consensus. Write a concise SUMMARY OF "
     "DISAGREEMENT: the main positions, the key points of contention (cruxes), and "
-    "what remains unresolved."
+    "what remains unresolved.\n\n"
+    f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline names the crux that stayed "
+    "unresolved — for example 'The chamber did not converge: whether X is decisive "
+    "was never settled.'"
 )
 MODERATOR_MAJORITY_TASK = (
     "A majority of participants — though not all — settled on the position "
     "'{winner}'. Write a single RESOLUTION (one short paragraph): state the "
     "winning position and the strongest reasons it prevailed, then briefly note "
-    "the remaining dissent."
+    "the remaining dissent.\n\n"
+    f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline states the prevailing position."
 )
 MODERATOR_JUDGE_TASK = (
     "The participants did not settle on a single position. Acting as the JUDGE, "
-    "decide which position won on the strength of the arguments alone. Your reply "
-    "MUST begin with a first line of exactly 'WINNER: pro', 'WINNER: con', or "
-    "'WINNER: neutral', followed by a short VERDICT paragraph justifying the "
-    "decision and noting the strongest losing argument."
+    "decide which position won on the strength of the arguments alone. After the "
+    "headline line, your reply MUST carry a line of exactly 'WINNER: pro', "
+    "'WINNER: con', or 'WINNER: neutral', followed by a short VERDICT paragraph "
+    "justifying the decision and noting the strongest losing argument.\n\n"
+    f"{MODERATOR_HEADLINE_DIRECTIVE} Here the headline states the position you ruled for."
 )
-VERDICT_WINNER_PREFIX = "WINNER:"
+#: Directive keys the moderator may open its reply with, peeled off by
+#: ``consensus.parse_moderator_reply``. Bare keys — the ``:`` is the parser's.
+DIRECTIVE_WINNER = "WINNER"
+DIRECTIVE_HEADLINE = "HEADLINE"
 MODERATOR_MOTION_LABEL = "Motion: {topic}"
 MODERATOR_POSITIONS_LABEL = "Final positions:"
 EMPTY_MODERATOR_STATEMENT = "(the moderator produced no statement)"

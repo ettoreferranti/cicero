@@ -31,6 +31,19 @@ POLL_MARKER = "reply with exactly one word"
 #: converging instead of resolving on parser noise.
 _DEFAULT_POLL_ANSWER = "neutral"
 
+#: Identifies a moderator prompt from its system text, on the same terms as
+#: ``POLL_MARKER``: a literal, so the provider layer stays independent of
+#: ``core.prompts``, with a test asserting the two never drift apart.
+MODERATOR_MARKER = "impartial moderator"
+
+#: A moderator reply that exercises the real directive parser. A mock has no
+#: view to summarise, so it says so — but it says so in the right shape, which
+#: is what makes the offline acceptance path meaningful.
+_DEFAULT_MODERATOR_REPLY = (
+    "HEADLINE: The chamber reached a deterministic mock outcome.\n"
+    "This is a mock synthesis of the debate."
+)
+
 
 def _count_tokens(text: str) -> int:
     """Deterministic, whitespace-based token estimate (never network-derived)."""
@@ -73,6 +86,7 @@ class MockProvider(Provider):
             raise ProviderError("mock provider failure (simulated)")
 
         last = messages[-1].content if messages else ""
+        system = messages[0].content if messages else ""
         if self._scripted:
             content = self._scripted.pop(0)
         elif POLL_MARKER in last.lower():
@@ -80,6 +94,8 @@ class MockProvider(Provider):
             # "work" only because the parser matched pro/con out of the quoted
             # transcript — the mock never reported a position at all.
             content = self._poll_answer
+        elif MODERATOR_MARKER in system.lower():
+            content = _DEFAULT_MODERATOR_REPLY
         else:
             snippet = last[:80]
             content = f"[mock:{options.model}] response to: {snippet}"

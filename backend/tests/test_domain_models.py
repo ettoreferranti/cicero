@@ -12,12 +12,14 @@ from cicero.domain import (
     Chamber,
     ChamberStatus,
     Citation,
+    ConsensusOutcome,
+    ConsensusResult,
     Participant,
     ProviderType,
     Stance,
     Turn,
 )
-from cicero.domain.models import ParticipantTuning
+from cicero.domain.models import Moderator, ParticipantTuning
 
 
 def _participant(**overrides: object) -> Participant:
@@ -115,3 +117,76 @@ def test_citation_url_required() -> None:
     with pytest.raises(ValidationError):
         Citation(url="")  # type: ignore[call-arg]
     assert Citation(url="https://example.org").title == ""
+
+
+def test_consensus_result_defaults_to_no_headline_and_unrecorded_unparsed() -> None:
+    result = ConsensusResult(outcome=ConsensusOutcome.CONSENSUS, statement="Agreed.")
+    assert result.headline == ""
+    # None is "never recorded", which is not the same claim as "none failed".
+    assert result.unparsed is None
+
+
+def test_consensus_result_accepts_a_headline_and_an_unparsed_list() -> None:
+    result = ConsensusResult(
+        outcome=ConsensusOutcome.CONSENSUS,
+        statement="Agreed.",
+        headline="The office should be kept at 21 degrees.",
+        unparsed=["abc"],
+    )
+    assert result.headline == "The office should be kept at 21 degrees."
+    assert result.unparsed == ["abc"]
+
+
+def test_consensus_result_rejects_an_overlong_headline() -> None:
+    with pytest.raises(ValidationError):
+        ConsensusResult(
+            outcome=ConsensusOutcome.CONSENSUS, statement="Agreed.", headline="x" * 501
+        )
+
+
+def test_consensus_result_loads_a_chamber_persisted_before_the_headline_existed() -> None:
+    # Chambers persist as JSON and _Base forbids extra keys, so backward
+    # compatibility rests entirely on these defaults. This is the regression that
+    # would take out every debate already in the database.
+    legacy = {
+        "outcome": "majority",
+        "statement": "The majority prevailed.",
+        "winning_stance": "neutral",
+        "final_stances": {},
+    }
+    result = ConsensusResult.model_validate(legacy)
+    assert result.headline == ""
+    assert result.unparsed is None
+
+
+def test_moderator_defaults_to_a_budget_a_reasoning_model_can_answer_within() -> None:
+    mod = Moderator(provider=ProviderType.OLLAMA, model="qwen3:30b")
+    # 2048 left qwen3:30b no room to answer after thinking — measured at 5 failed
+    # judge calls in 9. 4096 cleared all 9; 8192 gained nothing.
+    assert mod.max_tokens == 4096
+    assert mod.temperature == 0.3
+
+
+def test_moderator_rejects_out_of_range_tuning() -> None:
+    for bad in (
+        {"max_tokens": 0},
+        {"max_tokens": 32769},
+        {"temperature": -0.1},
+        {"temperature": 2.1},
+    ):
+        with pytest.raises(ValidationError):
+            Moderator(provider=ProviderType.OLLAMA, model="m", **bad)  # type: ignore[arg-type]
+
+
+def test_moderator_has_no_debater_fields() -> None:
+    # It does not argue, take turns, or vote. Reusing Participant would drag in
+    # stance/persona/instructions/muted and invite code that iterates the roster
+    # into picking it up.
+    with pytest.raises(ValidationError):
+        Moderator(provider=ProviderType.OLLAMA, model="m", stance="pro")  # type: ignore[call-arg]
+
+
+def test_chamber_without_a_moderator_is_valid() -> None:
+    # None means "use the first participant" — the behaviour before this field
+    # existed, preserved for any caller that omits it.
+    assert Chamber(topic="Should we colonise Mars?").moderator is None

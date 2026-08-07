@@ -25,6 +25,7 @@ from cicero.api.schemas import (
     ChamberCreate,
     ChamberUpdate,
     DebateSettingsIn,
+    ModeratorIn,
     ModeratorNoteIn,
     MuteIn,
     ParticipantCreate,
@@ -42,13 +43,14 @@ from cicero.core.orchestrator import (
     TurnLimit,
     TurnListener,
 )
+from cicero.core.outcome import summarize_outcome
 from cicero.core.prompt_builder import KIND_MODERATOR_NOTE
 from cicero.core.roster import active_participants
 from cicero.domain.enums import ChamberStatus, ProviderType
 from cicero.domain.models import (
-    DEFAULT_MAX_TOKENS,
     Chamber,
     DebateSettings,
+    Moderator,
     Participant,
     ParticipantTuning,
     Turn,
@@ -66,11 +68,6 @@ ManagerDep = Annotated[DebateManager, Depends(get_debate_manager)]
 EvidenceDep = Annotated[EvidenceService | None, Depends(get_evidence_service)]
 
 MIN_PARTICIPANTS = 2
-# The moderator is the first participant's model, so it can be a reasoning model
-# too — and then its hidden thinking eats the same budget as the statement it is
-# supposed to write. Matches the per-turn default for the same reason.
-_MODERATOR_MAX_TOKENS = DEFAULT_MAX_TOKENS
-_MODERATOR_TEMPERATURE = 0.3
 # Spelled as a literal: Starlette renamed HTTP_422_UNPROCESSABLE_ENTITY to
 # ..._CONTENT, and the constant we can rely on across the supported range is the
 # number itself.
@@ -129,6 +126,11 @@ async def _validate_model(
         )
 
 
+def _moderator_from(payload: ModeratorIn) -> Moderator:
+    """Convert the wire shape, dropping unset tuning so domain defaults apply."""
+    return Moderator(**payload.model_dump(exclude_none=True))
+
+
 def _build_engine(
     chamber: Chamber,
     repo: ChamberRepository,
@@ -139,12 +141,19 @@ def _build_engine(
     mutes: MuteSource | None = None,
 ) -> tuple[DebateEngine, DebateBudget]:
     """Assemble the engine + budget for a debate. May raise ProviderError."""
-    moderator_source = chamber.participants[0]
-    moderator = factory.get(moderator_source)  # impartial moderator = first participant
+    moderator_config = chamber.moderator
+    if moderator_config is None:
+        # Pre-F8 chambers, and any caller that omits the field: the arbiter is the
+        # first participant, which is what the engine did before it was explicit.
+        source = chamber.participants[0]
+        moderator_config = Moderator(provider=source.provider, model=source.model)
+    # get_for_type, not get: the factory's get takes a Participant, and a moderator
+    # is deliberately not one.
+    moderator = factory.get_for_type(moderator_config.provider)
     moderator_options = GenerateOptions(
-        model=moderator_source.model,
-        max_tokens=_MODERATOR_MAX_TOKENS,
-        temperature=_MODERATOR_TEMPERATURE,
+        model=moderator_config.model,
+        max_tokens=moderator_config.max_tokens,
+        temperature=moderator_config.temperature,
     )
     consensus = ConsensusEngine(factory, moderator, moderator_options)
     engine = DebateEngine(
@@ -170,30 +179,47 @@ def _build_engine(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=Chamber)
-def create_chamber(payload: ChamberCreate, repo: RepoDep) -> Chamber:
+async def create_chamber(
+    payload: ChamberCreate, repo: RepoDep, factory: FactoryDep
+) -> Chamber:
     settings = (
         DebateSettings(**payload.settings.model_dump())
         if payload.settings is not None
         else DebateSettings()
     )
+    moderator = None
+    if payload.moderator is not None:
+        # Checked here for the same reason a participant's model is (C4/FR-12):
+        # otherwise a wrong moderator model surfaces only after the whole debate
+        # has run and been paid for.
+        await _validate_model(factory, payload.moderator.provider, payload.moderator.model)
+        moderator = _moderator_from(payload.moderator)
     chamber = Chamber(
         topic=payload.topic,
         category=payload.category,
         description=payload.description,
         settings=settings,
+        moderator=moderator,
     )
     return repo.add(chamber)
 
 
 @router.patch("/{chamber_id}", response_model=Chamber)
-def update_chamber(chamber_id: UUID, payload: ChamberUpdate, repo: RepoDep) -> Chamber:
+async def update_chamber(
+    chamber_id: UUID, payload: ChamberUpdate, repo: RepoDep, factory: FactoryDep
+) -> Chamber:
     """Edit topic/category/description while the chamber is a draft (FR-3).
 
     Only the fields actually sent are applied. A cloned chamber is a fresh
     draft, so this is how a rerun gets retargeted before it starts.
     """
     chamber = _require_draft(repo, chamber_id, "a chamber")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if payload.moderator is not None:
+        await _validate_model(factory, payload.moderator.provider, payload.moderator.model)
+        # The dump would otherwise assign a ModeratorIn where a Moderator belongs.
+        changes["moderator"] = _moderator_from(payload.moderator)
+    for field, value in changes.items():
         setattr(chamber, field, value)
     return repo.update(chamber)
 
@@ -586,3 +612,23 @@ def export_chamber(
 def get_metrics(chamber_id: UUID, repo: RepoDep) -> list[ParticipantMetrics]:
     chamber = _require_chamber(repo, chamber_id)
     return compute_participant_metrics(chamber)
+
+
+@router.get("/{chamber_id}/outcome")
+def get_outcome(chamber_id: UUID, repo: RepoDep) -> dict[str, object]:
+    """The concluded debate's headline and derived facts (F5, FR-23).
+
+    Served rather than re-derived in the UI so the wording has exactly one
+    implementation — the same reason ``/metrics`` is an endpoint.
+    """
+    chamber = _require_chamber(repo, chamber_id)
+    summary = summarize_outcome(chamber)
+    if summary is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "chamber has no outcome yet")
+    return {
+        "headline": summary.headline,
+        "support": summary.support,
+        "decided_by": summary.decided_by,
+        "movements": list(summary.movements),
+        "caveat": summary.caveat,
+    }

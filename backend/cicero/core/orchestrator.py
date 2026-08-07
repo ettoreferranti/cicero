@@ -254,6 +254,13 @@ class DebateEngine:
                 stop_reason = budget_hit
                 break
 
+            # Measured unconditionally. ``stop_on_repetition`` governs whether
+            # repetition may *end* a debate on its own, not whether the engine may
+            # look at it — the stance-stability check below needs the same signal,
+            # and gating the measurement would let that setting silently restore the
+            # defect where a flat poll ended a debate mid-argument.
+            repeated = round_all_repeated(chamber, round_index)
+
             if tracker.may_stop_early():
                 report = await self._consensus.poll_stances(chamber)
                 poll = report.stances
@@ -265,19 +272,34 @@ class DebateEngine:
                     final_unparsed = report.unparsed
                     break
                 if previous_poll is not None and poll == previous_poll:
-                    if converge or settings.convergence_rounds == 0:
+                    in_converge = converge or settings.convergence_rounds == 0
+                    # An unchanged poll is not convergence. The one-word stance poll
+                    # is an unreliable instrument — measured across three real debates
+                    # it reports `neutral` for debaters who take a clear side, and no
+                    # reword or resampling fixes it (see the F7 spec). A debate ended
+                    # at round 3 of 8 on three identical polls while one debater was
+                    # announcing a reversal. So it only counts as finished when nobody
+                    # is saying anything new either, which `repeated` measures
+                    # deterministically from the text with no model judgement in it.
+                    if in_converge and repeated:
                         stop_reason, final_stances = StopReason.STANCES_STABLE, poll
                         final_unparsed = report.unparsed
                         break
-                    # Stalemate in the adversarial phase: move the convergence
-                    # phase forward instead of burning more rounds on it.
-                    converge_start = round_index + 1
+                    if not in_converge:
+                        # Stalemate in the adversarial phase: move the convergence
+                        # phase forward instead of burning more rounds on it. The
+                        # guard is for clarity, not behaviour — once converging,
+                        # ``round_index >= converge_start`` already holds and pushing
+                        # the start forward stays true on every later round. A
+                        # mutation run will report dropping it as surviving; it is
+                        # equivalent, not uncovered.
+                        converge_start = round_index + 1
                 previous_poll = poll
 
             # Checked after consensus/stability, which are more informative
             # reasons when both apply: this one fires as soon as a single round
             # produces nothing new, without waiting for two matching polls.
-            if settings.stop_on_repetition and round_all_repeated(chamber, round_index):
+            if settings.stop_on_repetition and repeated:
                 stop_reason = StopReason.REPETITION
                 break
 

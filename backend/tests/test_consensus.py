@@ -4,18 +4,27 @@ from __future__ import annotations
 
 import pytest
 
+from cicero.core import prompts
 from cicero.core.consensus import (
     ConsensusEngine,
     decide_outcome,
     is_consensus,
     majority_stance,
+    parse_directives,
+    parse_moderator_reply,
     parse_stance,
-    parse_verdict,
 )
+from cicero.core.prompts import DIRECTIVE_HEADLINE
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
-from cicero.domain.models import StancePoll
-from cicero.providers.base import GenerateOptions
-from tests.conftest import ScriptedProvider, StubFactory, make_chamber, make_participant
+from cicero.domain.models import MAX_HEADLINE_LENGTH, StancePoll
+from cicero.providers.base import GenerateOptions, GenerateResult
+from tests.conftest import (
+    ConstantFactory,
+    ScriptedProvider,
+    StubFactory,
+    make_chamber,
+    make_participant,
+)
 
 MOD_OPTS = GenerateOptions(model="mod")
 
@@ -222,21 +231,214 @@ def test_majority_stance_rules() -> None:
 
 
 @pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("", {}),
+        ("Just prose.", {}),
+        ("WINNER: pro\nBody.", {"WINNER": "pro"}),
+        ("winner: CON\nBody.", {"WINNER": "CON"}),
+        ("HEADLINE: We should go.\nWINNER: pro\nBody.",
+         {"HEADLINE": "We should go.", "WINNER": "pro"}),
+        # Order must not matter: the two prompts are written independently.
+        ("WINNER: pro\nHEADLINE: We should go.\nBody.",
+         {"WINNER": "pro", "HEADLINE": "We should go."}),
+        ("  HEADLINE: Indented.\nBody.", {"HEADLINE": "Indented."}),
+        ("HEADLINE:\nBody.", {"HEADLINE": ""}),
+        # An unrecognised key is prose, and stops the peel.
+        ("VERDICT: pro\nHEADLINE: never reached.", {}),
+        # A directive after prose is prose.
+        ("Body.\nHEADLINE: too late.", {}),
+        # A repeated key is not a second directive: the first occurrence wins
+        # and the repeat stops the peel, same as an unrecognised key would.
+        ("WINNER: pro\nWINNER: con\nBody.", {"WINNER": "pro"}),
+        # Real Ollama models reliably put a blank line between HEADLINE and
+        # WINNER; the peel must not stop there, or WINNER is silently dropped.
+        (
+            "HEADLINE: We should go.\n\nWINNER: pro\n\nBody.",
+            {"HEADLINE": "We should go.", "WINNER": "pro"},
+        ),
+        # Multiple consecutive blank lines between directives.
+        (
+            "HEADLINE: We should go.\n\n\nWINNER: pro\nBody.",
+            {"HEADLINE": "We should go.", "WINNER": "pro"},
+        ),
+        # A blank line before the very first directive: already handled by the
+        # leading strip(), pinned here so a future change cannot regress it.
+        (
+            "\nHEADLINE: We should go.\nWINNER: pro\nBody.",
+            {"HEADLINE": "We should go.", "WINNER": "pro"},
+        ),
+    ],
+)
+def test_parse_directives_peels_leading_keys(text: str, expected: dict[str, str]) -> None:
+    directives, _ = parse_directives(text, frozenset({"HEADLINE", "WINNER"}))
+    assert directives == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "body"),
+    [
+        ("WINNER: pro\nBody.", "Body."),
+        ("HEADLINE: One.\nWINNER: pro\nBody one.\nBody two.", "Body one.\nBody two."),
+        ("Just prose.", "Just prose."),
+        # Nothing left after the directives: the caller needs *something*, so the
+        # original text is returned rather than an empty statement.
+        ("WINNER: pro", "WINNER: pro"),
+        # The repeated key falls through to the body, pinning where it lands.
+        ("WINNER: pro\nWINNER: con\nBody.", "WINNER: con\nBody."),
+        # Blank lines between the two directives must not surface in the body,
+        # and the blank right before the body must not leave a leading blank.
+        ("HEADLINE: One.\n\nWINNER: pro\n\nBody one.\nBody two.", "Body one.\nBody two."),
+        # A blank line internal to the body itself (a paragraph break) is real
+        # content and must survive, not just the separator blanks are dropped.
+        (
+            "HEADLINE: One.\n\nWINNER: pro\n\nBody one.\n\nBody two.",
+            "Body one.\n\nBody two.",
+        ),
+    ],
+)
+def test_parse_directives_returns_remaining_body(text: str, body: str) -> None:
+    _, remaining = parse_directives(text, frozenset({"HEADLINE", "WINNER"}))
+    assert remaining == body
+
+
+@pytest.mark.parametrize(
     ("text", "winner", "body"),
     [
         ("WINNER: pro\nStrong case.", Stance.PRO, "Strong case."),
         ("winner: CON\nThe cons had it.", Stance.CON, "The cons had it."),
         ("WINNER: neutral\nNobody moved.", Stance.NEUTRAL, "Nobody moved."),
         ("No verdict line here.", None, "No verdict line here."),
-        ("WINNER: maybe\ntext", None, "WINNER: maybe\ntext"),
+        # A failed directive is not content: it is consumed, and no winner read.
+        ("WINNER: maybe\ntext", None, "text"),
     ],
 )
-def test_parse_verdict(text: str, winner: Stance | None, body: str) -> None:
-    assert parse_verdict(text) == (winner, body)
+def test_parse_moderator_reply_reads_the_winner(
+    text: str, winner: Stance | None, body: str
+) -> None:
+    reply = parse_moderator_reply(text)
+    assert reply.winner is winner
+    assert reply.body == body
 
 
-def test_parse_verdict_without_body_keeps_full_text() -> None:
-    assert parse_verdict("WINNER: pro") == (Stance.PRO, "WINNER: pro")
+def test_parse_moderator_reply_without_body_keeps_full_text() -> None:
+    reply = parse_moderator_reply("WINNER: pro")
+    assert reply.winner is Stance.PRO
+    assert reply.body == "WINNER: pro"
+
+
+def test_parse_moderator_reply_reads_the_headline() -> None:
+    reply = parse_moderator_reply("HEADLINE: Remote work should be the default.\nBecause X.")
+    assert reply.headline == "Remote work should be the default."
+    assert reply.body == "Because X."
+
+
+def test_parse_moderator_reply_without_a_headline_reports_none() -> None:
+    assert parse_moderator_reply("Just the statement.").headline == ""
+
+
+def test_parse_moderator_reply_ignores_an_empty_headline() -> None:
+    assert parse_moderator_reply("HEADLINE:\nStatement.").headline == ""
+
+
+def test_parse_moderator_reply_keeps_a_headline_at_the_length_cap() -> None:
+    # Pins the boundary as inclusive: exactly MAX_HEADLINE_LENGTH is still a
+    # headline, only *longer than* the cap is dropped.
+    headline = "x" * MAX_HEADLINE_LENGTH
+    reply = parse_moderator_reply(f"HEADLINE: {headline}\nStatement.")
+    assert reply.headline == headline
+    assert reply.body == "Statement."
+
+
+def test_parse_moderator_reply_drops_an_overlong_headline() -> None:
+    # A moderator that put its whole statement on the HEADLINE line has not
+    # written a headline. Dropping the value (rather than truncating it) is what
+    # makes the display fall back instead of showing half a sentence as the
+    # chamber's conclusion.
+    reply = parse_moderator_reply("HEADLINE: " + "x" * 501 + "\nStatement.")
+    assert reply.headline == ""
+    assert reply.body == "Statement."
+
+
+def test_parse_moderator_reply_takes_only_the_first_line_as_headline() -> None:
+    reply = parse_moderator_reply("HEADLINE: One sentence.\nThe longer statement.\nMore.")
+    assert reply.headline == "One sentence."
+    assert reply.body == "The longer statement.\nMore."
+
+
+def test_parse_moderator_reply_reads_both_directives_across_a_blank_line() -> None:
+    # Real Ollama models reliably separate HEADLINE and WINNER with a blank
+    # line (see the module docstring on parse_directives). Before the fix this
+    # broke the peel after HEADLINE, so WINNER was never read: winning_stance
+    # stayed None and the literal "WINNER: pro" leaked into the statement.
+    text = (
+        "HEADLINE: Cities should invest in zero-emission transit.\n"
+        "\n"
+        "WINNER: pro\n"
+        "\n"
+        "The pro side presented a compelling case."
+    )
+    reply = parse_moderator_reply(text)
+    assert reply.headline == "Cities should invest in zero-emission transit."
+    assert reply.winner is Stance.PRO
+    assert reply.body == "The pro side presented a compelling case."
+
+
+def test_parse_moderator_reply_reads_the_winner_with_no_blank_line() -> None:
+    # Pins the pre-existing (non-blank-line) shape so the fix cannot regress it.
+    reply = parse_moderator_reply("HEADLINE: Title.\nWINNER: pro\nBody.")
+    assert reply.headline == "Title."
+    assert reply.winner is Stance.PRO
+    assert reply.body == "Body."
+
+
+def test_parse_moderator_reply_with_a_narrowed_key_set_keeps_a_winner_shaped_sentence() -> None:
+    # Only a VERDICT reply is actually asked for WINNER:. Outside that, a body
+    # sentence that happens to start "Winner: ..." must not be peeled off as a
+    # directive and silently deleted from the statement — passing a key set
+    # without DIRECTIVE_WINNER is what keeps it in the body.
+    text = (
+        "HEADLINE: Cities should invest in transit.\n"
+        "\n"
+        "Winner: the pro side, because the cost case was decisive.\n"
+        "\n"
+        "More reasoning."
+    )
+    reply = parse_moderator_reply(text, keys=frozenset({DIRECTIVE_HEADLINE}))
+    assert reply.headline == "Cities should invest in transit."
+    assert reply.winner is None
+    assert reply.body == (
+        "Winner: the pro side, because the cost case was decisive.\n\nMore reasoning."
+    )
+
+
+async def test_finalize_keeps_a_winner_shaped_sentence_for_a_non_verdict_outcome() -> None:
+    # End-to-end reproduction of the regression introduced by 475c20b: a
+    # CONSENSUS reply whose body opens with "Winner: ..." must keep that
+    # sentence in the published statement, because only VERDICT outcomes were
+    # ever prompted for a WINNER: directive.
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(
+        moderator_reply=(
+            "HEADLINE: Cities should invest in transit.\n"
+            "\n"
+            "Winner: the pro side, because the cost case was decisive.\n"
+            "\n"
+            "More reasoning."
+        )
+    )
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    assert result.outcome is ConsensusOutcome.CONSENSUS
+    assert result.statement == (
+        "Winner: the pro side, because the cost case was decisive.\n\nMore reasoning."
+    )
 
 
 def test_decide_outcome_per_rule() -> None:
@@ -313,3 +515,191 @@ async def test_finalize_uses_fallback_when_moderator_is_empty() -> None:
     engine = ConsensusEngine(StubFactory({}), moderator, MOD_OPTS)
     result = await engine.finalize(chamber, {str(a.id): Stance.PRO, str(b.id): Stance.PRO})
     assert result.statement == EMPTY_MODERATOR_STATEMENT
+
+
+async def test_finalize_records_the_moderator_headline() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(
+        moderator_reply="HEADLINE: Mars should wait.\nThe cost case was decisive."
+    )
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    assert result.headline == "Mars should wait."
+    assert result.statement == "The cost case was decisive."
+
+
+async def test_finalize_leaves_the_headline_empty_when_the_moderator_omits_it() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(moderator_reply="They agreed on the cost case.")
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    # Never back-filled from the statement: a summary the moderator did not write
+    # must not be presented as one it did.
+    assert result.headline == ""
+    assert result.statement == "They agreed on the cost case."
+
+
+async def test_finalize_records_the_unparsed_set_it_decided_on() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(moderator_reply="HEADLINE: Unclear.\nNo agreement.")
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}, unparsed=[str(zeno.id)]
+    )
+
+    assert result.unparsed == [str(zeno.id)]
+
+
+async def test_finalize_records_an_empty_unparsed_set_rather_than_none() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = ScriptedProvider(moderator_reply="HEADLINE: Agreed.\nBoth sides aligned.")
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    # A freshly concluded chamber always knows; only historical ones say None.
+    assert result.unparsed == []
+
+
+async def test_finalize_reads_a_verdict_that_also_carries_a_headline() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(ada, zeno)
+    chamber.settings.decision_rule = DecisionRule.JUDGE
+    provider = ScriptedProvider(
+        moderator_reply="HEADLINE: The pro case won.\nWINNER: pro\nBetter evidence."
+    )
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+    )
+
+    assert result.outcome is ConsensusOutcome.VERDICT
+    assert result.winning_stance is Stance.PRO
+    assert result.headline == "The pro case won."
+    assert result.statement == "Better evidence."
+
+
+async def test_finalize_reads_a_verdict_with_a_blank_line_before_winner() -> None:
+    # Reproduces the shape real Ollama models actually send: a blank line
+    # between HEADLINE and WINNER. Without the fix, WINNER is never parsed,
+    # winning_stance stays None on a VERDICT outcome, and "WINNER: pro" leaks
+    # into the published statement.
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(ada, zeno)
+    chamber.settings.decision_rule = DecisionRule.JUDGE
+    provider = ScriptedProvider(
+        moderator_reply="HEADLINE: The pro case won.\n\nWINNER: pro\n\nBetter evidence."
+    )
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+    )
+
+    assert result.outcome is ConsensusOutcome.VERDICT
+    assert result.winning_stance is Stance.PRO
+    assert result.headline == "The pro case won."
+    assert result.statement == "Better evidence."
+
+
+def test_majority_task_still_formats_its_winner_placeholder() -> None:
+    # This string mixes f-string interpolation with a runtime .format() placeholder
+    # and has broken that way before.
+    formatted = prompts.MODERATOR_MAJORITY_TASK.format(winner="pro")
+    assert "pro" in formatted
+    assert "{winner}" not in formatted
+
+
+class _FlakyJudge(ScriptedProvider):
+    """Emits no WINNER line until the nth moderator call."""
+
+    def __init__(self, succeed_on: int) -> None:
+        super().__init__()
+        self._succeed_on = succeed_on
+        self.moderator_calls = 0
+
+    async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+        if "moderator" in messages[0].content.lower():
+            self.moderator_calls += 1
+            body = (
+                "HEADLINE: The pro case won.\n\nWINNER: pro\n\nBecause."
+                if self.moderator_calls >= self._succeed_on
+                else "HEADLINE: Unclear.\n\nI cannot decide."
+            )
+            return GenerateResult(content=body, prompt_tokens=3, completion_tokens=3)
+        return await super().generate(messages, options)
+
+
+def _judge_chamber():  # type: ignore[no-untyped-def]
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.CON)
+    chamber = make_chamber(ada, zeno)
+    chamber.settings.decision_rule = DecisionRule.JUDGE
+    return chamber, ada, zeno
+
+
+async def test_the_judge_is_retried_until_it_names_a_winner() -> None:
+    chamber, ada, zeno = _judge_chamber()
+    provider = _FlakyJudge(succeed_on=2)
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+    )
+
+    assert result.winning_stance is Stance.PRO
+    assert provider.moderator_calls == 2
+
+
+async def test_an_exhausted_judge_records_no_winner_rather_than_inventing_one() -> None:
+    chamber, ada, zeno = _judge_chamber()
+    provider = _FlakyJudge(succeed_on=99)
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.CON}
+    )
+
+    assert result.outcome is ConsensusOutcome.VERDICT
+    assert result.winning_stance is None
+    assert provider.moderator_calls == 3
+
+
+async def test_a_non_verdict_outcome_is_never_retried() -> None:
+    # The other three tasks have no WINNER: line to fail on, so retrying them
+    # would cost three moderator calls on every debate for nothing. Without this
+    # assertion no other test would notice.
+    ada = make_participant("Ada", Stance.PRO)
+    zeno = make_participant("Zeno", Stance.PRO)
+    chamber = make_chamber(ada, zeno)
+    provider = _FlakyJudge(succeed_on=99)
+    engine = ConsensusEngine(ConstantFactory(provider), provider, GenerateOptions(model="m"))
+
+    result = await engine.finalize(
+        chamber, {str(ada.id): Stance.PRO, str(zeno.id): Stance.PRO}
+    )
+
+    assert result.outcome is ConsensusOutcome.CONSENSUS
+    assert provider.moderator_calls == 1

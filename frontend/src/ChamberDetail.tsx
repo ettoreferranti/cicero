@@ -20,6 +20,7 @@ import type {
   Chamber,
   DebateSettings,
   DecisionRule,
+  OutcomeSummary,
   ParticipantMetrics,
   Turn,
 } from "./types";
@@ -52,6 +53,7 @@ export function ChamberDetail({
   const [stepping, setStepping] = useState(false);
   const [settingsForm, setSettingsForm] = useState<DebateSettings | null>(null);
   const [note, setNote] = useState("");
+  const [moderatorModel, setModeratorModel] = useState("");
   // null = unknown (config not loaded); the checkbox stays usable then.
   const [webAccessEnabled, setWebAccessEnabled] = useState<boolean | null>(null);
 
@@ -72,6 +74,38 @@ export function ChamberDetail({
   } | null>(null);
 
   const stream = useDebateStream(chamberId, streaming);
+  // The outcome can arrive from the live SSE stream before the chamber is
+  // reloaded, or from the persisted chamber once it is — same precedence as
+  // the rest of the live/persisted split above. Computed here, ahead of the
+  // `!chamber` early return below, so the hooks that key off it (next) run
+  // unconditionally on every render.
+  const consensus = stream.consensus ?? chamber?.consensus ?? null;
+
+  const [outcome, setOutcome] = useState<OutcomeSummary | null>(null);
+
+  // The headline comes with `consensus`; the derived lines are served separately
+  // so their wording has one implementation (backend `core/outcome.py`).
+  useEffect(() => {
+    if (!consensus) {
+      setOutcome(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .getOutcome(chamberId)
+      .then((summary) => {
+        if (!cancelled) setOutcome(summary);
+      })
+      .catch(() => {
+        // The card still renders from `consensus` alone — the derived lines are
+        // an enhancement, not a prerequisite. A 404 here just means the stream
+        // announced the outcome before the chamber was readable.
+        if (!cancelled) setOutcome(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chamberId, consensus]);
 
   const load = useCallback(async () => {
     try {
@@ -104,6 +138,21 @@ export function ChamberDetail({
       void api.getMetrics(chamberId).then(setMetrics).catch(() => undefined);
     }
   }, [stream.done, load, chamberId]);
+
+  async function onSetModerator() {
+    const [provider, ...rest] = moderatorModel.split("/");
+    setError(null);
+    try {
+      setChamber(
+        await api.updateModerator(chamberId, {
+          provider: provider as Chamber["participants"][number]["provider"],
+          model: rest.join("/"),
+        }),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to set the moderator");
+    }
+  }
 
   async function onAddParticipant(draft: ParticipantDraft) {
     setError(null);
@@ -278,7 +327,6 @@ export function ChamberDetail({
     ? mergeTurns(chamber.turns, stream.liveTurns)
     : chamber.turns;
   const rounds = groupTurnsByRound(liveTurns);
-  const consensus = stream.consensus ?? chamber.consensus;
   const liveStatus = streaming ? (stream.status ?? "running") : chamber.status;
   const runnable = canRun(chamber.status, chamber.participants.length);
   const resumable = canResume(chamber.status, chamber.participants.length);
@@ -524,6 +572,61 @@ export function ChamberDetail({
 
       <div className="card">
         <h2>
+          Moderator <span className="scope-badge">writes the outcome</span>
+        </h2>
+        <p className="muted scope-note">
+          Writes the headline and statement, and on the <code>judge</code> rule names
+          the winner when there is no majority. It does not debate.
+        </p>
+        {chamber.moderator ? (
+          <p>
+            <strong>
+              {chamber.moderator.provider}/{chamber.moderator.model}
+            </strong>{" "}
+            <span className="muted" style={{ fontSize: "0.85rem" }}>
+              {chamber.moderator.max_tokens} tok · temp {chamber.moderator.temperature}
+            </span>
+          </p>
+        ) : (
+          <p className="muted">
+            {chamber.participants.length > 0 ? (
+              <>
+                Defaults to the first debater —{" "}
+                <strong>
+                  {chamber.participants[0].provider}/{chamber.participants[0].model}
+                </strong>
+                . A debater judging its own debate is worth choosing deliberately.
+              </>
+            ) : (
+              "Defaults to the first debater added."
+            )}
+          </p>
+        )}
+        {chamber.status === "draft" && chamber.participants.length > 0 && (
+          <div className="row">
+            <select
+              aria-label="moderator model"
+              value={moderatorModel}
+              onChange={(e) => setModeratorModel(e.target.value)}
+            >
+              <option value="">— choose a model —</option>
+              {[...new Set(chamber.participants.map((p) => `${p.provider}/${p.model}`))].map(
+                (option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ),
+              )}
+            </select>
+            <button type="button" onClick={() => void onSetModerator()} disabled={!moderatorModel}>
+              Set moderator
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>
           Participants <span className="scope-badge">per debater</span>
         </h2>
         <p className="muted scope-note">
@@ -728,13 +831,41 @@ export function ChamberDetail({
 
       {consensus && (
         <div className="card">
-          <h2>Outcome: {outcomeLabel(consensus.outcome)}</h2>
-          {consensus.winning_stance && (
-            <p>
-              Winning position:{" "}
-              <span className={`stance ${consensus.winning_stance}`}>
-                {stanceLabel(consensus.winning_stance)}
-              </span>
+          {consensus.headline ? (
+            <h2>{consensus.headline}</h2>
+          ) : (
+            <>
+              <h2>Outcome: {outcomeLabel(consensus.outcome)}</h2>
+              {consensus.winning_stance && (
+                <p>
+                  Winning position:{" "}
+                  <span className={`stance ${consensus.winning_stance}`}>
+                    {stanceLabel(consensus.winning_stance)}
+                  </span>
+                </p>
+              )}
+            </>
+          )}
+          {outcome && (
+            <dl className="outcome-facts">
+              <dt>Support</dt>
+              <dd>{outcome.support}</dd>
+              <dt>How decided</dt>
+              <dd>{outcome.decided_by}</dd>
+              {outcome.movements.length > 0 && (
+                <>
+                  {/* Not "Positions moved": this is what the one-word poll
+                      captured, which is a weaker claim than a description of
+                      where the debater actually ended up. */}
+                  <dt>Recorded stance changes</dt>
+                  <dd>{outcome.movements.join(", ")}</dd>
+                </>
+              )}
+            </dl>
+          )}
+          {outcome?.caveat && (
+            <p className="muted" style={{ fontSize: "0.85rem" }}>
+              {outcome.caveat}
             </p>
           )}
           <p style={{ whiteSpace: "pre-wrap" }}>{consensus.statement}</p>

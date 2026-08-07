@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from cicero.core.compare import compare_chambers, summarize_run
-from cicero.domain.enums import ConsensusOutcome, Stance
-from cicero.domain.models import ConsensusResult
+from cicero.domain.enums import ConsensusOutcome, ProviderType, Stance
+from cicero.domain.models import ConsensusResult, Moderator
 from tests.conftest import make_chamber, make_participant
 
 
@@ -62,3 +62,48 @@ def test_compare_chambers_flags_topic_match() -> None:
     # Case and surrounding whitespace do not count as a different topic.
     d = _concluded_chamber(topic="  SHOULD WE COLONISE MARS?  ")
     assert compare_chambers(a, d)["same_topic"] is True
+
+
+def test_run_summary_carries_the_headline() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    chamber = make_chamber(ada)
+    chamber.consensus = ConsensusResult(
+        outcome=ConsensusOutcome.CONSENSUS,
+        statement="A long statement nobody wants to read twice.",
+        headline="Mars should wait.",
+        winning_stance=Stance.PRO,
+        final_stances={str(ada.id): Stance.PRO},
+        unparsed=[],
+    )
+    assert summarize_run(chamber)["headline"] == "Mars should wait."
+
+
+def test_run_summary_headline_is_none_before_an_outcome() -> None:
+    chamber = make_chamber(make_participant("Ada", Stance.PRO))
+    assert summarize_run(chamber)["headline"] is None
+
+
+def test_run_summary_empty_headline_converts_to_none() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    chamber = make_chamber(ada)
+    chamber.consensus = ConsensusResult(
+        outcome=ConsensusOutcome.CONSENSUS,
+        statement="Some statement.",
+        headline="",
+        winning_stance=Stance.PRO,
+        final_stances={str(ada.id): Stance.PRO},
+        unparsed=[],
+    )
+    assert summarize_run(chamber)["headline"] is None
+
+
+def test_run_summary_carries_the_moderator() -> None:
+    chamber = make_chamber(make_participant("Ada", Stance.PRO))
+    chamber.moderator = Moderator(provider=ProviderType.MOCK, model="judge-model")
+    # Which model judged is exactly the variable a two-run comparison isolates.
+    assert summarize_run(chamber)["moderator"] == "mock/judge-model"
+
+
+def test_run_summary_moderator_is_none_when_unset() -> None:
+    chamber = make_chamber(make_participant("Ada", Stance.PRO))
+    assert summarize_run(chamber)["moderator"] is None

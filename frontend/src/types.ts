@@ -86,8 +86,34 @@ export interface StancePoll {
 export interface ConsensusResult {
   outcome: Outcome;
   statement: string;
+  // One declarative sentence stating what the chamber concluded. Empty when the
+  // moderator produced none that was usable — the card then falls back.
+  headline: string;
   winning_stance: Stance | null;
   final_stances: Record<string, Stance>;
+  // Ids whose final position could not be read. null means "not recorded" — a
+  // chamber concluded before this field existed — not "none failed".
+  unparsed: string[] | null;
+}
+
+/** Derived outcome facts, served by GET /chambers/{id}/outcome. */
+export interface OutcomeSummary {
+  headline: string;
+  support: string;
+  decided_by: string;
+  movements: string[];
+  // Qualifies the stance labels above when they could be read as a
+  // characterisation of a debater rather than as what the poll recorded.
+  // Empty when no label on display can mislead.
+  caveat: string;
+}
+
+/** Who writes the outcome. Not a debater: no stance, no turns, no vote. */
+export interface Moderator {
+  provider: Provider;
+  model: string;
+  max_tokens: number;
+  temperature: number;
 }
 
 export interface Chamber {
@@ -101,6 +127,9 @@ export interface Chamber {
   turns: Turn[];
   stance_history: StancePoll[];
   consensus: ConsensusResult | null;
+  // null means "the first participant", which is what the engine did before this
+  // field existed.
+  moderator: Moderator | null;
   config: Record<string, unknown>;
   created_at: string;
 }

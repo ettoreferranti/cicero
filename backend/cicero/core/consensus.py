@@ -10,8 +10,9 @@
   Resolution, Verdict, or Summary of Disagreement.
 
 The pure parts (``parse_stance``, ``is_consensus``, ``majority_stance``,
-``parse_verdict``, ``decide_outcome``) are in the mutation-testing gate; the
-provider-driven parts are covered by tests with mock providers.
+``parse_directives``, ``parse_moderator_reply``, ``decide_outcome``) are in the
+mutation-testing gate; the provider-driven parts are covered by tests with mock
+providers.
 """
 
 from __future__ import annotations
@@ -26,10 +27,14 @@ from cicero.core.prompt_builder import (
     build_moderator_messages,
     build_stance_poll_messages,
 )
-from cicero.core.prompts import EMPTY_MODERATOR_STATEMENT, VERDICT_WINNER_PREFIX
+from cicero.core.prompts import (
+    DIRECTIVE_HEADLINE,
+    DIRECTIVE_WINNER,
+    EMPTY_MODERATOR_STATEMENT,
+)
 from cicero.core.roster import deciding_stances
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
-from cicero.domain.models import Chamber, ConsensusResult
+from cicero.domain.models import MAX_HEADLINE_LENGTH, Chamber, ConsensusResult
 from cicero.providers.base import GenerateOptions, Provider, ProviderError
 from cicero.providers.factory import ProviderFactory
 
@@ -84,6 +89,14 @@ _SCANNED_STANCE_WORDS: dict[str, Stance] = {
 #: a <think> block first; too tight a cap truncates the answer itself.
 _POLL_MAX_TOKENS = 512
 
+#: A judge that names no winner is re-asked this many times before giving up.
+#: The failure is stochastic rather than a deterministic inability — measured at
+#: 5 of 9 judge calls on the old 2048-token moderator budget, 0 of 9 on the
+#: current 4096 — so re-asking usually succeeds. Distinct from the provider's own
+#: retry, which fires on an *empty* reply and, because it re-asks with reasoning
+#: suppressed, makes a reasoning model narrate instead of answering.
+_JUDGE_ATTEMPTS = 3
+
 
 @dataclass(frozen=True)
 class StanceReport:
@@ -133,21 +146,86 @@ def majority_stance(stances: dict[str, Stance]) -> Stance | None:
     return ranked[0][0]
 
 
-def parse_verdict(text: str) -> tuple[Stance | None, str]:
-    """Split a judge reply into (winning stance, statement body).
+#: Every directive key the moderator may open a reply with.
+MODERATOR_DIRECTIVES = frozenset({DIRECTIVE_HEADLINE, DIRECTIVE_WINNER})
 
-    The judge is instructed to open with ``WINNER: pro|con|neutral``. If that
-    line is missing or unparsable the whole text is returned with no winner.
+
+@dataclass(frozen=True)
+class ModeratorReply:
+    """A moderator reply split into its directives and its prose body."""
+
+    #: One declarative sentence, or ``""`` when none was given or it was unusable.
+    headline: str
+    #: The judge's winner, or ``None`` outside a verdict (or when unreadable).
+    winner: Stance | None
+    #: The statement itself, with the directive lines removed.
+    body: str
+
+
+def parse_directives(text: str, keys: frozenset[str]) -> tuple[dict[str, str], str]:
+    """Peel leading ``KEY: value`` lines off a reply, in any order.
+
+    The moderator prompts are written independently, so the order the directives
+    arrive in must not be load-bearing. Peeling stops at the first line that is
+    not blank and not a recognised directive, which is what keeps ordinary prose
+    — including a sentence that happens to contain a colon — out of the result.
+
+    A blank line between two directive lines is tolerated and does *not* stop
+    the peel: real Ollama models reliably put an empty line between ``HEADLINE:``
+    and ``WINNER:``, and treating that blank as "the peel is over" silently
+    drops ``WINNER:`` into the body, leaking it into the published statement and
+    leaving the verdict without a winner. A blank line is only ever skipped
+    *while more directives may still follow* (i.e. after at least one has
+    already been found); once real content is seen the peel stops exactly as
+    before, so a blank line does not let unrelated prose be mistaken for a
+    directive. A blank line that opens the body itself *is* consumed the same
+    way — it just does not matter, because ``body`` is stripped afterward.
+
+    Returns the directives found (keys upper-cased) and the remaining body. When
+    nothing remains, the original text is returned as the body: a reply that was
+    *only* a directive still has to yield a statement rather than an empty one.
     """
     stripped = text.strip()
-    first, _, rest = stripped.partition("\n")
-    if first.strip().upper().startswith(VERDICT_WINNER_PREFIX):
-        word = first.strip()[len(VERDICT_WINNER_PREFIX) :].strip()
-        winner = parse_stance(word)
-        if winner is not None:
-            body = rest.strip() or stripped
-            return winner, body
-    return None, stripped
+    remaining = stripped.split("\n")
+    found: dict[str, str] = {}
+    while remaining:
+        line = remaining[0].strip()
+        if not line and found:
+            remaining = remaining[1:]
+            continue
+        key, separator, value = line.partition(":")
+        candidate = key.strip().upper()
+        if not separator or candidate not in keys or candidate in found:
+            break
+        found[candidate] = value.strip()
+        remaining = remaining[1:]
+    body = "\n".join(remaining).strip()
+    return found, body or stripped
+
+
+def parse_moderator_reply(
+    text: str, keys: frozenset[str] = MODERATOR_DIRECTIVES
+) -> ModeratorReply:
+    """Split a moderator reply into its headline, winner and statement body.
+
+    A recognised leading directive line is always consumed; whether its *value*
+    is usable only decides whether a value is extracted. An unusable directive is
+    a failed instruction, not content, and rendering ``WINNER: maybe`` at the top
+    of a statement would be worse than dropping it.
+
+    ``keys`` narrows which directives this reply is allowed to open with. Only a
+    verdict actually asked for ``WINNER:``; peeling it from any other outcome
+    risks eating a body sentence that happens to start the same way (e.g. "Winner:
+    the pro side, because..."), silently deleting it from the published
+    statement. Defaults to the full set so existing callers are unaffected.
+    """
+    directives, body = parse_directives(text, keys)
+    headline = directives.get(DIRECTIVE_HEADLINE, "")
+    if len(headline) > MAX_HEADLINE_LENGTH:
+        headline = ""
+    winner_word = directives.get(DIRECTIVE_WINNER)
+    winner = parse_stance(winner_word) if winner_word else None
+    return ModeratorReply(headline=headline, winner=winner, body=body)
 
 
 def decide_outcome(
@@ -248,14 +326,31 @@ class ConsensusEngine:
         )
         task = _moderator_task(outcome, winner)
         messages = build_moderator_messages(chamber, stances, task)
-        result = await self._moderator.generate(messages, self._moderator_options)
-        statement = result.content.strip() or EMPTY_MODERATOR_STATEMENT
-        if outcome is ConsensusOutcome.VERDICT:
-            winner, body = parse_verdict(statement)
-            statement = body or EMPTY_MODERATOR_STATEMENT
+        # Only a VERDICT reply was actually asked for a WINNER: line (see
+        # _moderator_task); narrowing the key set for the other three outcomes
+        # keeps a body sentence that happens to start "Winner: ..." from being
+        # peeled off and silently dropped from the published statement.
+        is_verdict = outcome is ConsensusOutcome.VERDICT
+        keys = MODERATOR_DIRECTIVES if is_verdict else frozenset({DIRECTIVE_HEADLINE})
+        # Only the verdict path can fail in a way re-asking fixes; retrying the
+        # other three would cost extra moderator calls on every debate for nothing.
+        # The bound and the break condition below each enforce that independently,
+        # so a mutation run reports widening the bound as surviving — it is
+        # equivalent, not uncovered. Both are kept: the bound states the intent
+        # where a reader looks for it, the break is what actually holds the line.
+        for _ in range(_JUDGE_ATTEMPTS if is_verdict else 1):
+            result = await self._moderator.generate(messages, self._moderator_options)
+            reply = parse_moderator_reply(result.content.strip(), keys=keys)
+            if not is_verdict or reply.winner is not None:
+                break
+        statement = reply.body.strip() or EMPTY_MODERATOR_STATEMENT
+        if is_verdict:
+            winner = reply.winner
         return ConsensusResult(
             outcome=outcome,
             statement=statement,
+            headline=reply.headline,
             winning_stance=winner,
             final_stances=dict(stances),
+            unparsed=list(unparsed),
         )

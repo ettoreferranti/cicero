@@ -40,7 +40,8 @@
 - `backend/cicero/core/outcome.py` — `OutcomeSummary` gains two fields
 - `backend/cicero/core/export.py` — Markdown renders them
 - `frontend/src/types.ts`, `frontend/src/ChamberDetail.tsx` — display
-- `docs/testing.md`, `docs/requirements.md`, `docs/backlog.md`, `README.md` — docs
+- `docs/testing.md`, `docs/requirements.md`, `docs/backlog.md`, `docs/architecture.md`, `README.md` — docs
+- `backend/scripts/check_compliance_judge.py` — the hand-check harness (Task 10)
 
 ---
 
@@ -544,9 +545,9 @@ UNOPPOSED_CAVEAT = (
 
 def _judged_sides(chamber: Chamber) -> set[Stance]:
     """Every side any judged turn in the chamber was found to argue."""
-    sides = {argued_stance(turn) for turn in chamber.turns}
-    sides.discard(None)
-    return {side for side in sides if side is not None}
+    return {
+        side for turn in chamber.turns if (side := argued_stance(turn)) is not None
+    }
 
 
 def compliance_caveat(chamber: Chamber) -> str:
@@ -1201,7 +1202,7 @@ git commit -m "feat: answer the compliance question in the mock provider (F9)"
 - Consumes: `compliance_caveat`, `noncompliance_lines` (Task 3)
 - Produces: `OutcomeSummary.compliance_caveat: str`, `OutcomeSummary.noncompliance: tuple[str, ...]`; the same two keys on `GET /chambers/{id}/outcome` (`noncompliance` as a JSON list).
 
-`OutcomeSummary` is a frozen dataclass with no defaults, deliberately — the existing `caveat` field's comment says every construction should state whether the labels need qualifying. Follow that: give the new fields no defaults either, and fix `summarize_outcome` as the single construction site.
+`OutcomeSummary` is a frozen dataclass with no defaults, deliberately — the existing `caveat` field's comment says every construction should state whether the labels need qualifying. Follow that: give the new fields no defaults either. There are exactly two construction sites and both must be updated: `cicero/core/outcome.py:204` and `tests/test_outcome.py:392`. The test one will fail to compile until it passes the new fields, which is the point of having no defaults.
 
 - [ ] **Step 1: Write the failing test**
 

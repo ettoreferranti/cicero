@@ -242,6 +242,53 @@ def test_no_caveat_when_nobody_was_assigned_the_opposing_side() -> None:
     assert compliance_caveat(chamber) == ""
 
 
+def test_no_caveat_when_the_only_other_participant_is_neutral() -> None:
+    """The opposing-debater lookup must select ``stance is opposite``, not
+    ``stance is not winning_stance`` — the latter would treat a NEUTRAL
+    co-debater as someone assigned to oppose the winner, when nobody assigned
+    them anything. Nobody was assigned CON here, so this must read exactly
+    like the all-PRO case above."""
+    ada, eve = _debater(Stance.PRO, "Ada"), _debater(Stance.NEUTRAL, "Eve")
+    chamber = _concluded(
+        [ada, eve],
+        [_turn(ada, "pro", 0), _turn(eve, "pro", 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == ""
+
+
+def test_caveat_fires_when_only_one_of_several_opposing_debaters_was_judged() -> None:
+    """Condition 3 asks whether *any* assigned-opposite debater was measured,
+    not whether *all* of them were. One measured CON debater who did not argue
+    con is enough to know the chamber had the chance to hear that side — a
+    co-debater's turns all failing to judge does not erase that."""
+    ada = _debater(Stance.PRO, "Ada")
+    bob = _debater(Stance.CON, "Bob")
+    carl = _debater(Stance.CON, "Carl")
+    chamber = _concluded(
+        [ada, bob, carl],
+        [_turn(ada, "pro", 0), _turn(bob, "pro", 0), _turn(carl, None, 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == UNOPPOSED_CAVEAT
+
+
+def test_caveat_is_unaffected_by_muting_the_opposing_debater() -> None:
+    """Muting is mutable roster state applied after the fact; the module
+    docstring promises nothing here reads ``Participant.muted``. Muting the
+    only CON debater must not change this finding — a version that filtered
+    the opposing-debater lookup or ``_judged_sides`` by ``not muted`` would
+    let a mid-debate mute retroactively rewrite what got measured."""
+    ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")
+    bob.muted = True
+    chamber = _concluded(
+        [ada, bob],
+        [_turn(ada, "pro", 0), _turn(bob, "pro", 0)],
+        winner=Stance.PRO,
+    )
+    assert compliance_caveat(chamber) == UNOPPOSED_CAVEAT
+
+
 def test_no_caveat_for_a_neutral_winner() -> None:
     """NEUTRAL has no polar opposite, so 'the other side' names nothing."""
     ada, bob = _debater(Stance.PRO, "Ada"), _debater(Stance.CON, "Bob")

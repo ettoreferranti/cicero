@@ -443,7 +443,8 @@ class DebateEngine:
             # judging raised inside the try, a successful debater turn would be
             # discarded, the failure mis-attributed to the debater's provider, and
             # its tokens dropped from the budget — even though ComplianceJudge.judge
-            # never raises (Task 5) and this call is not what NFR-R-1 protects.
+            # only swallows ProviderError, returning None, and any other exception
+            # it raises is not what NFR-R-1 protects.
             # Judged before the turn is appended, so the verdict is present the
             # first time the turn reaches the SSE stream — no update event, and no
             # re-persisting a turn a reader has already seen. An empty turn (the

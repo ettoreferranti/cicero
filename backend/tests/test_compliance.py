@@ -184,8 +184,8 @@ def test_unopposed_caveat_wording_is_pinned() -> None:
     deliberate edit to this test, not something that can drift silently."""
     assert UNOPPOSED_CAVEAT == (
         "No debater was judged to argue against the winning position, though one "
-        "was assigned to. This outcome records agreement that was never "
-        "contested — read the transcript before treating it as convergence."
+        "was assigned to. Nothing in the judged turns contests it — read the "
+        "transcript before treating this as a tested result."
     )
 
 

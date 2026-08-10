@@ -15,7 +15,8 @@ from cicero.api.dependencies import (
     get_provider_factory,
     get_repository,
 )
-from cicero.domain.models import ParticipantTuning
+from cicero.api.schemas import DebateSettingsIn
+from cicero.domain.models import DebateSettings, ParticipantTuning
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers import ProviderError
 from cicero.providers.mock import MockProvider
@@ -1028,3 +1029,14 @@ def test_moderator_is_frozen_once_the_debate_has_run(client: TestClient) -> None
         f"/chambers/{cid}", json={"moderator": {"provider": "mock", "model": "scripted"}}
     )
     assert resp.status_code == 409
+
+
+def test_debate_settings_wire_schema_mirrors_the_domain_model() -> None:
+    # DebateSettingsIn is a hand-maintained mirror of DebateSettings, kept
+    # separate so the API can impose its own hard caps (NFR-SEC-8). Nothing
+    # ties the two field sets together: when the domain model gains a field
+    # and the mirror doesn't, model_config = ConfigDict(extra="forbid") makes
+    # the wire schema reject a settings payload that includes it, and the
+    # whole settings form starts returning 422 — a regression invisible to
+    # every test that exercises either model in isolation.
+    assert set(DebateSettingsIn.model_fields) == set(DebateSettings.model_fields)

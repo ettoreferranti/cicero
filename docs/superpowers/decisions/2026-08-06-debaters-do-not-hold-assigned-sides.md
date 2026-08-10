@@ -129,11 +129,18 @@ design shows the reader the answer it is meant to be checking.
 |---|---|---|---|
 | Eve, nuclear r1 | neutral | neutral | pro |
 
-Eve argued for hybrid approaches "pairing advanced reactors with carbon capture… to reap
-the benefits of both nuclear and renewable energy". Against the motion *"should nuclear
-power be **central** to decarbonisation?"* that is genuinely contestable: it endorses
-nuclear's inclusion without endorsing its centrality. The turn was flagged as ambiguous
-during hand-reading, before the verdict was seen.
+The turn is reproduced here so the disagreement can be re-examined rather than taken on
+trust:
+
+> While it's true that solar and wind projects can be deployed more quickly, I think
+> we're underestimating the potential of hybrid approaches that integrate nuclear power
+> with renewable energy sources. […] By exploring these innovative combinations, we might
+> be able to reap the benefits of both nuclear and renewable energy technologies,
+> creating a more resilient and adaptable grid.
+
+Against the motion *"should nuclear power be **central** to decarbonisation?"* that is
+genuinely contestable: it endorses nuclear's inclusion without endorsing its centrality.
+The turn was flagged as ambiguous during hand-reading, before the verdict was seen.
 
 So the residual disagreement sits exactly where this codebase's other measurement
 problems sit — on the boundary of `neutral`, the label that means both "holds no

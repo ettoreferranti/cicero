@@ -575,6 +575,44 @@ def test_update_settings_only_while_draft(client: TestClient) -> None:
     assert client.put(f"/chambers/{cid}/settings", json={"max_rounds": 5}).status_code == 409
 
 
+def test_post_chamber_with_measure_compliance_false(client: TestClient) -> None:
+    resp = client.post(
+        "/chambers",
+        json={
+            "topic": "T",
+            "settings": {
+                "measure_compliance": False,
+            },
+        },
+    )
+    assert resp.status_code == 201
+    created = resp.json()["settings"]
+    assert created["measure_compliance"] is False
+
+
+def test_put_settings_with_measure_compliance_roundtrip(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    resp = client.put(
+        f"/chambers/{cid}/settings",
+        json={
+            "max_rounds": 2,
+            "min_rounds": 2,
+            "max_total_tokens": 200_000,
+            "max_duration_seconds": None,
+            "decision_rule": "judge",
+            "convergence_rounds": 2,
+            "web_evidence": False,
+            "stop_on_repetition": True,
+            "repetition_threshold": 0.95,
+            "measure_compliance": False,
+        },
+    )
+    assert resp.status_code == 200
+    settings = resp.json()["settings"]
+    assert settings["measure_compliance"] is False
+    assert settings["max_rounds"] == 2
+
+
 def test_run_respects_chamber_settings(client: TestClient) -> None:
     cid = _create_chamber(client)
     client.put(

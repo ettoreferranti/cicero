@@ -20,6 +20,7 @@ from cicero.providers.base import Message, Role
 __all__ = [
     "TRANSCRIPT_CLOSE",
     "TRANSCRIPT_OPEN",
+    "build_compliance_messages",
     "build_moderator_messages",
     "build_stance_poll_messages",
     "build_turn_messages",
@@ -190,5 +191,28 @@ def build_stance_poll_messages(chamber: Chamber, participant: Participant) -> li
     )
     return [
         Message(role=Role.SYSTEM, content=system),
+        Message(role=Role.USER, content=user),
+    ]
+
+
+def build_compliance_messages(topic: str, content: str) -> list[Message]:
+    """Ask a judge which side one turn argues (FR-34).
+
+    Takes the motion text and the turn text — deliberately not a ``Chamber`` and
+    not a ``Participant``. The judge must not learn who wrote the turn or what
+    stance they were assigned, and a signature that cannot receive those is a
+    stronger guarantee than remembering not to pass them.
+
+    ``content`` is untrusted: it is another model's output, so it goes inside the
+    transcript markers that ``SAFETY_RULE`` (in ``COMPLIANCE_SYSTEM``) tells the
+    judge to treat as data.
+    """
+    user = (
+        f"{prompts.COMPLIANCE_MOTION_LABEL.format(topic=topic)}\n\n"
+        f"{prompts.TRANSCRIPT_OPEN}\n{content}\n{prompts.TRANSCRIPT_CLOSE}\n\n"
+        f"{prompts.COMPLIANCE_USER_INSTRUCTION}"
+    )
+    return [
+        Message(role=Role.SYSTEM, content=prompts.COMPLIANCE_SYSTEM),
         Message(role=Role.USER, content=user),
     ]

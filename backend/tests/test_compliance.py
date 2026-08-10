@@ -4,7 +4,9 @@ import pytest
 
 from cicero.core.compliance import (
     ARGUED_KEY,
+    COMPLIANCE_MAX_TOKENS,
     UNOPPOSED_CAVEAT,
+    ComplianceJudge,
     ComplianceRecord,
     argued_stance,
     compliance_caveat,
@@ -13,6 +15,8 @@ from cicero.core.compliance import (
 )
 from cicero.domain.enums import ConsensusOutcome, ProviderType, Stance
 from cicero.domain.models import Chamber, ConsensusResult, Participant, Turn
+from cicero.providers.base import GenerateOptions, GenerateResult, Message
+from cicero.providers.mock import MockProvider
 
 
 def _debater(stance: Stance, name: str = "Bob") -> Participant:
@@ -393,3 +397,59 @@ def test_noncompliance_continues_past_a_compliant_participant() -> None:
     assert noncompliance_lines(chamber) == (
         "Bob (assigned con) argued pro in 1 of 1 judged turns",
     )
+
+
+async def test_judge_reads_a_one_word_answer() -> None:
+    judge = ComplianceJudge(MockProvider(scripted=["con"]), "mock-small")
+    assert await judge.judge("a motion", "an argument") is Stance.CON
+
+
+async def test_judge_returns_none_for_an_unreadable_answer() -> None:
+    judge = ComplianceJudge(MockProvider(scripted=["it depends, really"]), "mock-small")
+    assert await judge.judge("a motion", "an argument") is None
+
+
+async def test_judge_returns_none_when_the_provider_fails() -> None:
+    """A failing judge must not crash a debate (NFR-R-1)."""
+    judge = ComplianceJudge(MockProvider(fail_after=1), "mock-small")
+    assert await judge.judge("a motion", "an argument") is None
+
+
+async def test_judge_suppresses_reasoning_and_pins_temperature() -> None:
+    """A thinking model can spend its whole budget reasoning and return empty
+    content — measured on qwen3 with the one-word stance poll."""
+    captured: list[GenerateOptions] = []
+
+    class Recording(MockProvider):
+        async def generate(
+            self, messages: list[Message], options: GenerateOptions
+        ) -> GenerateResult:
+            captured.append(options)
+            return await super().generate(messages, options)
+
+    judge = ComplianceJudge(Recording(scripted=["pro"]), "mock-small")
+    await judge.judge("a motion", "an argument")
+    assert captured[0].allow_reasoning is False
+    assert captured[0].temperature == 0.0
+    assert captured[0].max_tokens == COMPLIANCE_MAX_TOKENS
+    assert captured[0].model == "mock-small"
+
+
+async def test_judge_is_not_told_who_wrote_the_turn() -> None:
+    """The load-bearing constraint: nothing identifying the debater or its
+    assigned stance may reach the judge."""
+    captured: list[list[Message]] = []
+
+    class Recording(MockProvider):
+        async def generate(
+            self, messages: list[Message], options: GenerateOptions
+        ) -> GenerateResult:
+            captured.append(messages)
+            return await super().generate(messages, options)
+
+    judge = ComplianceJudge(Recording(scripted=["pro"]), "mock-small")
+    await judge.judge("a motion", "Bartholomew thinks so too")
+    prompt = " ".join(m.content for m in captured[0])
+    assert "assigned" not in prompt.lower()
+    # The only occurrence of a name is the one inside the judged text itself.
+    assert prompt.count("Bartholomew") == 1

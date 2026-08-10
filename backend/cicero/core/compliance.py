@@ -16,8 +16,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cicero.core.consensus import parse_stance
+from cicero.core.prompt_builder import build_compliance_messages
 from cicero.domain.enums import Stance
 from cicero.domain.models import Chamber, Participant, Turn
+from cicero.providers.base import GenerateOptions, Provider, ProviderError
 
 #: Where a turn's judged side is recorded. Absent means **not measured** — never
 #: "compliant". A judge call that failed, a reply that did not parse and a turn
@@ -160,3 +163,40 @@ def noncompliance_lines(chamber: Chamber) -> tuple[str, ...]:
             f"{record.judged} judged turns"
         )
     return tuple(lines)
+
+
+#: Matches ``_POLL_MAX_TOKENS``. Generous for a one-word reply, and the poll's
+#: measured value for the same shape of task; diverging would buy nothing.
+COMPLIANCE_MAX_TOKENS = 512
+
+
+class ComplianceJudge:
+    """Reads one turn and names the side it argues.
+
+    Holds the moderator's provider — the chamber's designated impartial party —
+    but calls it with its own options: a one-word answer wants no reasoning, no
+    temperature and a small budget, exactly as ``poll_stances`` does.
+    """
+
+    def __init__(self, provider: Provider, model: str) -> None:
+        self._provider = provider
+        self._options = GenerateOptions(
+            model=model,
+            max_tokens=COMPLIANCE_MAX_TOKENS,
+            temperature=0.0,
+            allow_reasoning=False,
+        )
+
+    async def judge(self, topic: str, content: str) -> Stance | None:
+        """The side ``content`` argues, or ``None`` if it could not be read.
+
+        Both failure modes collapse to ``None`` on purpose: a provider error and
+        an unparseable reply are equally "not measured", and the caller records
+        the absence rather than guessing.
+        """
+        messages = build_compliance_messages(topic, content)
+        try:
+            result = await self._provider.generate(messages, self._options)
+        except ProviderError:
+            return None
+        return parse_stance(result.content)

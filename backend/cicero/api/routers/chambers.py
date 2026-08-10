@@ -637,4 +637,6 @@ def get_outcome(chamber_id: UUID, repo: RepoDep) -> dict[str, object]:
         "decided_by": summary.decided_by,
         "movements": list(summary.movements),
         "caveat": summary.caveat,
+        "compliance_caveat": summary.compliance_caveat,
+        "noncompliance": list(summary.noncompliance),
     }

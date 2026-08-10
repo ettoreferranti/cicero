@@ -23,7 +23,11 @@ def to_export_dict(chamber: Chamber) -> dict[str, Any]:
     summary = summarize_outcome(chamber)
     return {
         "chamber": chamber.model_dump(mode="json"),
-        "outcome_summary": asdict(summary) | {"movements": list(summary.movements)}
+        "outcome_summary": asdict(summary)
+        | {
+            "movements": list(summary.movements),
+            "noncompliance": list(summary.noncompliance),
+        }
         if summary is not None
         else None,
     }
@@ -121,6 +125,14 @@ def to_markdown(chamber: Chamber) -> str:
             # one-word poll captured, which is not the same claim as a description
             # of where the debater actually ended up.
             lines.append(f"- **Recorded stance changes:** {', '.join(summary.movements)}")
+        if summary.noncompliance:
+            lines.append(
+                f"- **Argued against their assigned side:** "
+                f"{', '.join(summary.noncompliance)}"
+            )
+        if summary.compliance_caveat:
+            lines.append("")
+            lines.append(f"*{summary.compliance_caveat}*")
         if summary.caveat:
             lines.append("")
             lines.append(f"*{summary.caveat}*")

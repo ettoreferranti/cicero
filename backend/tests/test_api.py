@@ -841,6 +841,30 @@ def test_outcome_endpoint_returns_the_derived_summary() -> None:
     assert body["caveat"] == ""
 
 
+def test_outcome_endpoint_serves_the_compliance_fields(client: TestClient) -> None:
+    repo = InMemoryChamberRepository()
+    factory = ConstantFactory(
+        MockProvider(models=["scripted", "scripted-large"], poll_answer="pro")
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    with TestClient(app) as mock_client:
+        cid = _create_chamber(mock_client)
+        _add_participant(mock_client, cid, "Pro-A", "pro")
+        _add_participant(mock_client, cid, "Pro-B", "pro")
+        mock_client.post(f"/chambers/{cid}/run", params={"wait": "true"})
+
+        resp = mock_client.get(f"/chambers/{cid}/outcome")
+    app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "compliance_caveat" in body
+    assert isinstance(body["noncompliance"], list)
+
+
 def test_outcome_endpoint_404s_before_the_debate_concludes(client: TestClient) -> None:
     cid = _create_chamber(client)
     _add_participant(client, cid, "Pro-A", "pro")

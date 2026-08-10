@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 
+from cicero.core.compliance import compliance_caveat, noncompliance_lines
 from cicero.core.roster import deciding_stances
 from cicero.domain.enums import ConsensusOutcome, Stance
 from cicero.domain.models import Chamber, ConsensusResult, Participant
@@ -58,6 +59,12 @@ class OutcomeSummary:
     #: default: every construction should state whether the labels need qualifying,
     #: rather than silently inheriting "they don't".
     caveat: str
+    #: Fires when the winning position was never argued against, though a debater
+    #: was assigned to. Separate from ``caveat``: that one qualifies the stance
+    #: *labels*, this one qualifies whether the debate was contested at all.
+    compliance_caveat: str
+    #: One line per debater judged to have argued against its assigned side.
+    noncompliance: tuple[str, ...]
 
 
 def _effective_unparsed(chamber: Chamber) -> tuple[str, ...]:
@@ -207,4 +214,6 @@ def summarize_outcome(chamber: Chamber) -> OutcomeSummary | None:
         decided_by=decision_basis(chamber),
         movements=movements(chamber),
         caveat=_stance_caveat(chamber, consensus),
+        compliance_caveat=compliance_caveat(chamber),
+        noncompliance=noncompliance_lines(chamber),
     )

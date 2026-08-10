@@ -6,6 +6,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from cicero.core.compliance import UNOPPOSED_CAVEAT
 from cicero.core.outcome import (
     STANCE_CAVEAT,
     OutcomeSummary,
@@ -15,7 +16,7 @@ from cicero.core.outcome import (
     support_summary,
 )
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
-from cicero.domain.models import ConsensusResult, StancePoll
+from cicero.domain.models import ConsensusResult, StancePoll, Turn
 from tests.conftest import make_chamber, make_participant
 
 
@@ -390,7 +391,13 @@ def test_movements_reports_the_last_measurement_not_the_second() -> None:
 
 def test_outcome_summary_is_frozen() -> None:
     summary = OutcomeSummary(
-        headline="", support="", decided_by="", movements=(), caveat=""
+        headline="",
+        support="",
+        decided_by="",
+        movements=(),
+        caveat="",
+        compliance_caveat="",
+        noncompliance=(),
     )
     with pytest.raises(FrozenInstanceError):
         summary.headline = "changed"
@@ -598,3 +605,55 @@ def test_caveat_keeps_scanning_past_a_debater_who_never_moved() -> None:
     summary = summarize_outcome(chamber)
     assert summary is not None
     assert summary.caveat == STANCE_CAVEAT
+
+
+# --- compliance fields on the summary (F9) ----------------------------------
+
+
+def _two_debater_chamber(winner: Stance) -> tuple:  # type: ignore[type-arg]
+    """Ada (pro) and Bob (con), concluded with ``winner`` prevailing."""
+    ada = make_participant("Ada", Stance.PRO)
+    bob = make_participant("Bob", Stance.CON)
+    chamber = make_chamber(ada, bob)
+    chamber.consensus = ConsensusResult(
+        outcome=ConsensusOutcome.MAJORITY,
+        statement="Statement.",
+        winning_stance=winner,
+        final_stances={str(ada.id): Stance.PRO, str(bob.id): Stance.PRO},
+        unparsed=[],
+    )
+    return chamber, ada, bob
+
+
+def test_summary_carries_the_compliance_caveat_and_lines() -> None:
+    chamber, ada, bob = _two_debater_chamber(Stance.PRO)
+    chamber.turns = [
+        Turn(participant_id=ada.id, round_index=0, content="x", metadata={"argued": "pro"}),
+        Turn(participant_id=bob.id, round_index=0, content="y", metadata={"argued": "pro"}),
+    ]
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.compliance_caveat == UNOPPOSED_CAVEAT
+    assert summary.noncompliance == (
+        "Bob (assigned con) argued pro in 1 of 1 judged turns",
+    )
+
+
+def test_summary_compliance_fields_are_empty_when_nothing_was_judged() -> None:
+    chamber, _ada, _bob = _two_debater_chamber(Stance.PRO)
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.compliance_caveat == ""
+    assert summary.noncompliance == ()
+
+
+def test_the_stance_caveat_and_the_compliance_caveat_are_separate_fields() -> None:
+    """Two unrelated qualifications. Conflating them would make one of them
+    unreachable whenever the other fires."""
+    chamber, _ada, bob = _two_debater_chamber(Stance.PRO)
+    chamber.turns = [
+        Turn(participant_id=bob.id, round_index=0, content="y", metadata={"argued": "pro"}),
+    ]
+    summary = summarize_outcome(chamber)
+    assert summary is not None
+    assert summary.compliance_caveat != summary.caveat

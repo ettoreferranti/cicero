@@ -44,6 +44,16 @@ _DEFAULT_MODERATOR_REPLY = (
     "This is a mock synthesis of the debate."
 )
 
+#: Identifies a compliance-judge prompt from its system text, on the same terms as
+#: ``POLL_MARKER``: a literal, so the provider layer stays independent of
+#: ``core.prompts``, with a test asserting the two never drift apart.
+COMPLIANCE_MARKER = "impartial reader"
+
+#: A mock has no view on which side a turn argues, so it reports none — but it
+#: reports it in a shape ``parse_stance`` can read, which is what keeps the offline
+#: acceptance path exercising the real code.
+_DEFAULT_COMPLIANCE_ANSWER = "neutral"
+
 
 def _count_tokens(text: str) -> int:
     """Deterministic, whitespace-based token estimate (never network-derived)."""
@@ -61,6 +71,7 @@ class MockProvider(Provider):
             raise :class:`ProviderError`, to exercise failure handling (C5).
         poll_answer: The stance reported when asked for one; set it to drive a
             specific outcome in a test or demo.
+        compliance_answer: The side reported when asked which side a turn argues.
     """
 
     provider_type = ProviderType.MOCK
@@ -71,11 +82,13 @@ class MockProvider(Provider):
         models: Sequence[str] | None = None,
         fail_after: int | None = None,
         poll_answer: str = _DEFAULT_POLL_ANSWER,
+        compliance_answer: str = _DEFAULT_COMPLIANCE_ANSWER,
     ) -> None:
         self._scripted: list[str] = list(scripted or [])
         self._models: list[str] = list(models or _DEFAULT_MODELS)
         self._fail_after = fail_after
         self._poll_answer = poll_answer
+        self._compliance_answer = compliance_answer
         self.call_count = 0
 
     async def generate(
@@ -89,6 +102,8 @@ class MockProvider(Provider):
         system = messages[0].content if messages else ""
         if self._scripted:
             content = self._scripted.pop(0)
+        elif COMPLIANCE_MARKER in system.lower():
+            content = self._compliance_answer
         elif POLL_MARKER in last.lower():
             # A stance poll needs an *answer*, not an echo. Echoing used to
             # "work" only because the parser matched pro/con out of the quoted

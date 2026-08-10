@@ -182,3 +182,11 @@ A `consensus` outcome cannot presently be taken as evidence that debaters conver
 It may equally mean the assigned opposition never materialised. The transcript is the
 only reliable record of what was actually argued — which is what F6's caveat already
 tells readers, for a different reason.
+
+## See also
+
+[`docs/model-selection.md`](../../model-selection.md) turns the measurements above into
+guidance — the per-model table, how to rebuild it with the compliance record this
+finding motivated, and the methodological warnings (small-sample overstatement, the
+keyword classifier wrong by a factor of seven) restated for a reader who was not here
+for the original measurement.

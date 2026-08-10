@@ -164,6 +164,10 @@ Requirements use MoSCoW priority: **M**ust / **S**hould / **C**ould / **W**on't 
 - **FR-32 (C)** Compare two runs of the same topic side by side.
 - **FR-33 (S)** Surface token/cost/latency metrics per participant and per
   chamber.
+- **FR-34 (S)** Measure, per turn, which side of the motion the turn actually
+  argues, and report when a chamber's winning position was never argued against.
+  Read from the turn's prose, never from the stance poll, and never used to
+  decide an outcome.
 
 ## 6. Non-Functional Requirements
 

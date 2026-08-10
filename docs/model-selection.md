@@ -7,8 +7,8 @@ moves the number is the model.
 
 ## 1. The measured table
 
-Con-assigned debaters, opening turns, judged by reading the prose (not the stance
-poll — see [why below](#why-not-the-poll)):
+Con-assigned debaters, opening turns, judged by reading the prose, not the stance
+poll (see the decision record linked below for why):
 
 | model | held the assigned `con` side |
 |---|---|
@@ -78,7 +78,7 @@ models is what keeps this page useful.
   `--turns-out` (Markdown: id, round, speaker, assigned stance, full turn text,
   no verdict) and `--verdicts-out` (JSON: turn id → verdict). Read the turns
   file and record your own answers before opening the verdicts file — see
-  [§3](#judge-agreement) for why that split exists.
+  [§4](#judge-agreement) for why that split exists.
 
 ## 3. Methodological warnings
 

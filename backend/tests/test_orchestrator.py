@@ -1249,6 +1249,25 @@ async def test_repetition_still_stops_a_debate_whose_stances_keep_changing() -> 
     assert result.config["rounds_completed"] < 9
 
 
+class _CountingProvider(MockProvider):
+    """Records the last message of every call it receives, then delegates.
+
+    Used to assert the judge was (or was not) actually *called* — as opposed
+    to asserting on ``ARGUED_KEY``'s absence, which a judge that ran and had
+    its verdict discarded would also satisfy.
+    """
+
+    def __init__(self, calls: list[str], scripted: list[str]) -> None:
+        super().__init__(scripted=scripted)
+        self._calls = calls
+
+    async def generate(
+        self, messages: list[Message], options: GenerateOptions
+    ) -> GenerateResult:
+        self._calls.append(messages[-1].content)
+        return await super().generate(messages, options)
+
+
 def _judged_chamber() -> tuple[Chamber, StubFactory, InMemoryChamberRepository]:
     a = make_participant("A", Stance.PRO)
     b = make_participant("B", Stance.CON)
@@ -1271,13 +1290,18 @@ async def test_turns_record_the_side_they_were_judged_to_argue() -> None:
 
 
 async def test_no_judgement_is_recorded_when_the_setting_is_off() -> None:
+    """The setting must suppress the judge *call*, not just its recorded verdict —
+    a judge that ran and had its result discarded would also leave the key
+    absent, so the call itself is what's asserted here."""
     chamber, factory, repo = _judged_chamber()
     chamber.settings.measure_compliance = False
-    judge = ComplianceJudge(MockProvider(scripted=["con"] * 50), "mock-small")
+    calls: list[str] = []
+    judge = ComplianceJudge(_CountingProvider(calls, scripted=["con"] * 50), "mock-small")
     result = await _engine(factory, repo, judge).run(
         chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
     )
     assert all(ARGUED_KEY not in t.metadata for t in result.turns)
+    assert calls == []
 
 
 async def test_a_failing_judge_leaves_the_key_absent_and_the_debate_running() -> None:
@@ -1299,13 +1323,6 @@ async def test_an_errored_turn_is_not_sent_to_the_judge() -> None:
     learn nothing."""
     judged: list[str] = []
 
-    class Counting(MockProvider):
-        async def generate(
-            self, messages: list[Message], options: GenerateOptions
-        ) -> GenerateResult:
-            judged.append(messages[-1].content)
-            return await super().generate(messages, options)
-
     a = make_participant("A", Stance.PRO)
     b = make_participant("B", Stance.CON)
     chamber = make_chamber(a, b)
@@ -1313,8 +1330,11 @@ async def test_an_errored_turn_is_not_sent_to_the_judge() -> None:
     factory = StubFactory(
         {a.id: MockProvider(fail_after=1), b.id: MockProvider(fail_after=1)}
     )
-    judge = ComplianceJudge(Counting(scripted=["pro"] * 50), "mock-small")
-    await _engine(factory, InMemoryChamberRepository(), judge).run(
+    judge = ComplianceJudge(_CountingProvider(judged, scripted=["pro"] * 50), "mock-small")
+    result = await _engine(factory, InMemoryChamberRepository(), judge).run(
         chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
     )
+    debate_turns = [t for t in result.turns if t.participant_id is not None]
+    assert debate_turns
+    assert all(t.content == "" for t in debate_turns)
     assert judged == []

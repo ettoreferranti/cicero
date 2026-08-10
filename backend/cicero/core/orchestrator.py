@@ -432,19 +432,26 @@ class DebateEngine:
                 # means the speaker's last turn rather than this one.
                 if is_repeat(content, previous, chamber.settings.repetition_threshold):
                     metadata[REPEATED] = True
-                # Judged before the turn is appended, so the verdict is present the
-                # first time the turn reaches the SSE stream — no update event, and
-                # no re-persisting a turn a reader has already seen. An empty turn
-                # has no prose to read.
-                if judge is not None and content:
-                    argued = await judge.judge(chamber.topic, content)
-                    if argued is not None:
-                        metadata[ARGUED_KEY] = argued.value
                 tracker.add_tokens(result.prompt_tokens, result.completion_tokens)
             except ProviderError as exc:
                 # One failing participant must not crash the debate (NFR-R-1).
                 content = ""
                 metadata = {"provider": participant.provider.value, "error": str(exc)}
+
+            # Deliberately outside the try/except above: that handler is scoped to
+            # the debater's own generation failing (NFR-R-1), not the judge's. If
+            # judging raised inside the try, a successful debater turn would be
+            # discarded, the failure mis-attributed to the debater's provider, and
+            # its tokens dropped from the budget — even though ComplianceJudge.judge
+            # never raises (Task 5) and this call is not what NFR-R-1 protects.
+            # Judged before the turn is appended, so the verdict is present the
+            # first time the turn reaches the SSE stream — no update event, and no
+            # re-persisting a turn a reader has already seen. An empty turn (the
+            # error path above) has no prose to read.
+            if judge is not None and content:
+                argued = await judge.judge(chamber.topic, content)
+                if argued is not None:
+                    metadata[ARGUED_KEY] = argued.value
 
             turn = Turn(
                 participant_id=participant.id,

@@ -888,6 +888,50 @@ def test_configured_moderator_is_used_instead_of_the_first_participant() -> None
     assert "moderator-model" in seen
 
 
+def test_build_engine_wires_the_moderators_compliance_judge() -> None:
+    """``_build_engine`` must construct and pass a ``ComplianceJudge`` that uses
+    the moderator's own model — deleting ``judge=judge`` from the wiring in
+    ``chambers.py`` leaves every other test in the suite green, so this test
+    exists to pin the one path users actually run."""
+    repo = InMemoryChamberRepository()
+    calls: list[tuple[str, str]] = []
+
+    class _Recording(MockProvider):
+        async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+            system = messages[0].content if messages else ""
+            calls.append((options.model, system))
+            return await super().generate(messages, options)
+
+    factory = ConstantFactory(_Recording(models=["scripted", "moderator-model"]))
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/chambers",
+            json={
+                "topic": "Should we colonise Mars?",
+                "moderator": {"provider": "mock", "model": "moderator-model"},
+            },
+        )
+        assert resp.status_code == 201
+        cid = resp.json()["id"]
+        _add_participant(client, cid, "Pro-A", "pro")
+        _add_participant(client, cid, "Pro-B", "pro")
+        client.post(f"/chambers/{cid}/run", params={"wait": "true"})
+    app.dependency_overrides.clear()
+
+    # The compliance judge's system prompt ("You are an impartial reader...") is
+    # distinct from the moderator's own ("...impartial MODERATOR..."), so this
+    # isolates judge calls specifically, not just any use of the moderator model.
+    judge_calls = [
+        (model, system) for model, system in calls if "impartial reader" in system.lower()
+    ]
+    assert judge_calls
+    assert all(model == "moderator-model" for model, _ in judge_calls)
+
+
 def test_moderator_model_is_validated_at_creation(client: TestClient) -> None:
     # Without this a wrong moderator model surfaces only after the whole debate
     # has run and been paid for.

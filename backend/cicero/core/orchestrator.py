@@ -24,6 +24,7 @@ from uuid import UUID
 
 from cicero.core import prompts
 from cicero.core.budget import BudgetTracker, DebateBudget, StopReason
+from cicero.core.compliance import ARGUED_KEY, ComplianceJudge
 from cicero.core.consensus import ConsensusEngine, StanceReport, is_consensus
 from cicero.core.prompt_builder import (
     KIND_EVIDENCE,
@@ -168,6 +169,7 @@ class DebateEngine:
         evidence: EvidenceGatherer | None = None,
         notes: NoteSource | None = None,
         mutes: MuteSource | None = None,
+        judge: ComplianceJudge | None = None,
     ) -> None:
         self._factory = provider_factory
         self._repo = repository
@@ -177,6 +179,7 @@ class DebateEngine:
         self._evidence = evidence
         self._notes = notes
         self._mutes = mutes
+        self._judge = judge
 
     async def run(
         self,
@@ -386,6 +389,7 @@ class DebateEngine:
         leaving the round partly done for the next step to finish.
         """
         gatherer = self._evidence if chamber.settings.web_evidence else None
+        judge = self._judge if chamber.settings.measure_compliance else None
         # On resume, a partially completed round is finished, not repeated.
         spoken = participants_spoken(chamber, round_index)
         for participant in active_participants(chamber):
@@ -428,6 +432,14 @@ class DebateEngine:
                 # means the speaker's last turn rather than this one.
                 if is_repeat(content, previous, chamber.settings.repetition_threshold):
                     metadata[REPEATED] = True
+                # Judged before the turn is appended, so the verdict is present the
+                # first time the turn reaches the SSE stream — no update event, and
+                # no re-persisting a turn a reader has already seen. An empty turn
+                # has no prose to read.
+                if judge is not None and content:
+                    argued = await judge.judge(chamber.topic, content)
+                    if argued is not None:
+                        metadata[ARGUED_KEY] = argued.value
                 tracker.add_tokens(result.prompt_tokens, result.completion_tokens)
             except ProviderError as exc:
                 # One failing participant must not crash the debate (NFR-R-1).

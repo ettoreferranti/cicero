@@ -2,7 +2,11 @@
 name = "cicero"
 version = "0.1.0"
 description = "Cicero — a virtual debate chamber for pitting LLMs against one another."
-readme = "../README.md"
+# No `readme`. It pointed at ../README.md, which newer hatchling rejects
+# ("Readme path must be within the project directory"), breaking every job that
+# installs the package — backend, SCA scan and the Docker build alike. This is a
+# private package that is never published, so the long description bought
+# nothing; the root README is still the project's documentation.
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [

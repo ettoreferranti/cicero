@@ -51,6 +51,7 @@ function chamber(status: Chamber["status"], muted: string[] = []): Chamber {
       decision_rule: "judge",
       convergence_rounds: 2,
       web_evidence: false,
+      measure_compliance: false,
       stop_on_repetition: true,
       repetition_threshold: 0.95,
     },

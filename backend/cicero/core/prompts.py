@@ -153,6 +153,24 @@ MODERATOR_MOTION_LABEL = "Motion: {topic}"
 MODERATOR_POSITIONS_LABEL = "Final positions:"
 EMPTY_MODERATOR_STATEMENT = "(the moderator produced no statement)"
 
+# Compliance-judge fragments (FR-34).
+#: The judge is told nothing about who wrote the turn or what they were assigned.
+#: That omission is the design: the decision record measured that assigned-stance
+#: labels in a prompt *change* a model's answer, so a judge that knows the expected
+#: answer is a judge that can be anchored to it. The comparison happens in Python.
+COMPLIANCE_SYSTEM = (
+    "You are an impartial reader. You will be shown one argument from a debate. "
+    "Report which side of the motion that argument supports, judging only what it "
+    "actually says. " + SAFETY_RULE
+)
+COMPLIANCE_USER_INSTRUCTION = (
+    "Reply with exactly one word — pro, con, or neutral. Use 'pro' if the argument "
+    "supports the motion, 'con' if it argues against the motion, and 'neutral' if it "
+    "takes no side or argues for neither. Judge only the argument above, not what a "
+    "debater might be expected to say. Reply with only that word."
+)
+COMPLIANCE_MOTION_LABEL = "The motion under debate is: {topic}"
+
 # Speaker labels for system-authored turns (moderator notes, web evidence).
 MODERATOR_NOTE_SPEAKER = "Moderator note"
 EVIDENCE_SPEAKER = "Research (web evidence)"

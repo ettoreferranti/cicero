@@ -110,6 +110,56 @@ debater argued against its assigned side" is checkable against a known assignmen
 single turn, which is a far narrower judgement than the semantic classification tasks
 these models have repeatedly failed.
 
+## Judge agreement: 20 of 21 (measured 2026-08-10)
+
+The second option was built (F9). Before shipping it, the judge was measured against
+hand-reading, because this document already records a keyword classifier for this exact
+task that was **wrong by a factor of seven**. A judge that reads prose badly produces a
+confident, wrong compliance record — worse than none, because it looks authoritative.
+
+Method: four real debates through `OllamaProvider`, 21 judged turns, judge
+`llama3.1:latest`. `scripts/check_compliance_judge.py` writes the turns and the judge's
+verdicts to **separate files**; the turns were hand-read first and the readings committed
+to disk before the verdict file was opened. This split matters — the obvious single-table
+design shows the reader the answer it is meant to be checking.
+
+**Agreement: 20/21 (95%).** The one disagreement is instructive rather than alarming:
+
+| turn | assigned | hand-read | judge |
+|---|---|---|---|
+| Eve, nuclear r1 | neutral | neutral | pro |
+
+The turn is reproduced here so the disagreement can be re-examined rather than taken on
+trust:
+
+> While it's true that solar and wind projects can be deployed more quickly, I think
+> we're underestimating the potential of hybrid approaches that integrate nuclear power
+> with renewable energy sources. […] By exploring these innovative combinations, we might
+> be able to reap the benefits of both nuclear and renewable energy technologies,
+> creating a more resilient and adaptable grid.
+
+Against the motion *"should nuclear power be **central** to decarbonisation?"* that is
+genuinely contestable: it endorses nuclear's inclusion without endorsing its centrality.
+The turn was flagged as ambiguous during hand-reading, before the verdict was seen.
+
+So the residual disagreement sits exactly where this codebase's other measurement
+problems sit — on the boundary of `neutral`, the label that means both "holds no
+position" and "holds a position the vocabulary cannot name". The narrow task is
+reliable; the overloaded word is not.
+
+**This is one model on one machine, and it is not ground truth** — it is one reading
+checked against another. Re-measure before trusting the compliance record from a
+different judge model.
+
+### An observation that is not a finding
+
+Across those four debates `command-r:latest`, cast as `con`, held its assigned side in
+**8 of 8** turns — against the 1-of-8 recorded above. The obvious difference is that here
+it always spoke *after* a pro argument it could rebut, whereas the earlier measurement
+used opening turns. That is a hypothesis, not a result: n=8, one model, four debates, and
+this document's own history is of small samples overstating their case. Recorded so the
+next person measures it rather than inherits either number as settled.
+
 ## Superseded: open hypothesis, untested
 
 `STANCE_INSTRUCTION` ends: "you are a truth-seeking debater, not a lawyer: if the
@@ -132,3 +182,11 @@ A `consensus` outcome cannot presently be taken as evidence that debaters conver
 It may equally mean the assigned opposition never materialised. The transcript is the
 only reliable record of what was actually argued — which is what F6's caveat already
 tells readers, for a different reason.
+
+## See also
+
+[`docs/model-selection.md`](../../model-selection.md) turns the measurements above into
+guidance — the per-model table, how to rebuild it with the compliance record this
+finding motivated, and the methodological warnings (small-sample overstatement, the
+keyword classifier wrong by a factor of seven) restated for a reader who was not here
+for the original measurement.

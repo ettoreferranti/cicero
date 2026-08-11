@@ -234,6 +234,7 @@ anywhere. `python scripts/demo.py --help` lists the options
 | [`docs/backlog.md`](./docs/backlog.md) | Epics, user stories, estimates, milestones. |
 | [`docs/architecture.md`](./docs/architecture.md) | Proposed architecture, stack, components, data model. |
 | [`docs/testing.md`](./docs/testing.md) | Testing strategy, incl. **mutation testing**. |
+| [`docs/model-selection.md`](./docs/model-selection.md) | Which models can actually hold an assigned opposing side, and how to measure it. |
 | [`docs/security.md`](./docs/security.md) | Threat model & security practices. |
 | [`SECURITY.md`](./SECURITY.md) | Vulnerability reporting policy. |
 

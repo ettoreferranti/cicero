@@ -15,7 +15,8 @@ from cicero.api.dependencies import (
     get_provider_factory,
     get_repository,
 )
-from cicero.domain.models import ParticipantTuning
+from cicero.api.schemas import DebateSettingsIn
+from cicero.domain.models import DebateSettings, ParticipantTuning
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers import ProviderError
 from cicero.providers.mock import MockProvider
@@ -575,6 +576,44 @@ def test_update_settings_only_while_draft(client: TestClient) -> None:
     assert client.put(f"/chambers/{cid}/settings", json={"max_rounds": 5}).status_code == 409
 
 
+def test_post_chamber_with_measure_compliance_false(client: TestClient) -> None:
+    resp = client.post(
+        "/chambers",
+        json={
+            "topic": "T",
+            "settings": {
+                "measure_compliance": False,
+            },
+        },
+    )
+    assert resp.status_code == 201
+    created = resp.json()["settings"]
+    assert created["measure_compliance"] is False
+
+
+def test_put_settings_with_measure_compliance_roundtrip(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    resp = client.put(
+        f"/chambers/{cid}/settings",
+        json={
+            "max_rounds": 2,
+            "min_rounds": 2,
+            "max_total_tokens": 200_000,
+            "max_duration_seconds": None,
+            "decision_rule": "judge",
+            "convergence_rounds": 2,
+            "web_evidence": False,
+            "stop_on_repetition": True,
+            "repetition_threshold": 0.95,
+            "measure_compliance": False,
+        },
+    )
+    assert resp.status_code == 200
+    settings = resp.json()["settings"]
+    assert settings["measure_compliance"] is False
+    assert settings["max_rounds"] == 2
+
+
 def test_run_respects_chamber_settings(client: TestClient) -> None:
     cid = _create_chamber(client)
     client.put(
@@ -841,6 +880,30 @@ def test_outcome_endpoint_returns_the_derived_summary() -> None:
     assert body["caveat"] == ""
 
 
+def test_outcome_endpoint_serves_the_compliance_fields(client: TestClient) -> None:
+    repo = InMemoryChamberRepository()
+    factory = ConstantFactory(
+        MockProvider(models=["scripted", "scripted-large"], poll_answer="pro")
+    )
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    with TestClient(app) as mock_client:
+        cid = _create_chamber(mock_client)
+        _add_participant(mock_client, cid, "Pro-A", "pro")
+        _add_participant(mock_client, cid, "Pro-B", "pro")
+        mock_client.post(f"/chambers/{cid}/run", params={"wait": "true"})
+
+        resp = mock_client.get(f"/chambers/{cid}/outcome")
+    app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "compliance_caveat" in body
+    assert isinstance(body["noncompliance"], list)
+
+
 def test_outcome_endpoint_404s_before_the_debate_concludes(client: TestClient) -> None:
     cid = _create_chamber(client)
     _add_participant(client, cid, "Pro-A", "pro")
@@ -888,6 +951,50 @@ def test_configured_moderator_is_used_instead_of_the_first_participant() -> None
     assert "moderator-model" in seen
 
 
+def test_build_engine_wires_the_moderators_compliance_judge() -> None:
+    """``_build_engine`` must construct and pass a ``ComplianceJudge`` that uses
+    the moderator's own model — deleting ``judge=judge`` from the wiring in
+    ``chambers.py`` leaves every other test in the suite green, so this test
+    exists to pin the one path users actually run."""
+    repo = InMemoryChamberRepository()
+    calls: list[tuple[str, str]] = []
+
+    class _Recording(MockProvider):
+        async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+            system = messages[0].content if messages else ""
+            calls.append((options.model, system))
+            return await super().generate(messages, options)
+
+    factory = ConstantFactory(_Recording(models=["scripted", "moderator-model"]))
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/chambers",
+            json={
+                "topic": "Should we colonise Mars?",
+                "moderator": {"provider": "mock", "model": "moderator-model"},
+            },
+        )
+        assert resp.status_code == 201
+        cid = resp.json()["id"]
+        _add_participant(client, cid, "Pro-A", "pro")
+        _add_participant(client, cid, "Pro-B", "pro")
+        client.post(f"/chambers/{cid}/run", params={"wait": "true"})
+    app.dependency_overrides.clear()
+
+    # The compliance judge's system prompt ("You are an impartial reader...") is
+    # distinct from the moderator's own ("...impartial MODERATOR..."), so this
+    # isolates judge calls specifically, not just any use of the moderator model.
+    judge_calls = [
+        (model, system) for model, system in calls if "impartial reader" in system.lower()
+    ]
+    assert judge_calls
+    assert all(model == "moderator-model" for model, _ in judge_calls)
+
+
 def test_moderator_model_is_validated_at_creation(client: TestClient) -> None:
     # Without this a wrong moderator model surfaces only after the whole debate
     # has run and been paid for.
@@ -922,3 +1029,14 @@ def test_moderator_is_frozen_once_the_debate_has_run(client: TestClient) -> None
         f"/chambers/{cid}", json={"moderator": {"provider": "mock", "model": "scripted"}}
     )
     assert resp.status_code == 409
+
+
+def test_debate_settings_wire_schema_mirrors_the_domain_model() -> None:
+    # DebateSettingsIn is a hand-maintained mirror of DebateSettings, kept
+    # separate so the API can impose its own hard caps (NFR-SEC-8). Nothing
+    # ties the two field sets together: when the domain model gains a field
+    # and the mirror doesn't, model_config = ConfigDict(extra="forbid") makes
+    # the wire schema reject a settings payload that includes it, and the
+    # whole settings form starts returning 422 — a regression invisible to
+    # every test that exercises either model in isolation.
+    assert set(DebateSettingsIn.model_fields) == set(DebateSettings.model_fields)

@@ -10,6 +10,7 @@ from cicero.core import prompts
 from cicero.core.prompt_builder import (
     TRANSCRIPT_CLOSE,
     TRANSCRIPT_OPEN,
+    build_compliance_messages,
     build_moderator_messages,
     build_stance_poll_messages,
     build_turn_messages,
@@ -284,3 +285,29 @@ def test_system_turns_render_with_labels() -> None:
     rendered = render_transcript(chamber)
     assert f"[{prompts.MODERATOR_NOTE_SPEAKER}]: Focus on cost." in rendered
     assert f"[{prompts.EVIDENCE_SPEAKER}]: Study X found Y." in rendered
+
+
+def test_compliance_prompt_carries_the_motion_and_the_turn() -> None:
+    messages = build_compliance_messages("should we teach programming", "an argument")
+    user = messages[-1].content
+    assert "should we teach programming" in user
+    assert "an argument" in user
+
+
+def test_compliance_prompt_wraps_the_turn_in_transcript_markers() -> None:
+    """The judged turn is model output being fed back into a model."""
+    messages = build_compliance_messages("a motion", "an argument")
+    user = messages[-1].content
+    opened = user.index(prompts.TRANSCRIPT_OPEN)
+    closed = user.index(prompts.TRANSCRIPT_CLOSE)
+    assert opened < user.index("an argument") < closed
+
+
+def test_compliance_prompt_carries_the_safety_rule() -> None:
+    messages = build_compliance_messages("a motion", "an argument")
+    assert prompts.SAFETY_RULE in messages[0].content
+
+
+def test_compliance_prompt_asks_for_one_word() -> None:
+    messages = build_compliance_messages("a motion", "an argument")
+    assert prompts.COMPLIANCE_USER_INSTRUCTION in messages[-1].content

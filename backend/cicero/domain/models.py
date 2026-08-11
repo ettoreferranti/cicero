@@ -107,6 +107,11 @@ class DebateSettings(_Base):
     #: (after case/whitespace normalisation); lower catches a model that reworded
     #: one clause and said nothing new.
     repetition_threshold: float = Field(default=0.95, ge=0.5, le=1.0)
+    #: Judge each turn for which side it actually argues (FR-34). One extra
+    #: model call per turn — 24 on an 8-round debate with three debaters — so
+    #: this is a real cost, not a free measurement. Off means no calls, no
+    #: metadata, and a silent caveat.
+    measure_compliance: bool = True
 
     @model_validator(mode="after")
     def _check_round_bounds(self) -> DebateSettings:

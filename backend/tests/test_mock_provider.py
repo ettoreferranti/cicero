@@ -6,6 +6,7 @@ import pytest
 
 from cicero.core import prompts
 from cicero.core.consensus import parse_stance
+from cicero.core.prompt_builder import build_compliance_messages
 from cicero.core.prompts import MODERATOR_SYSTEM
 from cicero.domain.enums import ProviderType, Stance
 from cicero.providers import (
@@ -15,7 +16,7 @@ from cicero.providers import (
     ProviderError,
     Role,
 )
-from cicero.providers.mock import MODERATOR_MARKER, POLL_MARKER
+from cicero.providers.mock import COMPLIANCE_MARKER, MODERATOR_MARKER, POLL_MARKER
 
 OPTS = GenerateOptions(model="mock-small")
 
@@ -187,3 +188,32 @@ async def test_mock_scripted_replies_still_win_over_the_moderator_branch() -> No
         GenerateOptions(model="mock-small"),
     )
     assert result.content == "exact reply"
+
+
+async def test_mock_answers_the_compliance_question_with_a_stance() -> None:
+    provider = MockProvider()
+    messages = build_compliance_messages("a motion", "an argument")
+    result = await provider.generate(messages, GenerateOptions(model="mock-small"))
+    assert parse_stance(result.content) is not None
+
+
+async def test_mock_compliance_answer_is_configurable() -> None:
+    provider = MockProvider(compliance_answer="con")
+    messages = build_compliance_messages("a motion", "an argument")
+    result = await provider.generate(messages, GenerateOptions(model="mock-small"))
+    assert parse_stance(result.content) is Stance.CON
+
+
+def test_compliance_marker_matches_the_real_prompt() -> None:
+    """The provider layer keeps its own literal so it does not import core.prompts;
+    this is the test that stops the two drifting apart."""
+    assert COMPLIANCE_MARKER in prompts.COMPLIANCE_SYSTEM.lower()
+
+
+async def test_a_compliance_prompt_is_not_mistaken_for_a_stance_poll() -> None:
+    """Both ask for one word. They must not collapse into the same branch, or the
+    mock reports the debater's poll answer as the judge's reading."""
+    provider = MockProvider(poll_answer="pro", compliance_answer="con")
+    messages = build_compliance_messages("a motion", "an argument")
+    result = await provider.generate(messages, GenerateOptions(model="mock-small"))
+    assert parse_stance(result.content) is Stance.CON

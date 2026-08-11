@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 
 from cicero.core.budget import DebateBudget
+from cicero.core.compliance import ARGUED_KEY, ComplianceJudge
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.orchestrator import (
     DebateEngine,
@@ -25,7 +26,7 @@ from cicero.domain.enums import (
     ProviderType,
     Stance,
 )
-from cicero.domain.models import Citation, Turn
+from cicero.domain.models import Chamber, Citation, Turn
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers.base import (
     GenerateOptions,
@@ -34,6 +35,7 @@ from cicero.providers.base import (
     Provider,
     ProviderError,
 )
+from cicero.providers.mock import MockProvider
 from tests.conftest import (
     RepeatingProvider,
     ScriptedProvider,
@@ -82,9 +84,13 @@ class CyclingProvider(Provider):
         return ["cycling"]
 
 
-def _engine(factory: StubFactory, repo: InMemoryChamberRepository) -> DebateEngine:
+def _engine(
+    factory: StubFactory,
+    repo: InMemoryChamberRepository,
+    judge: ComplianceJudge | None = None,
+) -> DebateEngine:
     consensus = ConsensusEngine(factory, ScriptedProvider(moderator_reply="STATEMENT."), MOD_OPTS)
-    return DebateEngine(factory, repo, consensus)
+    return DebateEngine(factory, repo, consensus, judge=judge)
 
 
 async def test_requires_two_participants() -> None:
@@ -1241,3 +1247,94 @@ async def test_repetition_still_stops_a_debate_whose_stances_keep_changing() -> 
 
     assert result.config["stop_reason"] == "repetition"
     assert result.config["rounds_completed"] < 9
+
+
+class _CountingProvider(MockProvider):
+    """Records the last message of every call it receives, then delegates.
+
+    Used to assert the judge was (or was not) actually *called* — as opposed
+    to asserting on ``ARGUED_KEY``'s absence, which a judge that ran and had
+    its verdict discarded would also satisfy.
+    """
+
+    def __init__(self, calls: list[str], scripted: list[str]) -> None:
+        super().__init__(scripted=scripted)
+        self._calls = calls
+
+    async def generate(
+        self, messages: list[Message], options: GenerateOptions
+    ) -> GenerateResult:
+        self._calls.append(messages[-1].content)
+        return await super().generate(messages, options)
+
+
+def _judged_chamber() -> tuple[Chamber, StubFactory, InMemoryChamberRepository]:
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    factory = StubFactory(
+        {a.id: ScriptedProvider(stance_word="pro"), b.id: ScriptedProvider(stance_word="pro")}
+    )
+    return chamber, factory, InMemoryChamberRepository()
+
+
+async def test_turns_record_the_side_they_were_judged_to_argue() -> None:
+    chamber, factory, repo = _judged_chamber()
+    judge = ComplianceJudge(MockProvider(scripted=["con"] * 50), "mock-small")
+    result = await _engine(factory, repo, judge).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+    debate_turns = [t for t in result.turns if t.participant_id is not None]
+    assert debate_turns
+    assert all(t.metadata[ARGUED_KEY] == "con" for t in debate_turns)
+
+
+async def test_no_judgement_is_recorded_when_the_setting_is_off() -> None:
+    """The setting must suppress the judge *call*, not just its recorded verdict —
+    a judge that ran and had its result discarded would also leave the key
+    absent, so the call itself is what's asserted here."""
+    chamber, factory, repo = _judged_chamber()
+    chamber.settings.measure_compliance = False
+    calls: list[str] = []
+    judge = ComplianceJudge(_CountingProvider(calls, scripted=["con"] * 50), "mock-small")
+    result = await _engine(factory, repo, judge).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+    assert all(ARGUED_KEY not in t.metadata for t in result.turns)
+    assert calls == []
+
+
+async def test_a_failing_judge_leaves_the_key_absent_and_the_debate_running() -> None:
+    """NFR-R-1: one failing judge call must not crash a debate, and must not be
+    recorded as agreement."""
+    chamber, factory, repo = _judged_chamber()
+    judge = ComplianceJudge(MockProvider(fail_after=1), "mock-small")
+    result = await _engine(factory, repo, judge).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+    assert result.status is ChamberStatus.CONCLUDED
+    debate_turns = [t for t in result.turns if t.participant_id is not None]
+    assert debate_turns
+    assert all(ARGUED_KEY not in t.metadata for t in debate_turns)
+
+
+async def test_an_errored_turn_is_not_sent_to_the_judge() -> None:
+    """An empty turn has no prose to read, so judging it would spend a call to
+    learn nothing."""
+    judged: list[str] = []
+
+    a = make_participant("A", Stance.PRO)
+    b = make_participant("B", Stance.CON)
+    chamber = make_chamber(a, b)
+    # A debater whose own provider fails produces an empty turn.
+    factory = StubFactory(
+        {a.id: MockProvider(fail_after=1), b.id: MockProvider(fail_after=1)}
+    )
+    judge = ComplianceJudge(_CountingProvider(judged, scripted=["pro"] * 50), "mock-small")
+    result = await _engine(factory, InMemoryChamberRepository(), judge).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+    debate_turns = [t for t in result.turns if t.participant_id is not None]
+    assert debate_turns
+    assert all(t.content == "" for t in debate_turns)
+    assert judged == []

@@ -552,6 +552,19 @@ export function ChamberDetail({
                 Web research
                 {webAccessEnabled === false && " — disabled on this server (WEB_ACCESS_ENABLED)"}
               </label>
+              <label title="Judge each turn for which side it argues — one extra model call per turn">
+                <input
+                  type="checkbox"
+                  checked={settingsForm.measure_compliance}
+                  onChange={(e) =>
+                    setSettingsForm({
+                      ...settingsForm,
+                      measure_compliance: e.target.checked,
+                    })
+                  }
+                />{" "}
+                Measure compliance
+              </label>
               <button type="submit">Save settings</button>
             </div>
           </form>
@@ -861,11 +874,22 @@ export function ChamberDetail({
                   <dd>{outcome.movements.join(", ")}</dd>
                 </>
               )}
+              {outcome.noncompliance.length > 0 && (
+                <>
+                  <dt>Argued against their assigned side</dt>
+                  <dd>{outcome.noncompliance.join(", ")}</dd>
+                </>
+              )}
             </dl>
           )}
           {outcome?.caveat && (
             <p className="muted" style={{ fontSize: "0.85rem" }}>
               {outcome.caveat}
+            </p>
+          )}
+          {outcome?.compliance_caveat && (
+            <p className="muted" style={{ fontSize: "0.85rem" }}>
+              {outcome.compliance_caveat}
             </p>
           )}
           <p style={{ whiteSpace: "pre-wrap" }}>{consensus.statement}</p>

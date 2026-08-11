@@ -31,6 +31,7 @@ class DebateSettingsIn(BaseModel):
     web_evidence: bool = False
     stop_on_repetition: bool = True
     repetition_threshold: float = Field(default=0.95, ge=0.5, le=1.0)
+    measure_compliance: bool = True
 
     @model_validator(mode="after")
     def _check_round_bounds(self) -> DebateSettingsIn:

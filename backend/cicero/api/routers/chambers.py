@@ -33,6 +33,7 @@ from cicero.api.schemas import (
 )
 from cicero.core.budget import DebateBudget
 from cicero.core.compare import compare_chambers
+from cicero.core.compliance import ComplianceJudge
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.metrics import ParticipantMetrics, compute_participant_metrics
@@ -156,6 +157,10 @@ def _build_engine(
         temperature=moderator_config.temperature,
     )
     consensus = ConsensusEngine(factory, moderator, moderator_options)
+    # The moderator judges compliance too: it is the chamber's designated
+    # impartial party, and ComplianceJudge supplies its own options because a
+    # one-word answer wants none of the moderator's synthesis budget.
+    judge = ComplianceJudge(moderator, moderator_config.model)
     engine = DebateEngine(
         factory,
         repo,
@@ -164,6 +169,7 @@ def _build_engine(
         evidence=evidence,
         notes=notes,
         mutes=mutes,
+        judge=judge,
     )
     settings = chamber.settings  # per-chamber tuning (FR-16/FR-11)
     budget = DebateBudget(
@@ -631,4 +637,6 @@ def get_outcome(chamber_id: UUID, repo: RepoDep) -> dict[str, object]:
         "decided_by": summary.decided_by,
         "movements": list(summary.movements),
         "caveat": summary.caveat,
+        "compliance_caveat": summary.compliance_caveat,
+        "noncompliance": list(summary.noncompliance),
     }

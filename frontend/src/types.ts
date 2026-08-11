@@ -17,6 +17,8 @@ export interface DebateSettings {
   decision_rule: DecisionRule;
   convergence_rounds: number;
   web_evidence: boolean;
+  // Judge each turn for which side it argues — one extra model call per turn.
+  measure_compliance: boolean;
   // End the debate once every active debater is only restating themselves.
   stop_on_repetition: boolean;
   // How alike two turns must be to count as a repeat; 1.0 = byte-identical.
@@ -106,6 +108,11 @@ export interface OutcomeSummary {
   // characterisation of a debater rather than as what the poll recorded.
   // Empty when no label on display can mislead.
   caveat: string;
+  // Fires when the winning position was never argued against, though a debater
+  // was assigned to. Distinct from `caveat`, which qualifies the stance labels.
+  compliance_caveat: string;
+  // One line per debater judged to have argued against its assigned side.
+  noncompliance: string[];
 }
 
 /** Who writes the outcome. Not a debater: no stance, no turns, no vote. */

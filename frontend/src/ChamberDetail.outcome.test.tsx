@@ -60,6 +60,7 @@ function chamber(consensus: ConsensusResult | null): Chamber {
       decision_rule: "judge",
       convergence_rounds: 2,
       web_evidence: false,
+      measure_compliance: false,
       stop_on_repetition: true,
       repetition_threshold: 0.95,
     },
@@ -102,6 +103,8 @@ describe("outcome card", () => {
         decided_by: "majority of final positions",
         movements: ["Ada (pro→neutral)"],
         caveat: "Stance labels record how each debater answered a three-word poll.",
+        compliance_caveat: "",
+        noncompliance: [],
       },
     });
 
@@ -136,6 +139,8 @@ describe("outcome card", () => {
         decided_by: "majority of final positions",
         movements: [],
         caveat: "",
+        compliance_caveat: "",
+        noncompliance: [],
       },
     });
 
@@ -159,6 +164,8 @@ describe("outcome card", () => {
         decided_by: "all debaters converged",
         movements: [],
         caveat: "",
+        compliance_caveat: "",
+        noncompliance: [],
       },
     });
 
@@ -191,6 +198,8 @@ describe("outcome card", () => {
         decided_by: "majority of final positions",
         movements: ["Ada (con→neutral)"],
         caveat: "Stance labels record how each debater answered a three-word poll.",
+        compliance_caveat: "",
+        noncompliance: [],
       },
     });
 
@@ -217,6 +226,8 @@ describe("outcome card", () => {
         decided_by: "majority of final positions",
         movements: [],
         caveat: "",
+        compliance_caveat: "",
+        noncompliance: [],
       },
     });
 
@@ -226,6 +237,91 @@ describe("outcome card", () => {
       await screen.findByText(/majority of final positions/),
     ).toBeInTheDocument();
     expect(screen.queryByText(/three-word poll/)).not.toBeInTheDocument();
+  });
+
+  it("names debaters that argued against their assigned side", async () => {
+    renderChamber({
+      consensus: {
+        outcome: "majority",
+        statement: "The majority prevailed.",
+        headline: "Mars should wait.",
+        winning_stance: "neutral",
+        final_stances: {},
+        unparsed: [],
+      },
+      outcome: {
+        headline: "Mars should wait.",
+        support: "contested — 2 of 3 debaters settled on neutral (1 con)",
+        decided_by: "majority of final positions",
+        movements: [],
+        caveat: "",
+        compliance_caveat: "",
+        noncompliance: ["Bob (assigned con) argued pro in 3 of 3 judged turns"],
+      },
+    });
+
+    expect(await screen.findByText("Mars should wait.")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Bob \(assigned con\) argued pro in 3 of 3 judged turns/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the caveat when the winning side was never opposed", async () => {
+    renderChamber({
+      consensus: {
+        outcome: "majority",
+        statement: "The majority prevailed.",
+        headline: "Mars should wait.",
+        winning_stance: "neutral",
+        final_stances: {},
+        unparsed: [],
+      },
+      outcome: {
+        headline: "Mars should wait.",
+        support: "contested — 2 of 3 debaters settled on neutral (1 con)",
+        decided_by: "majority of final positions",
+        movements: [],
+        caveat: "",
+        compliance_caveat: "No debater was judged to argue against the winning position.",
+        noncompliance: [],
+      },
+    });
+
+    expect(await screen.findByText("Mars should wait.")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/No debater was judged to argue against the winning position\./),
+    ).toBeInTheDocument();
+  });
+
+  it("shows neither when compliance was not measured", async () => {
+    renderChamber({
+      consensus: {
+        outcome: "majority",
+        statement: "The majority prevailed.",
+        headline: "Mars should wait.",
+        winning_stance: "neutral",
+        final_stances: {},
+        unparsed: [],
+      },
+      outcome: {
+        headline: "Mars should wait.",
+        support: "contested — 2 of 3 debaters settled on neutral (1 con)",
+        decided_by: "majority of final positions",
+        movements: [],
+        caveat: "",
+        compliance_caveat: "",
+        noncompliance: [],
+      },
+    });
+
+    // Await a fact from the same second effect first, so absence is measured
+    // after that render lands rather than before it — otherwise this passes
+    // simply because nothing has rendered yet.
+    await screen.findByText(/majority of final positions/);
+    expect(screen.queryByText(/assigned con/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/No debater was judged to argue against/),
+    ).not.toBeInTheDocument();
   });
 
   it("still shows the headline from consensus when the outcome fetch 404s", async () => {

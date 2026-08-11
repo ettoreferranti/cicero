@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from cicero.core.compliance import UNOPPOSED_CAVEAT
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.outcome import STANCE_CAVEAT
 from cicero.core.prompt_builder import KIND_EVIDENCE, KIND_MODERATOR_NOTE
@@ -294,12 +295,36 @@ def test_json_export_carries_the_derived_summary_beside_the_chamber() -> None:
         "movements": [],
         # Two debaters settled on neutral, so the labels above need qualifying.
         "caveat": STANCE_CAVEAT,
+        # Winner is neutral, which has no polar opposite to leave uncontested,
+        # and no turn in this fixture was judged either way.
+        "compliance_caveat": "",
+        "noncompliance": [],
     }
 
 
 def test_json_export_has_no_summary_before_a_debate_concludes() -> None:
     chamber = make_chamber(make_participant("Ada", Stance.PRO))
     assert to_export_dict(chamber)["outcome_summary"] is None
+
+
+def test_markdown_renders_the_compliance_caveat_and_lines() -> None:
+    ada = make_participant("Ada", Stance.PRO)
+    bob = make_participant("Bob", Stance.CON)
+    chamber = make_chamber(ada, bob)
+    chamber.consensus = ConsensusResult(
+        outcome=ConsensusOutcome.MAJORITY,
+        statement="Statement.",
+        headline="Pro prevails.",
+        winning_stance=Stance.PRO,
+        final_stances={str(ada.id): Stance.PRO, str(bob.id): Stance.PRO},
+        unparsed=[],
+    )
+    chamber.turns = [
+        Turn(participant_id=bob.id, round_index=0, content="y", metadata={"argued": "pro"}),
+    ]
+    markdown = to_markdown(chamber)
+    assert "Bob (assigned con) argued pro in 1 of 1 judged turns" in markdown
+    assert UNOPPOSED_CAVEAT in markdown
 
 
 # --- Exact-layout tests -----------------------------------------------------

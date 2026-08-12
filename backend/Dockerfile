@@ -4,10 +4,14 @@
 # environment at run time — NFR-SEC-1/3), and writes its SQLite database to
 # /data so the container filesystem stays disposable.
 #
-# Built from the *repository root* as context, because backend/pyproject.toml
-# declares `readme = "../README.md"` — that file has to be reachable:
-#   docker build -f backend/Dockerfile .
+# Built with *this directory* as context:
+#   docker build -f Dockerfile .        # from backend/
 # (docker-compose.yml already does this.)
+#
+# It used to be built from the repository root, because pyproject.toml declared
+# `readme = "../README.md"` and that file had to be reachable. That field is
+# gone — newer hatchling rejects a readme outside the project directory — so the
+# context no longer has to straddle the whole repo.
 FROM python:3.11-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,10 +20,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# pyproject sits at /app, so its `../README.md` resolves to /README.md.
-COPY README.md /README.md
-COPY backend/pyproject.toml ./
-COPY backend/cicero ./cicero
+COPY pyproject.toml ./
+COPY cicero ./cicero
 
 RUN pip install --no-cache-dir . \
     && useradd --create-home --uid 10001 cicero \

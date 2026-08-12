@@ -12,10 +12,8 @@
 services:
   backend:
     build:
-      # Root context: backend/pyproject.toml declares `readme = "../README.md"`,
-      # so that file has to be inside the build context.
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     environment:
       # Inside the container we must bind all interfaces; the published port
       # below is what keeps it reachable from localhost only.
@@ -26,7 +24,19 @@ services:
       # Reach an Ollama running on the host, not in this network.
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-240}
+      # Web evidence is off by default and also needs per-chamber opt-in
+      # (FR-27). The tuning vars below travel with the flag on purpose: without
+      # them a WEB_DOMAIN_ALLOWLIST set in .env would be read on a bare-metal
+      # run and silently ignored here, so an operator who restricted fetching to
+      # a few hosts would get an unrestricted container and no warning. The
+      # allowlist is the recommended mitigation for strict setups (see
+      # cicero/tools/web.py), which is exactly why it must not go missing.
       - WEB_ACCESS_ENABLED=${WEB_ACCESS_ENABLED:-false}
+      - WEB_DOMAIN_ALLOWLIST=${WEB_DOMAIN_ALLOWLIST:-[]}
+      - WEB_DOMAIN_DENYLIST=${WEB_DOMAIN_DENYLIST:-[]}
+      - WEB_FETCH_TIMEOUT_SECONDS=${WEB_FETCH_TIMEOUT_SECONDS:-10}
+      - WEB_MAX_RESPONSE_BYTES=${WEB_MAX_RESPONSE_BYTES:-2000000}
+      - WEB_MAX_RESULTS=${WEB_MAX_RESULTS:-3}
       - PROVIDER_MAX_ATTEMPTS=${PROVIDER_MAX_ATTEMPTS:-3}
       # Pass-through form (no `=`): these reach the container only when they are
       # actually set. Writing `FOO=${FOO:-}` would inject an empty string, and

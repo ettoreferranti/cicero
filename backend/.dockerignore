@@ -1,7 +1,5 @@
-# Build context for backend/Dockerfile is the repository root, so keep secrets,
-# local state, and build noise out of it.
-.git/
-.github/
+# Build context for Dockerfile is this directory (see docker-compose.yml).
+# Keep secrets, local state, and build noise out of it.
 
 # Secrets & local config — must never reach an image layer.
 .env
@@ -26,10 +24,9 @@ mutants/
 .coverage
 htmlcov/
 
-# The API image does not need the tests, the frontend, or the docs tree.
-backend/tests/
-backend/scripts/
-frontend/
+# The API image does not need the tests, the dev scripts, or the docs tree.
+tests/
+scripts/
 docs/
 
 # Local databases and demo output

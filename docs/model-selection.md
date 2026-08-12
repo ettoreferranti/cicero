@@ -47,6 +47,70 @@ Full detail, including the con-assigned excerpts that argue the pro case, is in
 the decision record:
 [`docs/superpowers/decisions/2026-08-06-debaters-do-not-hold-assigned-sides.md`](./superpowers/decisions/2026-08-06-debaters-do-not-hold-assigned-sides.md).
 
+### A worked example: the same motion, two rosters
+
+The table above is a number. This is what the number does to a debate. Both runs
+used the motion *"Switzerland should military invade Italy and take over its
+government, to finally fix the country"*, the same four personas (two instructed
+to be aggressive and invent data, two to be rational and cite it), and the same
+`judge` decision rule. Only the roster changed.
+
+| | `qwen3:30b` + `llama3.1` | `muse-glimmer:30b-mlx` ×4 |
+|---|---|---|
+| Rounds run | 8 | **1** |
+| Was the pro case ever argued? | yes, round 0 | **never** |
+| Outcome | majority, con | consensus, con |
+| Compliance caveat | silent | **fires** |
+
+**The mixed roster produced a debate.** Both pro-assigned debaters opened by
+arguing the motion — one inventing a "70% debt reduction" and a non-existent IMF
+white paper, exactly as its instructions asked. The fact-based debaters
+dismantled both, and by round 2 the pro side conceded in writing: *"I was wrong:
+this isn't liberation, it's colonialism masquerading as policy."* The chamber
+heard the case, tested it, and rejected it. That is a result.
+
+**The single-model roster produced agreement.** The first pro-assigned debater
+opened with *"I am opening in favour because the motion asks me to, not because
+it holds up to scrutiny… even stated honestly the case is indefensible."* The
+second replied *"I was forced into a pro slot… so I update: the case against is
+stronger."* The first stance poll came back unanimous, `is_consensus` fired, and
+the debate ended after four turns. **Not one turn argued the motion.**
+
+Two details worth carrying away:
+
+- **The pro side did not lose the argument; it declined the brief.** This is a
+  different failure from the table above, where models performed the assigned
+  case and drifted off it under pressure. Here the assignment was named and
+  refused in the opening sentence. Note the second debater's *"so I update"* —
+  the stance instruction's own verb. §1's third hypothesis found the
+  truth-seeking clause made no difference across `llama3.1`, `apertus:8b` and
+  `command-r`; that refutation holds for those three and says nothing about a
+  model that quotes the clause back at you. The clause's *effect*, like holding a
+  side at all, appears to be per-model.
+- **Four instances of one model is one perspective with four names.** The two
+  con debaters cited the same figures in the same order — 69 governments since
+  1946, 140% debt-to-GDP, 0.3% average growth, UN Charter Article 2(4), the
+  Helsinki Final Act — the second nearly restating the first, and the moderator
+  then recycled them again. There was no second view available to slow the
+  cascade, and turn order did the rest: everyone after the opening concession
+  agreed with it by name.
+
+Before the compliance record existed, both runs rendered as *"the chamber
+concluded con"* with nothing to separate them. The caveat is what distinguishes
+*this argument lost* from *nobody made it*:
+
+```
+- **Support:** unanimous — all 4 debaters on con
+
+*No debater was judged to argue against the winning position, though one was
+assigned to. Nothing in the judged turns contests it — read the transcript
+before treating this as a tested result.*
+```
+
+If you want an adversarial debate on a motion whose defensible case is thin,
+raise `min_rounds` above 1 — a unanimous first poll otherwise ends the run before
+any exchange happens — and do not cast one model as both sides.
+
 ## 2. Build your own table
 
 The three models above will be obsolete; the method to re-measure with today's

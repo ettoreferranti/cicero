@@ -81,6 +81,16 @@ Two arms differing only in that sentence, 12 con-assigned opening turns each, ju
 
 No difference. Refuted.
 
+**Scope of that refutation, added 2026-08-12.** It holds for the three models in
+the table and should not be read wider. A later run with four `muse-glimmer:30b-mlx`
+debaters produced a pro-assigned turn saying *"I was forced into a pro slot… so I
+update: the case against is stronger"* — quoting the clause's own verb while
+declining the assignment in its opening sentence. That is not evidence the clause
+causes the failure in `llama3.1`, `apertus:8b` or `command-r`, where removing it
+changed nothing. It is evidence the clause's effect is itself per-model, like the
+capability this document is about. See the worked example in
+[`docs/model-selection.md`](../../model-selection.md).
+
 ## What it actually is: a per-model capability
 
 The same table read by row rather than by column is the finding. `llama3.1` held the

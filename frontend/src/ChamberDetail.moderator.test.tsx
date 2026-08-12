@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChamberDetail } from "./ChamberDetail";
@@ -11,6 +11,7 @@ vi.mock("./useDebateStream", () => ({
 
 const getChamber = vi.fn();
 const updateModerator = vi.fn();
+const listModels = vi.fn();
 
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./api")>()),
@@ -18,8 +19,13 @@ vi.mock("./api", async (importOriginal) => ({
   updateModerator: (...a: unknown[]) => updateModerator(...a),
   getServerConfig: () => Promise.resolve({ web_access_enabled: false }),
   getMetrics: () => Promise.resolve([]),
-  listModels: () => Promise.resolve([]),
+  listModels: (...a: unknown[]) => listModels(...a),
 }));
+
+//: Deliberately wider than the roster below, and deliberately includes a model
+//: no debater uses. Picking an *independent* arbiter is the point of making the
+//: moderator configurable, and the picker used to make it impossible.
+const OLLAMA_MODELS = ["qwen3:30b", "command-r:latest", "llama3.1:latest"];
 
 function participant(name: string, model: string) {
   return {
@@ -72,6 +78,7 @@ async function moderatorCard(): Promise<HTMLElement> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  listModels.mockResolvedValue(OLLAMA_MODELS);
 });
 
 describe("moderator", () => {
@@ -109,7 +116,24 @@ describe("moderator", () => {
     expect(within(card).queryByText(/Defaults to the first debater/)).not.toBeInTheDocument();
   });
 
-  it("sets the moderator from a debater's model while the chamber is a draft", async () => {
+  it("offers every model the provider serves, not only those already on the roster", async () => {
+    getChamber.mockResolvedValue(chamber(null));
+    render(<ChamberDetail chamberId="c1" onBack={vi.fn()} />);
+
+    const select = await screen.findByLabelText("moderator model");
+    const offered = within(select)
+      .getAllByRole("option")
+      .map((o) => (o as HTMLOptionElement).value)
+      .filter(Boolean);
+    // The roster is qwen3:30b only (see `chamber` above). Restricting the picker
+    // to roster models meant the arbiter was always some debater's model, which
+    // defeats configuring it at all.
+    expect(offered).toEqual(OLLAMA_MODELS);
+    expect(offered).toContain("llama3.1:latest");
+    expect(listModels).toHaveBeenCalledWith("ollama");
+  });
+
+  it("applies a chosen model on its own, with no confirm button", async () => {
     const user = userEvent.setup();
     getChamber.mockResolvedValue(chamber(null));
     updateModerator.mockResolvedValue(
@@ -123,13 +147,59 @@ describe("moderator", () => {
     render(<ChamberDetail chamberId="c1" onBack={vi.fn()} />);
 
     const select = await screen.findByLabelText("moderator model");
-    await user.selectOptions(select, "ollama/command-r:latest");
-    await user.click(screen.getByRole("button", { name: "Set moderator" }));
+    await user.selectOptions(select, "command-r:latest");
 
+    await waitFor(() =>
+      expect(updateModerator).toHaveBeenCalledWith("c1", {
+        provider: "ollama",
+        model: "command-r:latest",
+      }),
+    );
+    expect(screen.queryByRole("button", { name: /set moderator/i })).not.toBeInTheDocument();
+  });
+
+  it("applies once when a choice is changed several times in quick succession", async () => {
+    const user = userEvent.setup();
+    getChamber.mockResolvedValue(chamber(null));
+    updateModerator.mockResolvedValue(chamber(null));
+    render(<ChamberDetail chamberId="c1" onBack={vi.fn()} />);
+
+    // Arrowing through a closed <select> fires `change` per option in several
+    // browsers. Each apply is a validated write that calls the provider, so the
+    // debounce is not cosmetic — without it this is three round trips, two of
+    // them for models the operator never landed on.
+    const select = await screen.findByLabelText("moderator model");
+    await user.selectOptions(select, "qwen3:30b");
+    await user.selectOptions(select, "llama3.1:latest");
+    await user.selectOptions(select, "command-r:latest");
+
+    await waitFor(() => expect(updateModerator).toHaveBeenCalledTimes(1));
     expect(updateModerator).toHaveBeenCalledWith("c1", {
       provider: "ollama",
       model: "command-r:latest",
     });
+  });
+
+  it("falls back to a typable field when the provider cannot be reached", async () => {
+    const user = userEvent.setup();
+    listModels.mockRejectedValue(new Error("ollama unreachable"));
+    getChamber.mockResolvedValue(chamber(null));
+    updateModerator.mockResolvedValue(chamber(null));
+    render(<ChamberDetail chamberId="c1" onBack={vi.fn()} />);
+
+    const field = await screen.findByLabelText("moderator model");
+    expect(field.tagName).toBe("INPUT");
+    // Committed on blur, not per keystroke: "comm" is a 422 the operator never
+    // asked for.
+    await user.type(field, "command-r:latest");
+    expect(updateModerator).not.toHaveBeenCalled();
+    await user.tab();
+    await waitFor(() =>
+      expect(updateModerator).toHaveBeenCalledWith("c1", {
+        provider: "ollama",
+        model: "command-r:latest",
+      }),
+    );
   });
 
   it("offers no moderator control once the debate has run", async () => {

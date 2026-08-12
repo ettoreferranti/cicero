@@ -12,6 +12,7 @@ from cicero.core.compliance import (
     compliance_caveat,
     debater_compliance,
     noncompliance_lines,
+    quote_is_grounded,
 )
 from cicero.domain.enums import ConsensusOutcome, ProviderType, Stance
 from cicero.domain.models import Chamber, ConsensusResult, Participant, Turn
@@ -453,3 +454,32 @@ async def test_judge_is_not_told_who_wrote_the_turn() -> None:
     assert "assigned" not in prompt.lower()
     # The only occurrence of a name is the one inside the judged text itself.
     assert prompt.count("Bartholomew") == 1
+
+
+def test_an_exact_quote_is_grounded() -> None:
+    assert quote_is_grounded("the case is indefensible", "I think the case is indefensible.")
+
+
+def test_whitespace_and_case_differences_are_tolerated() -> None:
+    """A model that re-wraps or re-cases a copied sentence still copied it. The
+    turn itself may have the sentence split across lines."""
+    assert quote_is_grounded(
+        "The  CASE\nis indefensible", "I think the case is indefensible."
+    )
+
+
+def test_a_paraphrase_is_not_grounded() -> None:
+    """One word different is a paraphrase, and a paraphrase is the failure this
+    check exists to catch — the judge did not read that sentence, it wrote one."""
+    assert not quote_is_grounded("the case is weak", "I think the case is indefensible.")
+
+
+def test_an_invented_quote_is_not_grounded() -> None:
+    assert not quote_is_grounded("I concede entirely", "I think the case is indefensible.")
+
+
+@pytest.mark.parametrize("quote", ["", "   ", "\n"])
+def test_an_empty_quote_is_never_grounded(quote: str) -> None:
+    """Empty normalises to "", which is a substring of everything — the one input
+    that would pass by accident."""
+    assert not quote_is_grounded(quote, "I think the case is indefensible.")

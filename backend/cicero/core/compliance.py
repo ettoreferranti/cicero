@@ -55,6 +55,28 @@ def argued_stance(turn: Turn) -> Stance | None:
         return None
 
 
+def _normalise(text: str) -> str:
+    """Collapse whitespace and case — nothing else.
+
+    Deliberately narrow. Anything looser (fuzzy ratios, token overlap) puts a
+    judgement call back into the one part of this module that has none.
+    """
+    return " ".join(text.split()).casefold()
+
+
+def quote_is_grounded(quote: str, content: str) -> bool:
+    """Whether ``quote`` really appears in ``content``.
+
+    This is what makes the judge's answer checkable rather than trusted: a model
+    that paraphrases instead of copying, or invents a sentence that is not in the
+    turn, fails here and its verdict is discarded. An empty quote is rejected
+    explicitly — it normalises to ``""``, which is a substring of everything.
+    """
+    if not quote.strip():
+        return False
+    return _normalise(quote) in _normalise(content)
+
+
 @dataclass(frozen=True)
 class ComplianceRecord:
     """How one debater's judged turns compare with the side it was assigned."""

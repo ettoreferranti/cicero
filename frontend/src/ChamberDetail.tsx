@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "./api";
 import {
   canResume,
@@ -22,6 +22,7 @@ import type {
   DecisionRule,
   OutcomeSummary,
   ParticipantMetrics,
+  Provider,
   Turn,
 } from "./types";
 
@@ -30,6 +31,15 @@ const DECISION_RULES: { value: DecisionRule; label: string; hint: string }[] = [
   { value: "majority", label: "Majority", hint: "plurality wins; a tie ends unresolved" },
   { value: "unanimous", label: "Unanimous", hint: "only full agreement counts" },
 ];
+
+const PROVIDERS: Provider[] = ["mock", "ollama", "anthropic"];
+
+//: Choosing a moderator is a *validated* write — the API asks the provider what
+//: it can serve before accepting, so every apply costs a round trip that can 502
+//: or 422. Applying straight from `change` would spend one per option while a
+//: keyboard user arrows through the list. Debouncing collapses that run into the
+//: single choice they land on, which is what lets the explicit button go away.
+const MODERATOR_APPLY_DELAY_MS = 400;
 
 export function ChamberDetail({
   chamberId,
@@ -54,6 +64,14 @@ export function ChamberDetail({
   const [settingsForm, setSettingsForm] = useState<DebateSettings | null>(null);
   const [note, setNote] = useState("");
   const [moderatorModel, setModeratorModel] = useState("");
+  const [moderatorProvider, setModeratorProvider] = useState<Provider>("ollama");
+  // The provider's real inventory. null = lookup failed/unavailable -> fall back
+  // to a free-text field, exactly as ParticipantForm does. The moderator used to
+  // be pickable only from models already on the roster, which meant it could
+  // never be an *independent* arbiter — the one thing making it configurable was
+  // for.
+  const [moderatorModels, setModeratorModels] = useState<string[] | null>(null);
+  const [moderatorBusy, setModeratorBusy] = useState(false);
   // null = unknown (config not loaded); the checkbox stays usable then.
   const [webAccessEnabled, setWebAccessEnabled] = useState<boolean | null>(null);
 
@@ -63,6 +81,72 @@ export function ChamberDetail({
       .then((config) => setWebAccessEnabled(config.web_access_enabled))
       .catch(() => setWebAccessEnabled(null));
   }, []);
+
+  // Start on the provider the roster already uses, so the common case (judge
+  // with something this chamber can reach) is one click. Once only: after that
+  // the control belongs to the operator, and re-syncing would fight them.
+  const providerDefaulted = useRef(false);
+  useEffect(() => {
+    if (providerDefaulted.current || !chamber?.participants.length) return;
+    providerDefaulted.current = true;
+    setModeratorProvider(chamber.participants[0].provider);
+  }, [chamber]);
+
+  // Ask the provider what it can actually serve, the same way ParticipantForm
+  // does. Falls back to free text when the provider is unreachable, so an
+  // operator with a stopped Ollama can still type a model rather than facing an
+  // empty select.
+  useEffect(() => {
+    let cancelled = false;
+    setModeratorModels(null);
+    api
+      .listModels(moderatorProvider)
+      .then((models) => {
+        if (cancelled || models.length === 0) return;
+        setModeratorModels(models);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [moderatorProvider]);
+
+  const applyModerator = useCallback(
+    async (provider: Provider, model: string) => {
+      if (!model) return;
+      setError(null);
+      setModeratorBusy(true);
+      try {
+        setChamber(await api.updateModerator(chamberId, { provider, model }));
+      } catch (e) {
+        // 502 (provider unreachable) and 422 (model it cannot serve) both land
+        // here. Surfaced rather than swallowed: catching a wrong moderator now
+        // is the whole reason the API validates before accepting.
+        setError(e instanceof Error ? e.message : "failed to set the moderator");
+      } finally {
+        setModeratorBusy(false);
+      }
+    },
+    [chamberId],
+  );
+
+  // Apply a chosen model after a pause rather than on every `change`. See
+  // MODERATOR_APPLY_DELAY_MS: this is what replaces the old "Set moderator"
+  // button without turning a keyboard user's arrow keys into a burst of
+  // validated writes.
+  const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+  }, []);
+
+  function onPickModeratorModel(model: string) {
+    setModeratorModel(model);
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+    if (!model) return;
+    applyTimer.current = setTimeout(() => {
+      void applyModerator(moderatorProvider, model);
+    }, MODERATOR_APPLY_DELAY_MS);
+  }
 
   // Id of the participant currently open for editing (D4/FR-3).
   const [editingParticipant, setEditingParticipant] = useState<string | null>(null);
@@ -139,20 +223,6 @@ export function ChamberDetail({
     }
   }, [stream.done, load, chamberId]);
 
-  async function onSetModerator() {
-    const [provider, ...rest] = moderatorModel.split("/");
-    setError(null);
-    try {
-      setChamber(
-        await api.updateModerator(chamberId, {
-          provider: provider as Chamber["participants"][number]["provider"],
-          model: rest.join("/"),
-        }),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to set the moderator");
-    }
-  }
 
   async function onAddParticipant(draft: ParticipantDraft) {
     setError(null);
@@ -618,22 +688,48 @@ export function ChamberDetail({
         {chamber.status === "draft" && chamber.participants.length > 0 && (
           <div className="row">
             <select
-              aria-label="moderator model"
-              value={moderatorModel}
-              onChange={(e) => setModeratorModel(e.target.value)}
+              aria-label="moderator provider"
+              value={moderatorProvider}
+              onChange={(e) => {
+                setModeratorProvider(e.target.value as Provider);
+                setModeratorModel("");
+              }}
             >
-              <option value="">— choose a model —</option>
-              {[...new Set(chamber.participants.map((p) => `${p.provider}/${p.model}`))].map(
-                (option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ),
-              )}
+              {PROVIDERS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
             </select>
-            <button type="button" onClick={() => void onSetModerator()} disabled={!moderatorModel}>
-              Set moderator
-            </button>
+            {moderatorModels ? (
+              <select
+                aria-label="moderator model"
+                value={moderatorModel}
+                onChange={(e) => onPickModeratorModel(e.target.value)}
+              >
+                <option value="">— choose a model —</option>
+                {moderatorModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              // Provider unreachable: keep a typable field, and commit on blur
+              // rather than per keystroke — a half-typed model name is a 422.
+              <input
+                aria-label="moderator model"
+                placeholder="Model"
+                value={moderatorModel}
+                onChange={(e) => setModeratorModel(e.target.value)}
+                onBlur={() => void applyModerator(moderatorProvider, moderatorModel)}
+              />
+            )}
+            {moderatorBusy && (
+              <span className="muted" style={{ fontSize: "0.85rem" }}>
+                setting…
+              </span>
+            )}
           </div>
         )}
       </div>

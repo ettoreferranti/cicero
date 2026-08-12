@@ -504,10 +504,27 @@ Finally, change `ComplianceJudge.judge` to return a `Judgement`:
         return parse_judgement(result.content, content)
 ```
 
+Changing the return type breaks `orchestrator.py`, which does
+`metadata[ARGUED_KEY] = argued.value` on what is now a `Judgement`. **Update that
+call site in the same commit** so the tree never lands type-broken — Task 6 adds
+the tests and the mock support around it:
+
+```python
+                if judge is not None and content:
+                    judgement = await judge.judge(chamber.topic, content)
+                    if judgement is not None:
+                        metadata[ARGUED_KEY] = judgement.stance.value
+                        metadata[ARGUED_QUOTE_KEY] = judgement.quote
+```
+
+with the import extended to `from cicero.core.compliance import ARGUED_KEY, ARGUED_QUOTE_KEY, ComplianceJudge`.
+The judge block must stay **outside** the debater's `try/except` — that handler
+discards the turn and blames the debater's provider. Do not move it.
+
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `cd backend && export PATH="$PWD/.venv/bin:$PATH" && pytest tests/test_compliance.py -v && ruff check . && mypy cicero`
-Expected: the compliance tests pass; `mypy` will now flag `orchestrator.py`, which Task 6 fixes. If `mypy` is clean, the orchestrator is not using the return value and Task 6 must investigate.
+Run: `cd backend && export PATH="$PWD/.venv/bin:$PATH" && pytest -q && ruff check . && mypy cicero`
+Expected: full suite passes, clean lint and types. A `mypy` error on `orchestrator.py` means the call site above was missed.
 
 - [ ] **Step 5: Commit**
 
@@ -521,14 +538,13 @@ git commit -m "feat: parse the judge reply into a grounded judgement (F10)"
 ### Task 6: Record the quote, and keep the offline path working
 
 **Files:**
-- Modify: `backend/cicero/core/orchestrator.py` (the judge block in `_run_round`)
 - Modify: `backend/cicero/providers/mock.py`
 - Test: `backend/tests/test_orchestrator.py`, `backend/tests/test_mock_provider.py`
 
 **Interfaces:**
 - Consumes: `Judgement`, `ARGUED_KEY`, `ARGUED_QUOTE_KEY` (Task 5)
 
-The judge block sits **outside** the debater's `try/except` — deliberately, because that handler discards the turn and blames the debater's provider. Do not move it back inside.
+Task 5 already updated the orchestrator call site so its commit stayed green. This task adds the tests that pin that behaviour, and the mock support without which they cannot pass.
 
 `MockProvider` must emit a *grounded* quote or every offline judgement is discarded and `make demo` stops covering the feature. It can copy the first line of the turn, which it already receives between the transcript markers. The provider layer keeps its own literals rather than importing `core.prompts`, with a drift test — the established pattern for `POLL_MARKER` and `COMPLIANCE_MARKER`.
 
@@ -602,23 +618,8 @@ Expected: FAIL — `ImportError: cannot import name 'ARGUED_QUOTE_KEY'` in the o
 
 - [ ] **Step 3: Implement**
 
-In `backend/cicero/core/orchestrator.py`, change the judge block to write both keys:
-
-```python
-                if judge is not None and content:
-                    judgement = await judge.judge(chamber.topic, content)
-                    if judgement is not None:
-                        metadata[ARGUED_KEY] = judgement.stance.value
-                        metadata[ARGUED_QUOTE_KEY] = judgement.quote
-```
-
-and extend the import:
-
-```python
-from cicero.core.compliance import ARGUED_KEY, ARGUED_QUOTE_KEY, ComplianceJudge
-```
-
-In `backend/cicero/providers/mock.py`, add beside `COMPLIANCE_MARKER`:
+`orchestrator.py` already writes both keys (Task 5). In
+`backend/cicero/providers/mock.py`, add beside `COMPLIANCE_MARKER`:
 
 ```python
 #: The delimiters the compliance prompt wraps the judged turn in. Literals, so
@@ -861,7 +862,7 @@ Write the quotes into the verdicts JSON as a sibling map so the comparison scrip
 {"verdicts": {"<id>": "con"}, "quotes": {"<id>": "I therefore oppose the motion."}}
 ```
 
-**This changes the verdicts file shape**, so update the Task 2 and Task 9 comparison snippets to read `data["verdicts"]`, and note in the docstring that `f10_baseline_verdicts.json` (captured in Task 1) is the *old* flat shape.
+**This changes the verdicts file shape.** Task 9's comparison snippet already reads `["verdicts"]` for the new file and the flat mapping for the baseline — that asymmetry is correct and deliberate, because `f10_baseline_verdicts.json` was written by the old script in Task 1 and must not be regenerated. Note it in the script's docstring so the next reader is not surprised. Task 2's snippet reads the flat baseline and needs no change.
 
 - [ ] **Step 2: Verify it runs**
 

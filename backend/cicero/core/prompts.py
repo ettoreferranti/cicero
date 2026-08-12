@@ -154,20 +154,40 @@ MODERATOR_POSITIONS_LABEL = "Final positions:"
 EMPTY_MODERATOR_STATEMENT = "(the moderator produced no statement)"
 
 # Compliance-judge fragments (FR-34).
+#: Directive keys the judge must open its reply with. Bare keys — the ``:`` is
+#: the parser's, exactly as with the moderator's directives above.
+DIRECTIVE_POSITION = "POSITION"
+DIRECTIVE_SIDE = "SIDE"
+#: The honest escape when a turn states no position of its own. Anything else
+#: under POSITION must be a sentence copied from the turn.
+NO_POSITION = "none"
+
 #: The judge is told nothing about who wrote the turn or what they were assigned.
-#: That omission is the design: the decision record measured that assigned-stance
-#: labels in a prompt *change* a model's answer, so a judge that knows the expected
-#: answer is a judge that can be anchored to it. The comparison happens in Python.
+#: That omission is the design: assigned-stance labels in a prompt were measured
+#: to *change* a model's answer, so a judge that knows the expected answer is a
+#: judge that can be anchored to it.
 COMPLIANCE_SYSTEM = (
     "You are an impartial reader. You will be shown one argument from a debate. "
-    "Report which side of the motion that argument supports, judging only what it "
+    "Report which side of the motion its author supports, judging only what it "
     "actually says. " + SAFETY_RULE
 )
+#: Asks for a *sentence* before a label, deliberately. Measured across six
+#: mechanisms, these models do structured analytical meta-work badly and
+#: extraction well; the F5 headline works for the same reason. Quoting first
+#: turns "classify this argument" into "find the sentence, then read it".
 COMPLIANCE_USER_INSTRUCTION = (
-    "Reply with exactly one word — pro, con, or neutral. Use 'pro' if the argument "
-    "supports the motion, 'con' if it argues against the motion, and 'neutral' if it "
-    "takes no side or argues for neither. Judge only the argument above, not what a "
-    "debater might be expected to say. Reply with only that word."
+    f"Reply with exactly two lines and nothing else:\n"
+    f"{DIRECTIVE_POSITION}: <one sentence, copied word for word from the argument "
+    f"above, in which the author states their own position>\n"
+    f"{DIRECTIVE_SIDE}: pro, con, or neutral\n\n"
+    f"Copy the {DIRECTIVE_POSITION} sentence exactly as it appears — do not "
+    f"paraphrase, shorten or re-word it, and keep it on a single line. If the "
+    f"argument never states a position of its own, reply "
+    f"'{DIRECTIVE_POSITION}: {NO_POSITION}'.\n\n"
+    f"An argument may quote, summarise or attack a position in order to argue "
+    f"AGAINST it. Report the side the author supports, not the side they mention "
+    f"or rebut. Use 'pro' if the author supports the motion, 'con' if the author "
+    f"argues against the motion, and 'neutral' if the author takes no side."
 )
 COMPLIANCE_MOTION_LABEL = "The motion under debate is: {topic}"
 

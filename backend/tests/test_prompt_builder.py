@@ -308,6 +308,28 @@ def test_compliance_prompt_carries_the_safety_rule() -> None:
     assert prompts.SAFETY_RULE in messages[0].content
 
 
-def test_compliance_prompt_asks_for_one_word() -> None:
+def test_compliance_prompt_asks_for_both_directives() -> None:
     messages = build_compliance_messages("a motion", "an argument")
-    assert prompts.COMPLIANCE_USER_INSTRUCTION in messages[-1].content
+    user = messages[-1].content
+    assert f"{prompts.DIRECTIVE_POSITION}:" in user
+    assert f"{prompts.DIRECTIVE_SIDE}:" in user
+
+
+def test_compliance_prompt_warns_about_rebuttals() -> None:
+    """The measured failure was rebuttals reading as the side they demolish. The
+    prompt has to name it; the previous version never mentioned it."""
+    user = build_compliance_messages("a motion", "an argument")[-1].content.lower()
+    assert "rebut" in user
+    assert "supports" in user
+
+
+def test_compliance_prompt_offers_the_no_position_escape() -> None:
+    user = build_compliance_messages("a motion", "an argument")[-1].content
+    assert f"{prompts.DIRECTIVE_POSITION}: {prompts.NO_POSITION}" in user
+
+
+def test_compliance_system_still_carries_the_mock_marker() -> None:
+    """providers/mock.py matches on this literal to answer offline. Changing the
+    wording without changing the marker silently stops `make demo` exercising
+    the feature."""
+    assert "impartial reader" in prompts.COMPLIANCE_SYSTEM.lower()

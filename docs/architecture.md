@@ -397,6 +397,7 @@ streaming path:
   | `POST /chambers/{id}/stop` | Park a running debate as `paused` (FR-19) |
   | `GET /chambers/{id}/events` | SSE stream of turns/status/consensus (FR-18) |
   | `POST /chambers/{id}/notes` | Moderator note between turns (FR-21) |
+  | `POST /chambers/{id}/compliance/rejudge` | Re-run the compliance judge over a concluded chamber's turns, replacing `argued` (FR-34); 409 unless `concluded` |
   | `POST /chambers/{id}/clone` | Draft copy for a rerun (FR-5) |
   | `GET /chambers/{a}/compare/{b}` | Run-vs-run comparison (FR-32) |
   | `GET /chambers/{id}/export?format=json\|markdown` | Export (FR-31) |

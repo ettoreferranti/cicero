@@ -1294,6 +1294,26 @@ async def test_turns_record_the_side_they_were_judged_to_argue() -> None:
     assert all(t.metadata[ARGUED_QUOTE_KEY] == "Here is my argument." for t in debate_turns)
 
 
+async def test_a_judged_turn_records_the_quote_beside_the_stance() -> None:
+    """Unlike ``test_turns_record_the_side_they_were_judged_to_argue``, the judge
+    here is an *unscripted* ``MockProvider`` — it takes the real
+    ``COMPLIANCE_MARKER`` branch and runs ``_first_sentence_of_judged_turn``,
+    which is the end-to-end path ``make demo`` relies on."""
+    chamber, factory, repo = _judged_chamber()
+    judge = ComplianceJudge(MockProvider(), "mock-small")
+    result = await _engine(factory, repo, judge).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+    debate_turns = [t for t in result.turns if t.participant_id is not None]
+    assert debate_turns
+    for turn in debate_turns:
+        assert ARGUED_KEY in turn.metadata
+        quote = turn.metadata[ARGUED_QUOTE_KEY]
+        assert isinstance(quote, str) and quote
+        # The recorded evidence must be in the turn it describes.
+        assert " ".join(quote.split()).casefold() in " ".join(turn.content.split()).casefold()
+
+
 async def test_an_ungrounded_reply_records_neither_key() -> None:
     """A judge that paraphrases leaves no trace at all — not a stance without
     evidence."""

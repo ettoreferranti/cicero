@@ -123,7 +123,8 @@ async def main() -> None:
         "--verdicts-out",
         required=True,
         type=Path,
-        help="JSON output: turn id -> judge's verdict ('pro'/'con'/'neutral'/null).",
+        help="JSON output: {verdicts: {turn_id -> verdict}, quotes: {turn_id -> quote}}, "
+        "where verdict is 'pro'/'con'/'neutral'/null and quote is the grounding sentence or null.",
     )
     args = parser.parse_args()
 

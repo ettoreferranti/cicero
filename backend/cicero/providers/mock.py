@@ -54,32 +54,10 @@ COMPLIANCE_MARKER = "impartial reader"
 #: acceptance path exercising the real code.
 _DEFAULT_COMPLIANCE_ANSWER = "neutral"
 
-#: The delimiters the compliance prompt wraps the judged turn in. Literals, so
-#: the provider layer stays independent of ``core.prompts``; a test asserts the
-#: two never drift apart.
-TRANSCRIPT_OPEN_MARKER = "<<<TRANSCRIPT>>>"
-TRANSCRIPT_CLOSE_MARKER = "<<<END_TRANSCRIPT>>>"
-
 
 def _count_tokens(text: str) -> int:
     """Deterministic, whitespace-based token estimate (never network-derived)."""
     return len(text.split())
-
-
-def _first_sentence_of_judged_turn(user_message: str) -> str:
-    """The first non-empty line of the turn the judge was asked to read.
-
-    A mock has no view on which side an argument takes, but its answer still has
-    to be *grounded* or the real parser discards it and the offline path stops
-    exercising the feature. Copying a line out of the turn is the cheapest way to
-    produce a quote that genuinely appears in it.
-    """
-    _, _, rest = user_message.partition(TRANSCRIPT_OPEN_MARKER)
-    body, _, _ = rest.partition(TRANSCRIPT_CLOSE_MARKER)
-    for line in body.splitlines():
-        if line.strip():
-            return line.strip()
-    return ""
 
 
 class MockProvider(Provider):
@@ -125,8 +103,7 @@ class MockProvider(Provider):
         if self._scripted:
             content = self._scripted.pop(0)
         elif COMPLIANCE_MARKER in system.lower():
-            quoted = _first_sentence_of_judged_turn(last)
-            content = f"POSITION: {quoted}\nSIDE: {self._compliance_answer}"
+            content = self._compliance_answer
         elif POLL_MARKER in last.lower():
             # A stance poll needs an *answer*, not an echo. Echoing used to
             # "work" only because the parser matched pro/con out of the quoted

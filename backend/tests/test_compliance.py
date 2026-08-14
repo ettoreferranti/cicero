@@ -4,18 +4,14 @@ import pytest
 
 from cicero.core.compliance import (
     ARGUED_KEY,
-    ARGUED_QUOTE_KEY,
     COMPLIANCE_MAX_TOKENS,
     UNOPPOSED_CAVEAT,
     ComplianceJudge,
     ComplianceRecord,
-    Judgement,
     argued_stance,
     compliance_caveat,
     debater_compliance,
     noncompliance_lines,
-    parse_judgement,
-    quote_is_grounded,
 )
 from cicero.domain.enums import ConsensusOutcome, ProviderType, Stance
 from cicero.domain.models import Chamber, ConsensusResult, Participant, Turn
@@ -155,12 +151,6 @@ def test_argued_key_is_the_literal_string_argued() -> None:
     """Pinned, not just consistent with itself: a later task exports this key in
     a JSON payload, so the stored wire format must not be free to drift."""
     assert ARGUED_KEY == "argued"
-
-
-def test_argued_quote_key_is_the_literal_string_argued_quote() -> None:
-    """Pinned for the same reason as ``ARGUED_KEY``: this key is exported in a
-    JSON payload, so the stored wire format must not be free to drift."""
-    assert ARGUED_QUOTE_KEY == "argued_quote"
 
 
 def test_compliance_record_is_immutable() -> None:
@@ -409,12 +399,9 @@ def test_noncompliance_continues_past_a_compliant_participant() -> None:
     )
 
 
-async def test_judge_reads_a_grounded_reply() -> None:
-    reply = "POSITION: an argument\nSIDE: con"
-    judge = ComplianceJudge(MockProvider(scripted=[reply]), "mock-small")
-    assert await judge.judge("a motion", "an argument") == Judgement(
-        stance=Stance.CON, quote="an argument"
-    )
+async def test_judge_reads_a_one_word_answer() -> None:
+    judge = ComplianceJudge(MockProvider(scripted=["con"]), "mock-small")
+    assert await judge.judge("a motion", "an argument") is Stance.CON
 
 
 async def test_judge_returns_none_for_an_unreadable_answer() -> None:
@@ -466,86 +453,3 @@ async def test_judge_is_not_told_who_wrote_the_turn() -> None:
     assert "assigned" not in prompt.lower()
     # The only occurrence of a name is the one inside the judged text itself.
     assert prompt.count("Bartholomew") == 1
-
-
-def test_an_exact_quote_is_grounded() -> None:
-    assert quote_is_grounded("the case is indefensible", "I think the case is indefensible.")
-
-
-def test_whitespace_and_case_differences_are_tolerated() -> None:
-    """A model that re-wraps or re-cases a copied sentence still copied it. The
-    turn itself may have the sentence split across lines."""
-    assert quote_is_grounded(
-        "The  CASE\nis indefensible", "I think the case is indefensible."
-    )
-
-
-def test_a_paraphrase_is_not_grounded() -> None:
-    """One word different is a paraphrase, and a paraphrase is the failure this
-    check exists to catch — the judge did not read that sentence, it wrote one."""
-    assert not quote_is_grounded("the case is weak", "I think the case is indefensible.")
-
-
-def test_an_invented_quote_is_not_grounded() -> None:
-    assert not quote_is_grounded("I concede entirely", "I think the case is indefensible.")
-
-
-@pytest.mark.parametrize("quote", ["", "   ", "\n"])
-def test_an_empty_quote_is_never_grounded(quote: str) -> None:
-    """Empty normalises to "", which is a substring of everything — the one input
-    that would pass by accident."""
-    assert not quote_is_grounded(quote, "I think the case is indefensible.")
-
-
-TURN = "Invading would violate the UN Charter. I therefore oppose the motion."
-
-
-def test_a_grounded_reply_yields_a_judgement() -> None:
-    reply = "POSITION: I therefore oppose the motion.\nSIDE: con"
-    assert parse_judgement(reply, TURN) == Judgement(
-        stance=Stance.CON, quote="I therefore oppose the motion."
-    )
-
-
-def test_directive_order_does_not_matter() -> None:
-    reply = "SIDE: con\nPOSITION: I therefore oppose the motion."
-    result = parse_judgement(reply, TURN)
-    assert result is not None and result.stance is Stance.CON
-
-
-def test_a_paraphrased_quote_is_rejected() -> None:
-    """The verdict may even be right — it is discarded anyway, because nothing
-    ties it to the turn. An ungrounded judgement is what this feature exists to
-    stop recording."""
-    reply = "POSITION: I am against this motion.\nSIDE: con"
-    assert parse_judgement(reply, TURN) is None
-
-
-def test_no_position_is_not_a_judgement() -> None:
-    """`none` is the escape hatch, not a quote. It must be rejected by the
-    NO_POSITION branch and not merely by failing to appear in the turn — plenty
-    of ordinary debate prose contains the substring, and grounding a literal
-    'none' would write a fabricated verdict."""
-    content = "Nonetheless, the evidence on sanctions is thin."
-    assert parse_judgement("POSITION: none\nSIDE: neutral", content) is None
-
-
-def test_a_missing_side_is_not_a_judgement() -> None:
-    assert parse_judgement("POSITION: I therefore oppose the motion.", TURN) is None
-
-
-def test_an_unreadable_side_is_not_a_judgement() -> None:
-    reply = "POSITION: I therefore oppose the motion.\nSIDE: sideways"
-    assert parse_judgement(reply, TURN) is None
-
-
-def test_prose_instead_of_directives_is_not_a_judgement() -> None:
-    assert parse_judgement("The author argues against the motion.", TURN) is None
-
-
-def test_a_quote_containing_a_colon_survives() -> None:
-    """partition(':') splits once, so punctuation inside the sentence is safe."""
-    turn = "He said: this is indefensible. I agree."
-    reply = "POSITION: He said: this is indefensible.\nSIDE: con"
-    result = parse_judgement(reply, turn)
-    assert result is not None and result.quote == "He said: this is indefensible."

@@ -33,7 +33,7 @@ from cicero.api.schemas import (
 )
 from cicero.core.budget import DebateBudget
 from cicero.core.compare import compare_chambers
-from cicero.core.compliance import ARGUED_KEY, ARGUED_QUOTE_KEY, ComplianceJudge
+from cicero.core.compliance import ARGUED_KEY, ComplianceJudge
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.metrics import ParticipantMetrics, compute_participant_metrics
@@ -625,14 +625,12 @@ async def rejudge_compliance(
     for turn in chamber.turns:
         if turn.participant_id is None or not turn.content:
             continue
-        judgement = await judge.judge(chamber.topic, turn.content)
-        # Cleared first: a turn the judge can no longer ground must lose its old
-        # verdict rather than keep one nothing supports.
+        argued = await judge.judge(chamber.topic, turn.content)
+        # Cleared first: a turn the judge can no longer read must lose its old
+        # verdict rather than keep one this run did not reproduce.
         turn.metadata.pop(ARGUED_KEY, None)
-        turn.metadata.pop(ARGUED_QUOTE_KEY, None)
-        if judgement is not None:
-            turn.metadata[ARGUED_KEY] = judgement.stance.value
-            turn.metadata[ARGUED_QUOTE_KEY] = judgement.quote
+        if argued is not None:
+            turn.metadata[ARGUED_KEY] = argued.value
     return repo.update(chamber)
 
 

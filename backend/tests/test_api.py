@@ -1091,23 +1091,19 @@ def test_rejudge_rewrites_compliance_on_a_concluded_chamber() -> None:
     assert resp.status_code == 200
     turn = resp.json()["turns"][0]
     assert turn["metadata"]["argued"] == "pro"
-    # MockProvider quotes the first line of the turn, so the evidence is real.
-    assert turn["metadata"]["argued_quote"] in turn["content"]
 
 
-def test_rejudge_clears_a_stale_verdict_it_can_no_longer_ground() -> None:
-    """Re-judging replaces, it does not merge. A turn whose new reply fails the
-    grounding check must lose its old verdict, or the chamber keeps one that
-    nothing supports."""
+def test_rejudge_clears_a_stale_verdict_it_can_no_longer_read() -> None:
+    """Re-judging replaces, it does not merge. A turn whose new reply is
+    unreadable must lose its old verdict, or the chamber keeps one that this run
+    did not reproduce."""
     repo = InMemoryChamberRepository()
     chamber = _concluded_chamber_with_stale_compliance(repo, {"argued": "con"})
-    ungrounded = MockProvider(scripted=["POSITION: a sentence not in the turn\nSIDE: pro"])
-    with _rejudge_client(repo, ungrounded) as client:
+    unreadable = MockProvider(scripted=["I could not say either way."])
+    with _rejudge_client(repo, unreadable) as client:
         resp = client.post(f"/chambers/{chamber.id}/compliance/rejudge")
     assert resp.status_code == 200
-    metadata = resp.json()["turns"][0]["metadata"]
-    assert "argued" not in metadata
-    assert "argued_quote" not in metadata
+    assert "argued" not in resp.json()["turns"][0]["metadata"]
 
 
 def test_rejudge_refuses_a_chamber_that_is_not_concluded() -> None:

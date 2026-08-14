@@ -7,13 +7,8 @@ files, deliberately kept apart:
 
 - ``--turns-out``: Markdown, one section per judged turn (id, round, speaker,
   assigned stance, full turn text). **Never contains the judge's verdict.**
-- ``--verdicts-out``: JSON object with two keys:
-  - ``verdicts``: mapping of turn id to the judge's answer (``"pro"``, ``"con"``,
-    ``"neutral"``, or ``null`` when unreadable).
-  - ``quotes``: mapping of turn id to the sentence the judge's verdict rests on
-    (or ``null`` when unreadable). Immutable: ``f10_baseline_verdicts.json`` was
-    written by the old script and is in flat ``{id: side}`` shape; it must not
-    be regenerated.
+- ``--verdicts-out``: JSON, a mapping of the same turn id to the judge's
+  answer (``"pro"``, ``"con"``, ``"neutral"``, or ``null`` when unreadable).
 
 The split exists so a turn can be hand-read without the judge's answer
 anchoring that reading. A keyword classifier for this exact task was wrong by
@@ -63,23 +58,19 @@ def _write_turns_md(path: Path, entries: list[dict[str, Any]]) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _write_verdicts_json(
-    path: Path, verdicts: dict[str, str | None], quotes: dict[str, str | None]
-) -> None:
-    output = {"verdicts": verdicts, "quotes": quotes}
-    path.write_text(json.dumps(output, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+def _write_verdicts_json(path: Path, verdicts: dict[str, str | None]) -> None:
+    path.write_text(json.dumps(verdicts, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 async def _judge_chamber(
     client: httpx.Client, chamber_id: str, judge: ComplianceJudge
-) -> tuple[list[dict[str, Any]], dict[str, str | None], dict[str, str | None]]:
+) -> tuple[list[dict[str, Any]], dict[str, str | None]]:
     response = client.get(f"/chambers/{chamber_id}")
     response.raise_for_status()
     chamber = Chamber.model_validate(response.json())
 
     entries: list[dict[str, Any]] = []
     verdicts: dict[str, str | None] = {}
-    quotes: dict[str, str | None] = {}
     for turn in chamber.turns:
         if turn.participant_id is None or not turn.content:
             continue
@@ -98,10 +89,9 @@ async def _judge_chamber(
                 "content": turn.content,
             }
         )
-        judgement = await judge.judge(chamber.topic, turn.content)
-        verdicts[turn_id] = None if judgement is None else judgement.stance.value
-        quotes[turn_id] = None if judgement is None else judgement.quote
-    return entries, verdicts, quotes
+        argued = await judge.judge(chamber.topic, turn.content)
+        verdicts[turn_id] = argued.value if argued else None
+    return entries, verdicts
 
 
 async def main() -> None:
@@ -123,8 +113,7 @@ async def main() -> None:
         "--verdicts-out",
         required=True,
         type=Path,
-        help="JSON output: {verdicts: {turn_id -> verdict}, quotes: {turn_id -> quote}}, "
-        "where verdict is 'pro'/'con'/'neutral'/null and quote is the grounding sentence or null.",
+        help="JSON output: turn id -> judge's verdict ('pro'/'con'/'neutral'/null).",
     )
     args = parser.parse_args()
 
@@ -134,18 +123,16 @@ async def main() -> None:
 
     all_entries: list[dict[str, Any]] = []
     all_verdicts: dict[str, str | None] = {}
-    all_quotes: dict[str, str | None] = {}
     with httpx.Client(base_url=args.api, timeout=30.0) as client:
         for chamber_id in args.chamber_ids:
-            entries, verdicts, quotes = await _judge_chamber(client, chamber_id, judge)
+            entries, verdicts = await _judge_chamber(client, chamber_id, judge)
             all_entries.extend(entries)
             all_verdicts.update(verdicts)
-            all_quotes.update(quotes)
 
     args.turns_out.parent.mkdir(parents=True, exist_ok=True)
     args.verdicts_out.parent.mkdir(parents=True, exist_ok=True)
     _write_turns_md(args.turns_out, all_entries)
-    _write_verdicts_json(args.verdicts_out, all_verdicts, all_quotes)
+    _write_verdicts_json(args.verdicts_out, all_verdicts)
 
     judged = len(all_verdicts)
     unreadable = sum(1 for v in all_verdicts.values() if v is None)

@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 
 from cicero.core.budget import DebateBudget
-from cicero.core.compliance import ARGUED_KEY, ARGUED_QUOTE_KEY, ComplianceJudge
+from cicero.core.compliance import ARGUED_KEY, ComplianceJudge
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.orchestrator import (
     DebateEngine,
@@ -1280,55 +1280,13 @@ def _judged_chamber() -> tuple[Chamber, StubFactory, InMemoryChamberRepository]:
 
 async def test_turns_record_the_side_they_were_judged_to_argue() -> None:
     chamber, factory, repo = _judged_chamber()
-    # "Here is my argument." is ScriptedProvider's fixed prefix on every debate
-    # turn (see conftest.ScriptedProvider), so this quote grounds regardless of
-    # which per-round point gets appended after it.
-    reply = "POSITION: Here is my argument.\nSIDE: con"
-    judge = ComplianceJudge(MockProvider(scripted=[reply] * 50), "mock-small")
+    judge = ComplianceJudge(MockProvider(scripted=["con"] * 50), "mock-small")
     result = await _engine(factory, repo, judge).run(
         chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
     )
     debate_turns = [t for t in result.turns if t.participant_id is not None]
     assert debate_turns
     assert all(t.metadata[ARGUED_KEY] == "con" for t in debate_turns)
-    assert all(t.metadata[ARGUED_QUOTE_KEY] == "Here is my argument." for t in debate_turns)
-
-
-async def test_a_judged_turn_records_the_quote_beside_the_stance() -> None:
-    """Unlike ``test_turns_record_the_side_they_were_judged_to_argue``, the judge
-    here is an *unscripted* ``MockProvider`` — it takes the real
-    ``COMPLIANCE_MARKER`` branch and runs ``_first_sentence_of_judged_turn``,
-    which is the end-to-end path ``make demo`` relies on."""
-    chamber, factory, repo = _judged_chamber()
-    judge = ComplianceJudge(MockProvider(), "mock-small")
-    result = await _engine(factory, repo, judge).run(
-        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
-    )
-    debate_turns = [t for t in result.turns if t.participant_id is not None]
-    assert debate_turns
-    for turn in debate_turns:
-        assert ARGUED_KEY in turn.metadata
-        quote = turn.metadata[ARGUED_QUOTE_KEY]
-        assert isinstance(quote, str) and quote
-        # The recorded evidence must be in the turn it describes.
-        assert " ".join(quote.split()).casefold() in " ".join(turn.content.split()).casefold()
-
-
-async def test_an_ungrounded_reply_records_neither_key() -> None:
-    """A judge that paraphrases leaves no trace at all — not a stance without
-    evidence."""
-    chamber, factory, repo = _judged_chamber()
-    judge = ComplianceJudge(
-        MockProvider(scripted=["POSITION: a sentence not in the turn\nSIDE: con"] * 50),
-        "mock-small",
-    )
-    result = await _engine(factory, repo, judge).run(
-        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
-    )
-    debate_turns = [t for t in result.turns if t.participant_id is not None]
-    assert debate_turns
-    assert all(ARGUED_KEY not in t.metadata for t in debate_turns)
-    assert all(ARGUED_QUOTE_KEY not in t.metadata for t in debate_turns)
 
 
 async def test_no_judgement_is_recorded_when_the_setting_is_off() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from cicero.core import prompts
+from cicero.core.compliance import parse_judgement
 from cicero.core.consensus import parse_stance
 from cicero.core.prompt_builder import build_compliance_messages
 from cicero.core.prompts import MODERATOR_SYSTEM
@@ -16,7 +17,13 @@ from cicero.providers import (
     ProviderError,
     Role,
 )
-from cicero.providers.mock import COMPLIANCE_MARKER, MODERATOR_MARKER, POLL_MARKER
+from cicero.providers.mock import (
+    COMPLIANCE_MARKER,
+    MODERATOR_MARKER,
+    POLL_MARKER,
+    TRANSCRIPT_CLOSE_MARKER,
+    TRANSCRIPT_OPEN_MARKER,
+)
 
 OPTS = GenerateOptions(model="mock-small")
 
@@ -217,3 +224,18 @@ async def test_a_compliance_prompt_is_not_mistaken_for_a_stance_poll() -> None:
     messages = build_compliance_messages("a motion", "an argument")
     result = await provider.generate(messages, GenerateOptions(model="mock-small"))
     assert parse_stance(result.content) is Stance.CON
+
+
+async def test_mock_emits_a_grounded_two_directive_judgement() -> None:
+    provider = MockProvider()
+    content = "Invading would violate the UN Charter. I oppose the motion."
+    messages = build_compliance_messages("a motion", content)
+    result = await provider.generate(messages, GenerateOptions(model="mock-small"))
+    assert parse_judgement(result.content, content) is not None
+
+
+def test_transcript_markers_match_the_real_prompt() -> None:
+    """The provider layer keeps its own literals so it does not import
+    core.prompts; this is what stops the two drifting apart."""
+    assert TRANSCRIPT_OPEN_MARKER == prompts.TRANSCRIPT_OPEN
+    assert TRANSCRIPT_CLOSE_MARKER == prompts.TRANSCRIPT_CLOSE

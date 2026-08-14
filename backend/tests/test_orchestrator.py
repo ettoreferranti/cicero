@@ -1294,6 +1294,23 @@ async def test_turns_record_the_side_they_were_judged_to_argue() -> None:
     assert all(t.metadata[ARGUED_QUOTE_KEY] == "Here is my argument." for t in debate_turns)
 
 
+async def test_an_ungrounded_reply_records_neither_key() -> None:
+    """A judge that paraphrases leaves no trace at all — not a stance without
+    evidence."""
+    chamber, factory, repo = _judged_chamber()
+    judge = ComplianceJudge(
+        MockProvider(scripted=["POSITION: a sentence not in the turn\nSIDE: con"] * 50),
+        "mock-small",
+    )
+    result = await _engine(factory, repo, judge).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+    debate_turns = [t for t in result.turns if t.participant_id is not None]
+    assert debate_turns
+    assert all(ARGUED_KEY not in t.metadata for t in debate_turns)
+    assert all(ARGUED_QUOTE_KEY not in t.metadata for t in debate_turns)
+
+
 async def test_no_judgement_is_recorded_when_the_setting_is_off() -> None:
     """The setting must suppress the judge *call*, not just its recorded verdict —
     a judge that ran and had its result discarded would also leave the key

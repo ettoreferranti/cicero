@@ -33,7 +33,7 @@ from cicero.api.schemas import (
 )
 from cicero.core.budget import DebateBudget
 from cicero.core.compare import compare_chambers
-from cicero.core.compliance import ComplianceJudge
+from cicero.core.compliance import ARGUED_KEY, ARGUED_QUOTE_KEY, ComplianceJudge
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.export import to_export_dict, to_markdown
 from cicero.core.metrics import ParticipantMetrics, compute_participant_metrics
@@ -132,6 +132,15 @@ def _moderator_from(payload: ModeratorIn) -> Moderator:
     return Moderator(**payload.model_dump(exclude_none=True))
 
 
+def _compliance_judge_for(chamber: Chamber, factory: ProviderFactory) -> ComplianceJudge:
+    """The chamber's moderator, wired as its compliance judge."""
+    config = chamber.moderator
+    if config is None:
+        source = chamber.participants[0]
+        config = Moderator(provider=source.provider, model=source.model)
+    return ComplianceJudge(factory.get_for_type(config.provider), config.model)
+
+
 def _build_engine(
     chamber: Chamber,
     repo: ChamberRepository,
@@ -160,7 +169,7 @@ def _build_engine(
     # The moderator judges compliance too: it is the chamber's designated
     # impartial party, and ComplianceJudge supplies its own options because a
     # one-word answer wants none of the moderator's synthesis budget.
-    judge = ComplianceJudge(moderator, moderator_config.model)
+    judge = _compliance_judge_for(chamber, factory)
     engine = DebateEngine(
         factory,
         repo,
@@ -595,6 +604,36 @@ async def stop_debate(
             status.HTTP_409_CONFLICT, "no running debate for this chamber"
         )
     return {"status": "stopped"}
+
+
+@router.post("/{chamber_id}/compliance/rejudge", response_model=Chamber)
+async def rejudge_compliance(
+    chamber_id: UUID, repo: RepoDep, factory: FactoryDep
+) -> Chamber:
+    """Re-judge every turn's compliance with the current protocol (FR-34).
+
+    Concluded chambers only: a running debate is being written by the engine, and
+    a concurrent rewrite of its turns is how one gets corrupted.
+    """
+    chamber = _require_chamber(repo, chamber_id)
+    if chamber.status is not ChamberStatus.CONCLUDED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "compliance can only be re-judged on a concluded chamber",
+        )
+    judge = _compliance_judge_for(chamber, factory)
+    for turn in chamber.turns:
+        if turn.participant_id is None or not turn.content:
+            continue
+        judgement = await judge.judge(chamber.topic, turn.content)
+        # Cleared first: a turn the judge can no longer ground must lose its old
+        # verdict rather than keep one nothing supports.
+        turn.metadata.pop(ARGUED_KEY, None)
+        turn.metadata.pop(ARGUED_QUOTE_KEY, None)
+        if judgement is not None:
+            turn.metadata[ARGUED_KEY] = judgement.stance.value
+            turn.metadata[ARGUED_QUOTE_KEY] = judgement.quote
+    return repo.update(chamber)
 
 
 # --- Review / export / metrics -------------------------------------------

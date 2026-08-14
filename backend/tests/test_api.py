@@ -16,7 +16,15 @@ from cicero.api.dependencies import (
     get_repository,
 )
 from cicero.api.schemas import DebateSettingsIn
-from cicero.domain.models import DebateSettings, ParticipantTuning
+from cicero.domain.enums import ChamberStatus, ProviderType, Stance
+from cicero.domain.models import (
+    Chamber,
+    DebateSettings,
+    Moderator,
+    Participant,
+    ParticipantTuning,
+    Turn,
+)
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers import ProviderError
 from cicero.providers.mock import MockProvider
@@ -824,8 +832,6 @@ def test_list_models_unknown_provider_422(client: TestClient) -> None:
 
 
 def test_list_models_provider_error_returns_502() -> None:
-    from cicero.domain.enums import ProviderType
-    from cicero.domain.models import Participant
     from cicero.providers import Provider, ProviderError
 
     class BrokenFactory:
@@ -1040,3 +1046,77 @@ def test_debate_settings_wire_schema_mirrors_the_domain_model() -> None:
     # whole settings form starts returning 422 — a regression invisible to
     # every test that exercises either model in isolation.
     assert set(DebateSettingsIn.model_fields) == set(DebateSettings.model_fields)
+
+
+def _concluded_chamber_with_stale_compliance(
+    repo: InMemoryChamberRepository, stale: dict[str, object]
+) -> Chamber:
+    """A concluded one-turn chamber whose turn already carries a judgement."""
+    debater = Participant(
+        display_name="Ada", provider=ProviderType.MOCK, model="mock-small",
+        stance=Stance.PRO,
+    )
+    chamber = Chamber(
+        topic="Should we colonise Mars?",
+        status=ChamberStatus.CONCLUDED,
+        participants=[debater],
+        moderator=Moderator(provider=ProviderType.MOCK, model="mock-small"),
+    )
+    chamber.turns = [
+        Turn(
+            participant_id=debater.id,
+            round_index=0,
+            content="Colonising Mars is worth the cost. I support the motion.",
+            metadata=dict(stale),
+        )
+    ]
+    return repo.add(chamber)
+
+
+def _rejudge_client(repo: InMemoryChamberRepository, provider: MockProvider) -> TestClient:
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: ConstantFactory(provider)
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    return TestClient(app)
+
+
+def test_rejudge_rewrites_compliance_on_a_concluded_chamber() -> None:
+    """The point of the endpoint: a chamber judged by an older protocol is
+    brought up to date without re-running the debate."""
+    repo = InMemoryChamberRepository()
+    chamber = _concluded_chamber_with_stale_compliance(repo, {"argued": "con"})
+    with _rejudge_client(repo, MockProvider(compliance_answer="pro")) as client:
+        resp = client.post(f"/chambers/{chamber.id}/compliance/rejudge")
+    assert resp.status_code == 200
+    turn = resp.json()["turns"][0]
+    assert turn["metadata"]["argued"] == "pro"
+    # MockProvider quotes the first line of the turn, so the evidence is real.
+    assert turn["metadata"]["argued_quote"] in turn["content"]
+
+
+def test_rejudge_clears_a_stale_verdict_it_can_no_longer_ground() -> None:
+    """Re-judging replaces, it does not merge. A turn whose new reply fails the
+    grounding check must lose its old verdict, or the chamber keeps one that
+    nothing supports."""
+    repo = InMemoryChamberRepository()
+    chamber = _concluded_chamber_with_stale_compliance(repo, {"argued": "con"})
+    ungrounded = MockProvider(scripted=["POSITION: a sentence not in the turn\nSIDE: pro"])
+    with _rejudge_client(repo, ungrounded) as client:
+        resp = client.post(f"/chambers/{chamber.id}/compliance/rejudge")
+    assert resp.status_code == 200
+    metadata = resp.json()["turns"][0]["metadata"]
+    assert "argued" not in metadata
+    assert "argued_quote" not in metadata
+
+
+def test_rejudge_refuses_a_chamber_that_is_not_concluded() -> None:
+    """A running debate is being written by the engine; a concurrent rewrite of
+    its turns is how one gets corrupted."""
+    repo = InMemoryChamberRepository()
+    chamber = _concluded_chamber_with_stale_compliance(repo, {})
+    chamber.status = ChamberStatus.RUNNING
+    repo.update(chamber)
+    with _rejudge_client(repo, MockProvider()) as client:
+        resp = client.post(f"/chambers/{chamber.id}/compliance/rejudge")
+    assert resp.status_code == 409

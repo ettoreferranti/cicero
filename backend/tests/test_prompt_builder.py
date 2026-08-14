@@ -333,3 +333,11 @@ def test_compliance_system_still_carries_the_mock_marker() -> None:
     wording without changing the marker silently stops `make demo` exercising
     the feature."""
     assert "impartial reader" in prompts.COMPLIANCE_SYSTEM.lower()
+
+
+def test_compliance_prompt_embeds_the_whole_instruction() -> None:
+    """The builder must not truncate or reflow the instruction: the 'copy it
+    exactly' clause is the natural-language half of the grounding guarantee that
+    quote_is_grounded enforces in code, and nothing else in the suite pins it."""
+    messages = build_compliance_messages("a motion", "an argument")
+    assert prompts.COMPLIANCE_USER_INSTRUCTION in messages[-1].content

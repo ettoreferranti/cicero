@@ -522,7 +522,12 @@ def test_a_paraphrased_quote_is_rejected() -> None:
 
 
 def test_no_position_is_not_a_judgement() -> None:
-    assert parse_judgement("POSITION: none\nSIDE: neutral", TURN) is None
+    """`none` is the escape hatch, not a quote. It must be rejected by the
+    NO_POSITION branch and not merely by failing to appear in the turn — plenty
+    of ordinary debate prose contains the substring, and grounding a literal
+    'none' would write a fabricated verdict."""
+    content = "Nonetheless, the evidence on sanctions is thin."
+    assert parse_judgement("POSITION: none\nSIDE: neutral", content) is None
 
 
 def test_a_missing_side_is_not_a_judgement() -> None:

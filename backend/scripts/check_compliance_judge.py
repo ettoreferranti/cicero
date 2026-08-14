@@ -89,8 +89,8 @@ async def _judge_chamber(
                 "content": turn.content,
             }
         )
-        argued = await judge.judge(chamber.topic, turn.content)
-        verdicts[turn_id] = argued.value if argued else None
+        judgement = await judge.judge(chamber.topic, turn.content)
+        verdicts[turn_id] = judgement.stance.value if judgement else None
     return entries, verdicts
 
 

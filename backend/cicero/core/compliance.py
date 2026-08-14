@@ -16,8 +16,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cicero.core.consensus import parse_stance
+from cicero.core.consensus import parse_directives, parse_stance
 from cicero.core.prompt_builder import build_compliance_messages
+from cicero.core.prompts import DIRECTIVE_POSITION, DIRECTIVE_SIDE, NO_POSITION
 from cicero.domain.enums import Stance
 from cicero.domain.models import Chamber, Participant, Turn
 from cicero.providers.base import GenerateOptions, Provider, ProviderError
@@ -26,6 +27,13 @@ from cicero.providers.base import GenerateOptions, Provider, ProviderError
 #: "compliant". A judge call that failed, a reply that did not parse and a turn
 #: that was never judged are indistinguishable here, and all three are silence.
 ARGUED_KEY = "argued"
+
+#: The sentence the judge's verdict rests on, verified to appear in the turn.
+#: Written with ``ARGUED_KEY`` or not at all: a stance without its evidence is
+#: the ungrounded record this feature removes.
+ARGUED_QUOTE_KEY = "argued_quote"
+
+_COMPLIANCE_DIRECTIVES = frozenset({DIRECTIVE_POSITION, DIRECTIVE_SIDE})
 
 #: Which stance opposes which. ``NEUTRAL`` is deliberately absent: a neutral
 #: debater was never asked to oppose anything, so its silence on the losing side
@@ -75,6 +83,33 @@ def quote_is_grounded(quote: str, content: str) -> bool:
     if not quote.strip():
         return False
     return _normalise(quote) in _normalise(content)
+
+
+@dataclass(frozen=True)
+class Judgement:
+    """A side, and the sentence in the turn that says so."""
+
+    stance: Stance
+    quote: str
+
+
+def parse_judgement(reply: str, content: str) -> Judgement | None:
+    """Read a judge reply, or ``None`` when it cannot be trusted.
+
+    Every rejection path collapses to ``None`` on purpose — a missing directive,
+    an unreadable side, ``POSITION: none`` and a quote that is not in the turn
+    are all "not measured", and the caller records absence rather than guessing.
+    """
+    directives, _ = parse_directives(reply, _COMPLIANCE_DIRECTIVES)
+    quote = (directives.get(DIRECTIVE_POSITION) or "").strip()
+    if not quote or quote.casefold() == NO_POSITION:
+        return None
+    if not quote_is_grounded(quote, content):
+        return None
+    stance = parse_stance(directives.get(DIRECTIVE_SIDE) or "")
+    if stance is None:
+        return None
+    return Judgement(stance=stance, quote=quote)
 
 
 @dataclass(frozen=True)
@@ -209,16 +244,15 @@ class ComplianceJudge:
             allow_reasoning=False,
         )
 
-    async def judge(self, topic: str, content: str) -> Stance | None:
-        """The side ``content`` argues, or ``None`` if it could not be read.
+    async def judge(self, topic: str, content: str) -> Judgement | None:
+        """The side ``content`` argues and the sentence that says so, or ``None``.
 
-        Both failure modes collapse to ``None`` on purpose: a provider error and
-        an unparseable reply are equally "not measured", and the caller records
-        the absence rather than guessing.
+        ``None`` keeps its F9 meaning — not measured — and now covers a reply
+        whose quote could not be found in the turn.
         """
         messages = build_compliance_messages(topic, content)
         try:
             result = await self._provider.generate(messages, self._options)
         except ProviderError:
             return None
-        return parse_stance(result.content)
+        return parse_judgement(result.content, content)

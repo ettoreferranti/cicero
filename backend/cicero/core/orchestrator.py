@@ -24,7 +24,7 @@ from uuid import UUID
 
 from cicero.core import prompts
 from cicero.core.budget import BudgetTracker, DebateBudget, StopReason
-from cicero.core.compliance import ARGUED_KEY, ComplianceJudge
+from cicero.core.compliance import ARGUED_KEY, ARGUED_QUOTE_KEY, ComplianceJudge
 from cicero.core.consensus import ConsensusEngine, StanceReport, is_consensus
 from cicero.core.prompt_builder import (
     KIND_EVIDENCE,
@@ -450,9 +450,10 @@ class DebateEngine:
             # re-persisting a turn a reader has already seen. An empty turn (the
             # error path above) has no prose to read.
             if judge is not None and content:
-                argued = await judge.judge(chamber.topic, content)
-                if argued is not None:
-                    metadata[ARGUED_KEY] = argued.value
+                judgement = await judge.judge(chamber.topic, content)
+                if judgement is not None:
+                    metadata[ARGUED_KEY] = judgement.stance.value
+                    metadata[ARGUED_QUOTE_KEY] = judgement.quote
 
             turn = Turn(
                 participant_id=participant.id,

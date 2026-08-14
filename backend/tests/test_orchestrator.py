@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 
 from cicero.core.budget import DebateBudget
-from cicero.core.compliance import ARGUED_KEY, ComplianceJudge
+from cicero.core.compliance import ARGUED_KEY, ARGUED_QUOTE_KEY, ComplianceJudge
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.orchestrator import (
     DebateEngine,
@@ -1280,13 +1280,18 @@ def _judged_chamber() -> tuple[Chamber, StubFactory, InMemoryChamberRepository]:
 
 async def test_turns_record_the_side_they_were_judged_to_argue() -> None:
     chamber, factory, repo = _judged_chamber()
-    judge = ComplianceJudge(MockProvider(scripted=["con"] * 50), "mock-small")
+    # "Here is my argument." is ScriptedProvider's fixed prefix on every debate
+    # turn (see conftest.ScriptedProvider), so this quote grounds regardless of
+    # which per-round point gets appended after it.
+    reply = "POSITION: Here is my argument.\nSIDE: con"
+    judge = ComplianceJudge(MockProvider(scripted=[reply] * 50), "mock-small")
     result = await _engine(factory, repo, judge).run(
         chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
     )
     debate_turns = [t for t in result.turns if t.participant_id is not None]
     assert debate_turns
     assert all(t.metadata[ARGUED_KEY] == "con" for t in debate_turns)
+    assert all(t.metadata[ARGUED_QUOTE_KEY] == "Here is my argument." for t in debate_turns)
 
 
 async def test_no_judgement_is_recorded_when_the_setting_is_off() -> None:

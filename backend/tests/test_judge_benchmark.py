@@ -207,8 +207,56 @@ def test_compare_needs_both_arms_to_cover_the_turn(missing: str) -> None:
     assert "a" not in delta.fixed + delta.broken
 
 
+# --- The parser, against real model output (offline) --------------------------
+# f10_judge_replies.json holds the 32 verbatim qwen3:30b replies. Re-reading them
+# with the current parse_stance scores a parser change against hand-read ground
+# truth in milliseconds, with no model call. The </think> defect these tests pin
+# survived because nothing ever looked at what the judge actually said.
 
-# --- Re-reading stored replies ------------------------------------------------
+REPLIES = FIXTURES / "f10_judge_replies.json"
+
+
+def _stored_replies() -> dict[str, dict[str, str | None]]:
+    return json.loads(REPLIES.read_text(encoding="utf-8"))
+
+
+def _labels() -> dict[str, str]:
+    return json.loads((FIXTURES / "f10_hand_labels.json").read_text(encoding="utf-8"))
+
+
+def test_stored_replies_cover_every_hand_read_turn() -> None:
+    assert set(_stored_replies()) == set(_labels())
+
+
+def test_stored_replies_carry_the_narration_that_broke_the_parse() -> None:
+    """The fixture is only worth keeping if it still contains the defect's shape:
+    a reasoning block closed by a bare ``</think>`` that was never opened."""
+    replies = [r["reply"] or "" for r in _stored_replies().values()]
+    assert sum("</think>" in r for r in replies) == 32
+    assert sum("<think>" in r for r in replies) == 0
+
+
+def test_current_parser_reads_the_stored_replies_correctly() -> None:
+    """The regression bar. Before the unopened-``</think>`` strip this scored 25
+    of 32 on these exact replies: the judge reasoned to the right answer, said
+    so, and was recorded as its opposite on 6 turns.
+
+    31 rather than 32 because one turn (614d9e5b) is a genuine judge error — a
+    pro rebuttal read as con — which no parser can fix.
+    """
+    board = script.score(script.reparse(_stored_replies()), _labels())
+    assert board.unmeasured == 0
+    assert board.agreed == 31
+
+
+def test_reparse_recovers_the_answer_after_the_narration() -> None:
+    """Spot-check the mechanism on the turn from the decision record: the reply
+    argues its way to 'con' and ends with 'con', and used to score 'pro' because
+    the narration quotes the instruction's word list."""
+    verdicts = script.reparse(_stored_replies())
+    reply = _stored_replies()["10bf5837-4e46-4da4-8313-5103edb2986c"]["reply"] or ""
+    assert "pro" in reply.split("</think>")[0]  # the narration mentions it
+    assert verdicts["10bf5837-4e46-4da4-8313-5103edb2986c"] == "con"
 
 
 def test_reparse_reports_an_empty_reply_as_unmeasured() -> None:

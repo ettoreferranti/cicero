@@ -42,6 +42,15 @@ from cicero.providers.factory import ProviderFactory
 # narration argues *both* sides — scanning it would score whichever side the
 # model happened to muse about first.
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+# The same narration, closed but never opened. Ollama asked for ``think: false``
+# writes it into ``content`` terminated by a bare ``</think>``, so the matched
+# pair above never fires. Measured on the F10 benchmark: of 32 qwen3:30b
+# compliance replies, 0 carried an opening tag and 32 carried the closing one,
+# and the unstripped narration cost 6 of 32 verdicts — it quotes the instruction
+# ("report only pro, con, or neutral") and the first stance word in that
+# quotation was being read as the answer. Greedy on purpose: everything up to
+# the *last* close is narration.
+_UNOPENED_THINK = re.compile(r".*</think>", re.DOTALL | re.IGNORECASE)
 _WORDS = re.compile(r"[a-z]+")
 
 #: Accepted when the reply *is* a single word, which is what the poll asks for.
@@ -108,6 +117,17 @@ class StanceReport:
     unparsed: tuple[str, ...] = ()
 
 
+def _strip_reasoning(text: str) -> str:
+    """Drop a reasoning model's narration, leaving the answer it settled on.
+
+    Matched blocks go first; whatever unopened narration is left over goes
+    second. A reply that is *all* narration comes back empty, and an empty reply
+    reads as unmeasured — which is the honest answer for a model that thought out
+    loud and never committed.
+    """
+    return _UNOPENED_THINK.sub("", _THINK_BLOCK.sub(" ", text))
+
+
 def parse_stance(text: str) -> Stance | None:
     """Extract a stance from a free-text self-report, or ``None`` if unclear.
 
@@ -116,7 +136,7 @@ def parse_stance(text: str) -> Stance | None:
     conceded. Returning ``None`` when the reply cannot be read is the honest
     answer; the caller decides what to do about it.
     """
-    words = _WORDS.findall(_THINK_BLOCK.sub(" ", text).lower())
+    words = _WORDS.findall(_strip_reasoning(text).lower())
     if not words:
         return None
     if len(words) == 1:

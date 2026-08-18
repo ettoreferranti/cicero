@@ -453,3 +453,57 @@ async def test_judge_is_not_told_who_wrote_the_turn() -> None:
     assert "assigned" not in prompt.lower()
     # The only occurrence of a name is the one inside the judged text itself.
     assert prompt.count("Bartholomew") == 1
+
+
+# --- The raw-reply seam (F10 follow-up) -------------------------------------
+# ``judge`` collapses a provider error, an unreadable reply and a genuine
+# "neutral" into values a measurement run cannot tell apart. The F10 quote-first
+# run failed on 32 of 32 turns and the record could not say why, because the
+# harness only ever saw ``None``. ``read`` keeps what the judge actually said.
+
+
+async def test_read_returns_the_stance_and_the_raw_reply() -> None:
+    judge = ComplianceJudge(MockProvider(scripted=["con"]), "mock-small")
+    reading = await judge.read("a motion", "an argument")
+    assert reading.stance is Stance.CON
+    assert reading.reply == "con"
+    assert reading.error is None
+
+
+async def test_read_keeps_an_unreadable_reply_verbatim() -> None:
+    """The whole point: an unparseable answer is recoverable for inspection
+    rather than being flattened into the same None as a provider failure."""
+    judge = ComplianceJudge(MockProvider(scripted=["it depends, really"]), "mock-small")
+    reading = await judge.read("a motion", "an argument")
+    assert reading.stance is None
+    assert reading.reply == "it depends, really"
+    assert reading.error is None
+
+
+async def test_read_reports_a_provider_failure_as_an_error_not_a_reply() -> None:
+    judge = ComplianceJudge(MockProvider(fail_after=1), "mock-small")
+    reading = await judge.read("a motion", "an argument")
+    assert reading.stance is None
+    assert reading.reply is None
+    assert reading.error is not None
+
+
+async def test_read_distinguishes_the_two_failures_judge_cannot() -> None:
+    """Both of these are ``None`` from ``judge``; the distinction is the feature."""
+    unreadable = await ComplianceJudge(
+        MockProvider(scripted=["hmm"]), "mock-small"
+    ).read("a motion", "an argument")
+    broken = await ComplianceJudge(MockProvider(fail_after=1), "mock-small").read(
+        "a motion", "an argument"
+    )
+    assert unreadable.stance is broken.stance is None
+    assert (unreadable.reply is None) != (broken.reply is None)
+
+
+async def test_judge_delegates_to_read() -> None:
+    """``judge`` keeps its signature and its contract; no caller changes."""
+    for scripted, expected in (["pro"], Stance.PRO), (["nonsense"], None):
+        judge = ComplianceJudge(MockProvider(scripted=scripted), "mock-small")
+        reading = await judge.read("a motion", "an argument")
+        again = ComplianceJudge(MockProvider(scripted=scripted), "mock-small")
+        assert await again.judge("a motion", "an argument") is reading.stance is expected

@@ -96,7 +96,13 @@ describe("api client", () => {
   });
 
   it("carries per-participant tuning through add and update", async () => {
-    const tuning = { temperature: 0.2, max_tokens: 1500, persona: "an economist", instructions: "terse" };
+    const tuning = {
+      temperature: 0.2,
+      max_tokens: 1500,
+      persona: "an economist",
+      instructions: "terse",
+      allow_reasoning: true,
+    };
     const fetchMock = mockFetch(201, { id: "c1" });
     vi.stubGlobal("fetch", fetchMock);
     await addParticipant("c1", {

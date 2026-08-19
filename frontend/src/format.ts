@@ -77,6 +77,11 @@ export function tuningSummary(tuning: ParticipantTuning | undefined): string {
   }
   if (tuning.persona.trim() !== "") parts.push("persona");
   if (tuning.instructions.trim() !== "") parts.push("instructions");
+  // Worth surfacing in the collapsed summary: it changes how much of max_tokens
+  // reaches the turn, so a debater running short is explained by this line.
+  // Explicit `=== false`, not `!`: a payload that omits the key has not turned
+  // reasoning off, and `!undefined` would claim it had.
+  if (tuning.allow_reasoning === false) parts.push("no reasoning");
   return parts.join(" · ");
 }
 

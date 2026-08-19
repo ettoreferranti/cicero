@@ -278,6 +278,13 @@ def clone_chamber(chamber_id: UUID, repo: RepoDep) -> Chamber:
         category=source.category,
         description=source.description,
         settings=source.settings.model_copy(deep=True),
+        # Carried, not defaulted. The moderator is also the compliance judge, so
+        # a clone that drops it judges its turns with a different model than the
+        # source — and under `judge` it also breaks ties. A rerun is supposed to
+        # change one variable (FR-5), and it pairs with /compare/{b}. ``None``
+        # stays ``None``: pre-F8 chambers keep the first-participant fallback,
+        # and materialising it here would freeze roster order into the copy.
+        moderator=source.moderator.model_copy(deep=True) if source.moderator else None,
         participants=[
             Participant(
                 display_name=participant.display_name,

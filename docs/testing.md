@@ -123,6 +123,52 @@ Run it by hand with `make demo` (or `make demo-release` for multi-provider
 sign-off). CI runs both the pytest wrapper and a standalone demo step so the
 acceptance checklist appears in the build log.
 
+## 4c. Judge benchmark: real model output, scored offline (F9/F10)
+
+Everything above uses scripted providers, which is what makes the suite
+deterministic — and is also how a defect hid for two milestones. `parse_stance`
+was tested only against well-formed `<think>…</think>` replies; the reply shape a
+real reasoning model actually produces (narration closed by a bare `</think>`,
+no opening tag) had never been written down, so the strip silently never fired
+and the *reasoning* was parsed instead of the answer. See the 2026-08-18 bug
+entry in [`backlog.md`](./backlog.md).
+
+The fix is a fixture of real output, scored against hand-read ground truth:
+
+| fixture | what it is |
+|---|---|
+| `f10_invasion_turns.md` | 32 debate turns, prose only, no verdicts |
+| `f10_hand_labels.json` | the side each turn argues, hand-read before any verdict was seen |
+| `f10_judge_replies.json` | all 32 verbatim `qwen3:30b` judge replies |
+| `f10_baseline_verdicts.json` | the 2026-08-12 run, kept as a historical record |
+
+`tests/test_judge_benchmark.py` re-reads the stored replies with the current
+parser and asserts agreement of 31/32 — **offline, no model call, milliseconds**.
+It is an ordinary unit test and runs in the normal suite. The 32nd turn is a
+genuine judge error and is expected to stay wrong; a parser cannot fix it.
+
+To score a *prompt* or *model* change rather than a parser change, the judge has
+to actually run:
+
+```bash
+# live: re-judge all 32 turns with some model, and split fixed from broken
+python scripts/score_compliance_judge.py --model qwen3:30b \
+    --out /tmp/arm.json --compare-to tests/fixtures/f10_baseline_verdicts.json
+
+# offline: re-read the stored replies with the current parser
+python scripts/score_compliance_judge.py --reparse tests/fixtures/f10_judge_replies.json
+```
+
+Two rules this benchmark is worth nothing without. **Keep the raw replies** — a
+run that records only parsed verdicts cannot tell a provider error from an
+unreadable answer from a genuine abstention, and F10 lost two measurements that
+way. **Read `fixed` and `broken`, not just the total** — aggregate agreement is
+unchanged by an arm that repairs three turns and breaks three others.
+
+The obvious limit: 32 turns, one motion, one chamber. It detects a large effect
+and nothing subtler, and it says nothing about how a judge behaves on any other
+topic. A change whose target is one or two turns cannot be measured here at all.
+
 ## 4a. Frontend testing (Milestone 2+)
 The React/TypeScript UI (`frontend/`) has its own gates:
 - **Type-check** (`tsc --noEmit`, strict) and **lint** (`eslint`).

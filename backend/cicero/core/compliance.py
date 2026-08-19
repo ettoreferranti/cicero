@@ -170,6 +170,31 @@ def noncompliance_lines(chamber: Chamber) -> tuple[str, ...]:
 COMPLIANCE_MAX_TOKENS = 512
 
 
+@dataclass(frozen=True)
+class JudgeReading:
+    """One judge call: the side it named, and what it actually said.
+
+    ``judge`` answers ``Stance | None``, which is the right contract for the
+    debate loop — an unreadable verdict and a failed call are equally "not
+    measured", and neither may be guessed at. It is the wrong contract for
+    *measuring the judge*: the F10 quote-first run produced ``None`` on 32 of 32
+    turns and its record could not say whether the cause was a provider error, an
+    unparseable reply, or a judge that abstained, because the harness never saw
+    anything else. This keeps the three apart.
+
+    ``error`` set means the call never returned. ``reply`` set with ``stance``
+    ``None`` means the judge answered something unreadable — and the answer is
+    still here to read.
+    """
+
+    #: The parsed side, or ``None`` when the reply could not be read.
+    stance: Stance | None
+    #: The judge's verbatim reply, or ``None`` if the call failed outright.
+    reply: str | None = None
+    #: The provider's message when the call failed, else ``None``.
+    error: str | None = None
+
+
 class ComplianceJudge:
     """Reads one turn and names the side it argues.
 
@@ -187,6 +212,19 @@ class ComplianceJudge:
             allow_reasoning=False,
         )
 
+    async def read(self, topic: str, content: str) -> JudgeReading:
+        """Judge ``content``, keeping the reply and any error (see `JudgeReading`).
+
+        Used by the measurement harness, which needs to tell the failure modes
+        apart. The debate loop wants ``judge``.
+        """
+        messages = build_compliance_messages(topic, content)
+        try:
+            result = await self._provider.generate(messages, self._options)
+        except ProviderError as exc:
+            return JudgeReading(stance=None, error=str(exc))
+        return JudgeReading(stance=parse_stance(result.content), reply=result.content)
+
     async def judge(self, topic: str, content: str) -> Stance | None:
         """The side ``content`` argues, or ``None`` if it could not be read.
 
@@ -194,9 +232,4 @@ class ComplianceJudge:
         an unparseable reply are equally "not measured", and the caller records
         the absence rather than guessing.
         """
-        messages = build_compliance_messages(topic, content)
-        try:
-            result = await self._provider.generate(messages, self._options)
-        except ProviderError:
-            return None
-        return parse_stance(result.content)
+        return (await self.read(topic, content)).stance

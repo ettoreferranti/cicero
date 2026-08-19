@@ -1,6 +1,12 @@
 # Decision: do not ship quote-first compliance judging (F10)
 
 > **Status:** decided, 2026-08-14. The protocol was built, measured, and reverted.
+> **Superseded in part, 2026-08-18:** the baseline arm this record reports was
+> measured through a broken parser. 6 of its 7 "baseline errors" were
+> `parse_stance` reading the judge's reasoning instead of its answer, not judge
+> failures — see *What the baseline's errors look like* below and the backlog's
+> 2026-08-18 bug entry. The decision not to ship quote-first judging is
+> unaffected: that arm produced nothing to parse at all.
 > **Concerns:** [`2026-08-12-judge-grounding-design.md`](../specs/2026-08-12-judge-grounding-design.md)
 > and its plan [`2026-08-12-judge-grounding.md`](../plans/2026-08-12-judge-grounding.md).
 > **Related:** [`2026-08-06-chamber-scoped-positions-not-built.md`](2026-08-06-chamber-scoped-positions-not-built.md)
@@ -70,6 +76,32 @@ baseline errors are *inversions*, not abstentions — 6 straight pro↔con flips
 one `con` read as `neutral`. That is the rebuttal failure the spec predicted: a
 turn that spends four paragraphs dismantling the pro case reads as pro.
 
+> **Corrected 2026-08-18 — this paragraph was wrong, and the follow-up it
+> motivated was aimed at almost nothing.**
+>
+> Six of those seven errors were not the judge. `parse_stance` strips reasoning
+> with a regex requiring an opening `<think>` tag; Ollama with `think: false`
+> emits the narration closed by a bare `</think>` and no opening tag, so the
+> strip never fired and the narration — which quotes the instruction's own word
+> list — was parsed instead of the answer. On these exact 32 replies the judge
+> had reasoned to the correct answer and said so.
+>
+> | parsed from | agreement | unmeasured |
+> |---|---|---|
+> | the whole reply (as measured here) | 25/32 | 0 |
+> | after the final `</think>` (fixed) | **31/32** | 0 |
+>
+> The real residue is **one** turn, `614d9e5b` — a genuine pro rebuttal read as
+> con. That much of this record stands: the rebuttal inversion is real. Its size
+> does not.
+>
+> This is exactly the failure the *What is not known* section above warned about,
+> one level up: that section worried the harness could not explain the treatment
+> arm's nulls, and the same blindness was hiding a defect in the **baseline**.
+> Recording only parsed verdicts cost two measurements, not one. The replies are
+> now committed (`tests/fixtures/f10_judge_replies.json`) and re-scoreable
+> offline.
+
 ## What was kept
 
 - **The fixtures.** `f10_invasion_turns.md`, `f10_hand_labels.json`,
@@ -105,10 +137,16 @@ back to writing flat verdicts.
   is format, the design is untested rather than refuted.
 - **The rebuttal clause was never measured on its own.** The reverted prompt
   bundled two changes: the quote-first protocol *and* a sentence warning that an
-  argument may quote or attack a position in order to argue against it. Since all
-  7 baseline errors are inversions of exactly that kind, adding that clause to the
-  shipped one-word prompt is a cheap, separable experiment against a benchmark
-  that now exists. It was not run, and this decision says nothing about it.
+  argument may quote or attack a position in order to argue against it. Adding
+  that clause to the shipped one-word prompt is a separable experiment, and this
+  decision says nothing about it.
+
+  **Revised 2026-08-18.** This was written as "cheap, against 7 errors of exactly
+  that kind". After the parser fix the target is **1** turn out of 32, which no
+  run over this fixture can resolve — a one-turn move is indistinguishable from
+  noise. The clause is still untested, but it now needs a *larger hand-read
+  benchmark* first, and that is the expensive part. Do not re-run it on the
+  invasion fixture and read anything into the result.
 
 Reproduce either arm with:
 

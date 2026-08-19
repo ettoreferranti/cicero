@@ -86,6 +86,75 @@ def test_parse_stance_ignores_reasoning_narration() -> None:
     assert parse_stance("<think>pro pro pro</think> neutral") is Stance.NEUTRAL
 
 
+def test_parse_stance_ignores_narration_closed_without_an_opening_tag() -> None:
+    """Ollama with ``think: false`` writes the narration into ``content`` and
+    closes it with a bare ``</think>`` — no opening tag, so a matched-pair strip
+    never fires and the narration gets parsed instead of the answer.
+
+    Measured on the F10 benchmark: of 32 qwen3:30b compliance replies, 0 carried
+    an opening ``<think>`` and 32 carried the closing one. Six of the seven
+    apparent judge errors were this — the judge reasoned its way to the right
+    answer, said so, and was recorded as the opposite, because the narration
+    quotes the instruction ("only report pro, con, or neutral") and the first
+    stance word in that quotation wins.
+    """
+    reply = (
+        "Okay, let me break this down. The instructions say to report only "
+        "'pro', 'con', or 'neutral'. This argument refutes the motion entirely, "
+        "so the answer must be con.\n</think>\ncon"
+    )
+    assert parse_stance(reply) is Stance.CON
+
+
+def test_parse_stance_reads_the_answer_after_the_last_unopened_close() -> None:
+    assert parse_stance("musing about pro\n</think>\nneutral") is Stance.NEUTRAL
+
+
+def test_parse_stance_is_unreadable_when_nothing_follows_the_narration() -> None:
+    """A model that narrated and then said nothing has not answered. Parsing the
+    narration would manufacture a stance out of the reasoning's first stray word
+    — the exact failure this strip exists to prevent."""
+    assert parse_stance("I think the answer is pro, probably.</think>") is None
+    assert parse_stance("weighing pro and con</think>   ") is None
+
+
+def test_parse_stance_still_reads_a_reply_with_no_reasoning_at_all() -> None:
+    assert parse_stance("con") is Stance.CON
+    assert parse_stance("I lean con, definitely not pro") is Stance.CON
+
+
+def test_parse_stance_reads_a_one_word_answer_a_strip_left_behind() -> None:
+    """A strip must leave the answer *clean*, not the answer plus debris.
+
+    'yes' is read only on the single-word path — deliberately, because in prose it
+    opens sentences that go on to say the opposite. So a strip that substitutes
+    anything but whitespace turns a perfectly readable one-word reply into an
+    unmeasured one, silently, and the poll falls back to the debater's assigned
+    starting stance. That is the fabricated-data failure twice already in this
+    module's history.
+    """
+    assert parse_stance("weighing it up</think>\nyes") is Stance.PRO
+    assert parse_stance("yes<think>on reflection, still yes</think>") is Stance.PRO
+
+
+def test_parse_stance_keeps_an_answer_that_precedes_a_matched_block() -> None:
+    """Why both strips exist rather than just the greedy one.
+
+    The unopened strip drops everything up to the last ``</think>``, so on its own
+    it would swallow an answer a model put *before* its narration. Removing the
+    matched pair first leaves that answer standing. The newline matters too: the
+    pair is matched with DOTALL because real narration spans lines.
+    """
+    assert parse_stance("con\n<think>musing\nabout pro</think>") is Stance.CON
+
+
+def test_parse_stance_strips_a_matched_block_that_precedes_a_bare_close() -> None:
+    """Both strips must compose: the pair goes first, then whatever unopened
+    narration is left over."""
+    reply = "<think>maybe pro</think> more musing about pro</think> con"
+    assert parse_stance(reply) is Stance.CON
+
+
 def test_parse_stance_prefers_earliest_keyword() -> None:
     # "con" appears before "pro" here → con wins.
     assert parse_stance("I lean con, definitely not pro") is Stance.CON

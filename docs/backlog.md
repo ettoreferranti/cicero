@@ -352,6 +352,70 @@ cleared when a reload shows the roster caught up; and Mute/Unmute stays
 available on a concluded chamber, where it changes the roster and never the
 stored consensus.
 
+### Bug — the stance parser read the model's reasoning, not its answer (2026-08-18)
+
+Found while setting up the F10 follow-up experiment, from the raw judge replies
+the old harness never recorded.
+
+`parse_stance` strips reasoning with `_THINK_BLOCK = <think>.*?</think>`, which
+requires the **opening** tag. Ollama asked for `think: false` does not send one:
+qwen3:30b writes its narration straight into `content` and closes it with a bare
+`</think>`. Across the 32 F10 benchmark replies, **0 carried an opening tag and
+32 carried the closing one**, so the strip never fired once and the whole
+narration was parsed.
+
+The narration quotes the instruction back to itself — *"the user wants me to
+report only 'pro', 'con', or 'neutral'"* — and the first stance word in that
+quotation won. The judge's actual answer, sitting after the `</think>`, was never
+reached. A representative reply recorded as `pro`:
+
+> "This argument is entirely against the motion, so the answer must be `con`. […]"
+> `</think>`
+> `con`
+
+Measured on the hand-read F10 benchmark, changing only where the stance is read
+from and nothing else:
+
+| parsed from | agreement with hand labels | unmeasured |
+|---|---|---|
+| the whole reply (shipped) | 25/32 | 0 |
+| after the final `</think>` | **31/32** | 0 |
+
+**Six of the seven "judge errors" recorded in F10 were this bug, not the judge.**
+The judge had reasoned to the correct answer and said so. Re-run live against
+`qwen3:30b`: 6 fixed, 0 broken.
+
+Not confined to the compliance judge — `parse_stance` is shared with the
+**stance poll**, where a wrong value feeds the decision rule and the recorded
+winning stance. Probed directly against the live model: a debater answering `con`
+parsed as `pro` before the fix. That is the same fabricated-data-reaching-the-tally
+failure as the two stance bugs above, a third time, one layer up.
+
+Fixed: `_strip_reasoning` drops matched blocks first, then anything up to and
+including an unmatched closing tag. A reply that is *all* narration now comes back
+empty and reads as unmeasured, which is the honest answer for a model that
+thought out loud and never committed. Both strips are load-bearing and both are
+now pinned by tests — the matched pair protects an answer written *before* a
+reasoning block, which the greedy strip alone would swallow.
+
+The tests missed it because every fixture used a well-formed `<think>…</think>`
+pair. No test had ever been written against a reply a real model actually
+produced. `tests/fixtures/f10_judge_replies.json` now holds all 32 verbatim
+qwen3:30b replies, and `scripts/score_compliance_judge.py --reparse` re-reads them
+with the current parser and scores against the hand labels **offline, with no
+model call** — which is how this defect should have been caught and how the next
+one will be.
+
+#### Knock-on: what F10's numbers actually measured
+
+The F10 decision record reports 7 baseline errors, "all pro↔con inversions on
+rebuttals", and names the rebuttal-warning clause as a cheap separable experiment
+against them. Six of those 7 were the parser. The real target is **one** turn
+(`614d9e5b`), which is a genuine judge inversion on a rebuttal and remains
+unfixed — too small to measure a prompt change against on this fixture. The
+clause is therefore still untested, and now needs a larger benchmark rather than a
+cheap re-run. Recorded in that decision record too.
+
 ## Cross-cutting "Definition of Done" (every story)
 1. Code + tests (unit/integration) with providers mocked.
 2. Mutation score on touched core logic meets threshold (or justified exclusion).

@@ -206,6 +206,10 @@ def test_add_participant_accepts_tuning(client: TestClient) -> None:
         "max_tokens": 1500,
         "persona": "a cautious economist",
         "instructions": "terse",
+        # Added by issue #28. Kept as an exact assertion on purpose: the tuning
+        # block is part of the API response shape, and an accidental change to it
+        # should fail here rather than surface in a client.
+        "allow_reasoning": True,
     }
     # Out-of-range tuning is rejected, not clamped.
     bad = client.post(
@@ -955,6 +959,53 @@ def test_configured_moderator_is_used_instead_of_the_first_participant() -> None
 
     # Debater turns run on "scripted"; only the moderator call uses its own model.
     assert "moderator-model" in seen
+
+
+def test_participant_tuning_accepts_reasoning_control(client: TestClient) -> None:
+    """The setting has to be reachable from the API, which is the whole point of
+    issue #28: the flag already existed on GenerateOptions, but nothing outside
+    the engine could ask for it."""
+    cid = _create_chamber(client)
+    resp = client.post(
+        f"/chambers/{cid}/participants",
+        json={
+            "display_name": "Quiet",
+            "provider": "mock",
+            "model": "scripted",
+            "stance": "pro",
+            "tuning": {"allow_reasoning": False},
+        },
+    )
+    assert resp.status_code == 201
+    tuning = resp.json()["participants"][0]["tuning"]
+    assert tuning["allow_reasoning"] is False
+    # Untouched fields keep their defaults rather than being reset by the partial
+    # tuning block.
+    assert tuning["max_tokens"] == ParticipantTuning().max_tokens
+
+
+def test_participant_tuning_defaults_to_allowing_reasoning(client: TestClient) -> None:
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    chamber = client.get(f"/chambers/{cid}").json()
+    assert chamber["participants"][0]["tuning"]["allow_reasoning"] is True
+
+
+def test_reasoning_control_survives_a_participant_edit(client: TestClient) -> None:
+    """PATCH replaces the whole tuning block, so a caller that sends tuning
+    without this field gets the default back — worth pinning, because silently
+    re-enabling reasoning would truncate turns again with nothing to show why."""
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Ada", "pro")
+    pid = client.get(f"/chambers/{cid}").json()["participants"][0]["id"]
+    resp = client.patch(
+        f"/chambers/{cid}/participants/{pid}",
+        json={"tuning": {"allow_reasoning": False, "max_tokens": 2400}},
+    )
+    assert resp.status_code == 200
+    tuning = resp.json()["participants"][0]["tuning"]
+    assert tuning["allow_reasoning"] is False
+    assert tuning["max_tokens"] == 2400
 
 
 def test_clone_keeps_the_configured_moderator() -> None:

@@ -412,6 +412,10 @@ class DebateEngine:
                 model=participant.model,
                 temperature=participant.tuning.temperature,
                 max_tokens=participant.tuning.max_tokens,
+                # Without this a thinking model spends the turn budget reasoning
+                # and the speech gets the remainder — silently, since a truncated
+                # turn is stored like any other (issue #28).
+                allow_reasoning=participant.tuning.allow_reasoning,
             )
             citations: list[Citation] = []
             try:

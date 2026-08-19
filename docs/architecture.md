@@ -186,6 +186,15 @@ erDiagram
     text excerpt
   }
 ```
+`PARTICIPANT.tuning` holds per-debater generation settings: `temperature`,
+`max_tokens`, `persona`, `instructions` (FR-11), and `allow_reasoning`. The last
+defaults to `True` and matters only for models with a reasoning mode: Ollama
+counts reasoning tokens against the same budget as the reply but returns them in
+a separate field, so leaving it on means `max_tokens` is shared between the
+model's invisible narration and its actual turn. Set it `False` when the budget
+needs to mean the turn — measured, a thinking model spent 1400 of 1400 tokens
+and returned as little as 0 characters of speech.
+
 `CHAMBER.settings` holds the per-chamber debate tuning (round/token/time budgets,
 `min_rounds`, `convergence_rounds`, `decision_rule`, `web_evidence`);
 `CHAMBER.config` holds the *outcome* of a run (`stop_reason`, `rounds_completed`,

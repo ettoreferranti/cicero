@@ -105,6 +105,10 @@ class TuningIn(BaseModel):
         max_length=500,
         validation_alias=AliasChoices("instructions", "style"),
     )
+    # Mirrors the domain default. See ParticipantTuning.allow_reasoning: on a
+    # thinking model max_tokens is otherwise shared with invisible reasoning,
+    # so the turn gets whatever is left and is stored truncated without a word.
+    allow_reasoning: bool = True
 
 
 class ParticipantCreate(BaseModel):

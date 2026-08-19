@@ -80,6 +80,18 @@ class ParticipantTuning(_Base):
         max_length=500,
         validation_alias=AliasChoices("instructions", "style"),
     )
+    #: Whether this debater's model may "think" before writing its turn.
+    #:
+    #: ``True`` keeps the behaviour every chamber has had: reasoning is useful in
+    #: a debate, and the defect it caused was that it was *unbudgeted*, not that
+    #: it existed. Ollama counts reasoning tokens against the same budget as the
+    #: reply but returns them in a separate field, so on a thinking model
+    #: ``max_tokens`` is shared between invisible narration and the speech, in
+    #: that order — measured on muse-glimmer:30b-mlx at 1400 tokens, three
+    #: samples spent 3733-6319 characters thinking and returned 0-2635 of
+    #: content, every one cut mid-sentence. Set ``False`` when the turn budget
+    #: needs to mean the turn.
+    allow_reasoning: bool = True
 
 
 class DebateSettings(_Base):

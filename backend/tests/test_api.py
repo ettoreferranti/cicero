@@ -957,6 +957,68 @@ def test_configured_moderator_is_used_instead_of_the_first_participant() -> None
     assert "moderator-model" in seen
 
 
+def test_clone_keeps_the_configured_moderator() -> None:
+    """A clone is the documented rerun path (FR-5), paired with /compare for
+    run-vs-run comparison — so it must not change the arbiter behind the run.
+
+    The moderator is also the compliance judge, so dropping it means the clone's
+    ``argued`` verdicts come from a different model than the source's; and under
+    ``decision_rule: judge`` it breaks ties, so the outcome can move for reasons
+    unrelated to whatever the rerun set out to vary.
+
+    The moderator here is deliberately NOT the first participant's model, and its
+    temperature is deliberately non-default: the ``moderator is None`` fallback
+    builds ``Moderator(provider=..., model=participants[0].model)`` with field
+    defaults, so a weaker assertion passes by accident.
+    """
+    repo = InMemoryChamberRepository()
+    factory = ConstantFactory(MockProvider(models=["scripted", "moderator-model"]))
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repo
+    app.dependency_overrides[get_provider_factory] = lambda: factory
+    app.dependency_overrides[get_debate_manager] = lambda: DebateManager()
+    with TestClient(app) as client:
+        resp = client.post(
+            "/chambers",
+            json={
+                "topic": "Should we colonise Mars?",
+                "moderator": {
+                    "provider": "mock",
+                    "model": "moderator-model",
+                    "max_tokens": 8192,
+                    "temperature": 0.0,
+                },
+            },
+        )
+        assert resp.status_code == 201
+        cid = resp.json()["id"]
+        _add_participant(client, cid, "Pro-A", "pro")
+        _add_participant(client, cid, "Con-B", "con")
+
+        clone = client.post(f"/chambers/{cid}/clone").json()
+    app.dependency_overrides.clear()
+
+    assert clone["moderator"] is not None, "the clone fell back to participants[0]"
+    assert clone["moderator"] == {
+        "provider": "mock",
+        "model": "moderator-model",
+        "max_tokens": 8192,
+        "temperature": 0.0,
+    }
+
+
+def test_clone_of_a_chamber_without_a_moderator_still_has_none(client: TestClient) -> None:
+    """Pre-F8 chambers, and anyone who omits the field, keep the first-participant
+    fallback. ``None`` must stay ``None`` rather than being materialised into a
+    concrete moderator at clone time — that would freeze roster order into the
+    copy, which is the coupling F8 removed."""
+    cid = _create_chamber(client)
+    _add_participant(client, cid, "Pro-A", "pro")
+    _add_participant(client, cid, "Con-B", "con")
+    clone = client.post(f"/chambers/{cid}/clone").json()
+    assert clone["moderator"] is None
+
+
 def test_build_engine_wires_the_moderators_compliance_judge() -> None:
     """``_build_engine`` must construct and pass a ``ComplianceJudge`` that uses
     the moderator's own model — deleting ``judge=judge`` from the wiring in

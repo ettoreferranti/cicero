@@ -469,6 +469,60 @@ turn, so a cut speech cannot be identified after the fact — by the compliance
 judge, by repetition detection, by an export, or by a reader. That is the deeper
 fix and is left open in #28.
 
+### Bug — a reasoning model's narration was stored as the turn itself (2026-08-20)
+
+Filed as #30, found in the same rhetoric experiment as the entry above and
+directly caused by its fix.
+
+`allow_reasoning=False` maps to Ollama's `think: false`, which does not silence
+every reasoning model. `qwen3:30b` responds by writing its narration into
+**`content`** instead of the separate `thinking` field, terminated by a bare
+`</think>` that was never opened. One real turn:
+
+> Okay, let me unpack this. The user wants me to continue as "Castellan" in a
+> structured EU immigration debate… *checks rules again* Must avoid bullet
+> points, write like a rally speech, ~4000 characters…
+> `</think>`
+> [the actual speech]
+
+2,814 characters of deliberation, then 2,294 of speech. Across one 30-turn run,
+**6 of 6** turns from that model, 16,471 characters of task narration stored as
+argument. The other four models in the roster were clean.
+
+Note the direction: with reasoning *on*, 1 turn in 6; with it *off*, 6 of 6.
+Suppressing reasoning moved the narration out of a field nothing reads and into
+the one everything reads. The `_JUDGE_ATTEMPTS` note already recorded the
+mechanism — "because it re-asks with reasoning suppressed, makes a reasoning
+model narrate instead of answering" — for the retry path only.
+
+`parse_stance` had been taught to strip exactly this. Turn content never was, and
+it is read by more: the compliance judge (so `argued` was decided from prose
+discussing *both* sides and the instructions), repetition detection (narration
+boilerplate is more alike than the speeches inside it, which pushes
+`round_all_repeated` toward an early stop), the moderator's transcript, exports,
+and the reader.
+
+Fixed by stripping when the turn is recorded, beside `strip_echoed_speaker_label`
+which already handled the cosmetic version of the same problem. Two decisions
+worth stating:
+
+- **Stripped, not destroyed.** The narration is kept on the turn under
+  `metadata["reasoning"]`, present only when there was some. `turns` is
+  append-only and the narration is evidence about how the turn was produced; a
+  strip nobody can audit is its own kind of unreadable record.
+- **One implementation.** `_strip_reasoning` moved out of `consensus.py` into
+  `prompt_builder.strip_reasoning`, which both callers now use. This defect
+  existed *because* the stance parser stripped and the turn path did not; two
+  copies of the rule would let them drift apart again.
+
+A turn that is **all** narration now has empty content — the engine's existing
+"this debater did not speak" state, which already skips judging and cannot match
+a repeat — with the narration still on the turn.
+
+**Not fixed:** a turn still carries no provenance about how it was produced.
+Nothing records `done_reason`, so a *truncated* turn remains as invisible as this
+one was. Both are the same gap; the truncation half is still open on #28.
+
 ## Cross-cutting "Definition of Done" (every story)
 1. Code + tests (unit/integration) with providers mocked.
 2. Mutation score on touched core logic meets threshold (or justified exclusion).

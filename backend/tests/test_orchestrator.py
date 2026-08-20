@@ -11,6 +11,7 @@ from cicero.core.budget import DebateBudget
 from cicero.core.compliance import ARGUED_KEY, ComplianceJudge
 from cicero.core.consensus import ConsensusEngine
 from cicero.core.orchestrator import (
+    REASONING_KEY,
     DebateEngine,
     TurnLimit,
     participants_spoken,
@@ -1416,3 +1417,163 @@ async def test_a_turn_allows_reasoning_by_default() -> None:
     seen = ada_provider.turn_options(ada) + bob_provider.turn_options(bob)
     assert seen
     assert all(o.allow_reasoning is True for o in seen)
+
+
+# --- Reasoning narration in turn content (issue #30) --------------------------
+
+NARRATION = (
+    "Okay, let me unpack this. The user wants me to continue as Castellan in a "
+    "structured debate. *checks rules again* Must avoid bullet points."
+)
+
+
+def _debater_turns(chamber: Chamber) -> list[Turn]:
+    return [t for t in chamber.turns if t.participant_id is not None]
+
+
+async def test_a_turn_records_the_speech_not_the_models_narration() -> None:
+    """Ollama's `think: false` does not silence every reasoning model — qwen3:30b
+    answers by writing the narration into `content` instead of the separate
+    `thinking` field, closed by a bare `</think>` that was never opened.
+
+    Measured in a real run: 6 of 6 turns from that model, 16,471 characters of
+    task deliberation stored as argument. `parse_stance` was taught to strip
+    exactly this; the turn path never was, and it feeds the compliance judge,
+    repetition detection, the moderator's transcript, exports and the UI.
+    """
+    ada, bob = make_participant("Ada", Stance.PRO), make_participant("Bob", Stance.CON)
+    chamber = make_chamber(ada, bob)
+    provider = ScriptedProvider(
+        argument=f"{NARRATION}</think>\nFriends, we must act.",
+        moderator_reply="STATEMENT.",
+    )
+    repo = InMemoryChamberRepository()
+    factory = StubFactory({ada.id: provider, bob.id: provider})
+
+    await _engine(factory, repo).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+
+    turns = _debater_turns(chamber)
+    assert turns
+    for turn in turns:
+        assert turn.content.startswith("Friends, we must act.")
+        assert "Okay, let me unpack this" not in turn.content
+        assert "</think>" not in turn.content
+
+
+async def test_the_stripped_narration_is_kept_on_the_turn() -> None:
+    """Stripped from the argument, not destroyed. `turns` is append-only and the
+    narration is evidence about how the turn was produced — a silent strip is its
+    own kind of unreadable record."""
+    ada, bob = make_participant("Ada", Stance.PRO), make_participant("Bob", Stance.CON)
+    chamber = make_chamber(ada, bob)
+    provider = ScriptedProvider(
+        argument=f"{NARRATION}</think>\nFriends, we must act.",
+        moderator_reply="STATEMENT.",
+    )
+    repo = InMemoryChamberRepository()
+
+    await _engine(StubFactory({ada.id: provider, bob.id: provider}), repo).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+
+    turn = _debater_turns(chamber)[0]
+    kept = turn.metadata.get(REASONING_KEY)
+    assert isinstance(kept, str)
+    assert "Okay, let me unpack this" in kept
+    # The literal, not just the constant. `metadata` round-trips through JSON and
+    # is read outside this process — exports, and anything analysing a run — so
+    # the key is a wire format, and renaming the constant alone must not silently
+    # change it. Same reason the suite spells "argued" out.
+    assert "reasoning" in turn.metadata
+
+
+async def test_a_turn_without_narration_is_untouched() -> None:
+    """No key, not an empty one: a reader must be able to tell "nothing was
+    stripped" from "the narration was empty"."""
+    ada, bob = make_participant("Ada", Stance.PRO), make_participant("Bob", Stance.CON)
+    chamber = make_chamber(ada, bob)
+    provider = ScriptedProvider(argument="Friends, we must act.", moderator_reply="S.")
+    repo = InMemoryChamberRepository()
+
+    await _engine(StubFactory({ada.id: provider, bob.id: provider}), repo).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+
+    turn = _debater_turns(chamber)[0]
+    assert turn.content.startswith("Friends, we must act.")
+    assert REASONING_KEY not in turn.metadata
+
+
+async def test_a_turn_that_is_all_narration_has_no_content() -> None:
+    """It said nothing. Recording the narration as the argument would put the
+    model's deliberation in front of the judge, the moderator and the reader as
+    though it were a speech; keeping it as content is the defect, not the fix.
+
+    Empty content is already the engine's "this debater did not speak" state — the
+    provider-failure path sets exactly that — so the existing machinery skips
+    judging it and no new failure mode is introduced.
+    """
+
+
+    class AllNarration(ScriptedProvider):
+        """Returns narration and nothing else for a turn.
+
+        ScriptedProvider appends a distinct point to every turn so fixtures do
+        not trip the repetition stop, which would leave speech after the tag —
+        the one thing this test needs absent.
+        """
+
+        async def generate(
+            self, messages: list[Message], options: GenerateOptions
+        ) -> GenerateResult:
+            before = self.turn_calls
+            result = await super().generate(messages, options)
+            if self.turn_calls == before:
+                return result  # a stance poll or the moderator
+            return GenerateResult(
+                content=f"{NARRATION}</think>", prompt_tokens=5, completion_tokens=5
+            )
+
+    ada, bob = make_participant("Ada", Stance.PRO), make_participant("Bob", Stance.CON)
+    chamber = make_chamber(ada, bob)
+    provider = AllNarration(moderator_reply="S.")
+    repo = InMemoryChamberRepository()
+
+    await _engine(StubFactory({ada.id: provider, bob.id: provider}), repo).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+
+    turn = _debater_turns(chamber)[0]
+    assert turn.content == ""
+    assert "Okay, let me unpack this" in str(turn.metadata.get(REASONING_KEY))
+
+
+async def test_the_compliance_judge_reads_the_speech_not_the_narration() -> None:
+    """The judge is asked which side a turn argues. Narration discusses both sides
+    and the instructions, so judging it is judging the wrong text — and `argued`
+    is recorded per turn and drives the F9 caveat."""
+    seen: list[str] = []
+
+    class Watching(ComplianceJudge):
+        async def judge(self, topic: str, content: str) -> Stance | None:
+            seen.append(content)
+            return await super().judge(topic, content)
+
+    ada, bob = make_participant("Ada", Stance.PRO), make_participant("Bob", Stance.CON)
+    chamber = make_chamber(ada, bob)
+    provider = ScriptedProvider(
+        argument=f"{NARRATION}</think>\nFriends, we must act.",
+        moderator_reply="STATEMENT.",
+    )
+    repo = InMemoryChamberRepository()
+    factory = StubFactory({ada.id: provider, bob.id: provider})
+    judge = Watching(MockProvider(scripted=["pro", "pro"]), "mock-small")
+
+    await _engine(factory, repo, judge=judge).run(
+        chamber, DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    )
+
+    assert seen
+    assert all("Okay, let me unpack this" not in text for text in seen)

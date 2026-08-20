@@ -31,6 +31,7 @@ from cicero.core.prompt_builder import (
     KIND_MODERATOR_NOTE,
     build_turn_messages,
     strip_echoed_speaker_label,
+    strip_reasoning,
 )
 from cicero.core.repetition import (
     REPEATED,
@@ -58,6 +59,11 @@ from cicero.providers.base import (
     Role,
 )
 from cicero.providers.factory import ProviderFactory
+
+#: Where a turn keeps the narration that was stripped out of it (issue #30).
+#: Present only when there was some, so a reader can tell "nothing was stripped"
+#: from "the narration was empty".
+REASONING_KEY = "reasoning"
 
 MIN_PARTICIPANTS = 2
 
@@ -420,15 +426,31 @@ class DebateEngine:
             citations: list[Citation] = []
             try:
                 result = await self._generate_turn(provider, messages, options, session)
+                # Reasoning first: Ollama's `think: false` does not silence
+                # every model — qwen3:30b writes its narration into `content`
+                # instead of the separate `thinking` field, closed by a bare
+                # `</think>`. That narration is not argument, and it reaches the
+                # compliance judge, repetition detection, the moderator's
+                # transcript, exports and the reader (issue #30). Stripped before
+                # the speaker label, since the narration can carry one of its own.
+                content, narration = strip_reasoning(result.content)
                 # Models sometimes imitate the transcript and prefix their reply
                 # with a speaker label; that is formatting, not argument.
-                content = strip_echoed_speaker_label(result.content)
+                content = strip_echoed_speaker_label(content)
                 metadata: dict[str, object] = {
                     "provider": participant.provider.value,
                     "prompt_tokens": result.prompt_tokens,
                     "completion_tokens": result.completion_tokens,
                     "phase": "converge" if converge else "open",
                 }
+                # Kept, not destroyed. `turns` is append-only and the narration is
+                # evidence about how the turn was produced; a strip nobody can
+                # audit is its own kind of unreadable record. A turn that was
+                # *all* narration keeps it here with empty content — the engine's
+                # existing "this debater did not speak" state, which already skips
+                # judging and cannot match a repeat.
+                if narration:
+                    metadata[REASONING_KEY] = narration
                 if session is not None and session.queries:
                     metadata["searches"] = list(session.queries)
                     citations = list(session.citations)

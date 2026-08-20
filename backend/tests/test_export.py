@@ -149,8 +149,8 @@ def test_markdown_labels_system_authored_turns() -> None:
     # System turns are attributed to their role, never to a debater. Assert the
     # rendered heading, not just the content: dropping the speaker label entirely
     # would leave the content present and only the attribution wrong.
-    assert "### Round 1 — Moderator note" in md
-    assert "### Round 1 — Research (web evidence)" in md
+    assert "### Round 1 - Moderator note" in md
+    assert "### Round 1 - Research (web evidence)" in md
     assert "Stay concrete." in md
     assert "Background reading." in md
     # Scoped to the transcript section: the token-use table further down names
@@ -163,7 +163,7 @@ def test_markdown_labels_system_authored_turns() -> None:
 def test_markdown_labels_a_turn_from_an_unknown_participant() -> None:
     chamber = make_chamber(make_participant("Ada", Stance.PRO))
     chamber.turns.append(Turn(participant_id=uuid4(), round_index=0, content="Who said this?"))
-    assert "— unknown" in to_markdown(chamber)
+    assert "- unknown" in to_markdown(chamber)
 
 
 def test_markdown_renders_citations_with_title_or_url_fallback() -> None:
@@ -252,7 +252,7 @@ def test_markdown_leads_with_the_headline() -> None:
 
 def test_markdown_shows_the_derived_outcome_facts() -> None:
     md = to_markdown(_concluded_with_headline())
-    assert "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)" in md
+    assert "- **Support:** contested: 2 of 3 debaters settled on neutral (1 con)" in md
     assert "- **How decided:** majority of final positions" in md
 
 
@@ -274,7 +274,7 @@ def test_markdown_lists_who_moved() -> None:
         ),
     ]
     md = to_markdown(chamber)
-    assert "- **Recorded stance changes:** Ada (pro→neutral), Zeno (con→neutral)" in md
+    assert "- **Recorded stance changes:** Ada (pro to neutral), Zeno (con to neutral)" in md
 
 
 def test_markdown_omits_the_movement_line_when_nobody_moved() -> None:
@@ -289,7 +289,7 @@ def test_markdown_falls_back_to_the_old_shape_without_a_headline() -> None:
     # derived facts are shown alongside it.
     assert "## Outcome: majority" in md
     assert "**Winning position:** neutral" in md
-    assert "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)" in md
+    assert "- **Support:** contested: 2 of 3 debaters settled on neutral (1 con)" in md
 
 
 def test_json_export_carries_the_derived_summary_beside_the_chamber() -> None:
@@ -300,7 +300,7 @@ def test_json_export_carries_the_derived_summary_beside_the_chamber() -> None:
     )
     assert data["outcome_summary"] == {
         "headline": "Mars should wait for cheaper launch costs.",
-        "support": "contested — 2 of 3 debaters settled on neutral (1 con)",
+        "support": "contested: 2 of 3 debaters settled on neutral (1 con)",
         "decided_by": "majority of final positions",
         "movements": [],
         # Two debaters settled on neutral, so the labels above need qualifying.
@@ -371,21 +371,21 @@ def test_markdown_matches_expected_layout_for_a_simple_debate() -> None:
             "| Zeno | mock/scripted | con | 0.7 | 2048 | on |",
             "",
             "## Transcript",
-            "### Round 1 — Ada",
+            "### Round 1 - Ada",
             "",
-            "**mock/scripted** · assigned **pro**",
+            "**mock/scripted**, assigned **pro**",
             "",
             "Mars matters.",
             "",
-            "### Round 1 — Zeno",
+            "### Round 1 - Zeno",
             "",
-            "**mock/scripted** · assigned **con**",
+            "**mock/scripted**, assigned **con**",
             "",
             "Too costly.",
             "",
             "## Outcome: disagreement",
             "",
-            "- **Support:** unmeasured — no debater's final position could be read",
+            "- **Support:** unmeasured: no debater's final position could be read",
             "- **How decided:** unresolved under the judge rule",
             "",
             "No agreement reached.",
@@ -435,15 +435,15 @@ def test_markdown_matches_expected_layout_for_stance_history_with_unparsed() -> 
             "| Zeno | mock/scripted | con | 0.7 | 2048 | on |",
             "",
             "## Transcript",
-            "### Round 1 — Ada",
+            "### Round 1 - Ada",
             "",
-            "**mock/scripted** · assigned **pro**",
+            "**mock/scripted**, assigned **pro**",
             "",
             "Mars matters.",
             "",
-            "### Round 1 — Zeno",
+            "### Round 1 - Zeno",
             "",
-            "**mock/scripted** · assigned **con**",
+            "**mock/scripted**, assigned **con**",
             "",
             "Too costly.",
             "",
@@ -452,12 +452,12 @@ def test_markdown_matches_expected_layout_for_stance_history_with_unparsed() -> 
             "|---|---|---|",
             "| 1 | pro | con (?) |",
             "",
-            "`(?)` — the debater's reply could not be read; the previous value "
+            "`(?)`: the debater's reply could not be read; the previous value "
             "was carried forward and is not evidence of their position.",
             "",
             "## Outcome: disagreement",
             "",
-            "- **Support:** unmeasured — no debater's final position could be read",
+            "- **Support:** unmeasured: no debater's final position could be read",
             "- **How decided:** unresolved under the judge rule",
             "",
             "No agreement reached.",
@@ -515,15 +515,15 @@ def test_markdown_matches_expected_layout_for_the_headline_with_movements() -> N
             "| Kant | mock/scripted | con | 0.7 | 2048 | on |",
             "",
             "## Transcript",
-            "### Round 1 — Ada",
+            "### Round 1 - Ada",
             "",
-            "**mock/scripted** · assigned **pro**",
+            "**mock/scripted**, assigned **pro**",
             "",
             "Mars matters.",
             "",
-            "### Round 1 — Zeno",
+            "### Round 1 - Zeno",
             "",
-            "**mock/scripted** · assigned **con**",
+            "**mock/scripted**, assigned **con**",
             "",
             "Too costly.",
             "",
@@ -537,13 +537,13 @@ def test_markdown_matches_expected_layout_for_the_headline_with_movements() -> N
             "",
             "**The chamber concluded:** Mars should wait for cheaper launch costs.",
             "",
-            "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)",
+            "- **Support:** contested: 2 of 3 debaters settled on neutral (1 con)",
             "- **How decided:** majority of final positions",
-            "- **Recorded stance changes:** Ada (pro→neutral), Zeno (con→neutral)",
+            "- **Recorded stance changes:** Ada (pro to neutral), Zeno (con to neutral)",
             "",
             "*Stance labels record how each debater answered a three-word poll, "
             "not what they argued. A neutral answer covers both holding no "
-            "position and holding a compromise the poll has no word for — read "
+            "position and holding a compromise the poll has no word for; read "
             "the transcript for what a debater actually held.*",
             "",
             "The majority prevailed.",
@@ -588,27 +588,27 @@ def test_markdown_matches_expected_layout_for_the_fallback_without_a_headline() 
             "| Kant | mock/scripted | con | 0.7 | 2048 | on |",
             "",
             "## Transcript",
-            "### Round 1 — Ada",
+            "### Round 1 - Ada",
             "",
-            "**mock/scripted** · assigned **pro**",
+            "**mock/scripted**, assigned **pro**",
             "",
             "Mars matters.",
             "",
-            "### Round 1 — Zeno",
+            "### Round 1 - Zeno",
             "",
-            "**mock/scripted** · assigned **con**",
+            "**mock/scripted**, assigned **con**",
             "",
             "Too costly.",
             "",
             "## Outcome: majority",
             "**Winning position:** neutral",
             "",
-            "- **Support:** contested — 2 of 3 debaters settled on neutral (1 con)",
+            "- **Support:** contested: 2 of 3 debaters settled on neutral (1 con)",
             "- **How decided:** majority of final positions",
             "",
             "*Stance labels record how each debater answered a three-word poll, "
             "not what they argued. A neutral answer covers both holding no "
-            "position and holding a compromise the poll has no word for — read "
+            "position and holding a compromise the poll has no word for; read "
             "the transcript for what a debater actually held.*",
             "",
             "The majority prevailed.",
@@ -656,22 +656,22 @@ def test_markdown_matches_expected_layout_for_a_verdict_with_a_winner() -> None:
             "| Zeno | mock/scripted | con | 0.7 | 2048 | on |",
             "",
             "## Transcript",
-            "### Round 1 — Ada",
+            "### Round 1 - Ada",
             "",
-            "**mock/scripted** · assigned **pro**",
+            "**mock/scripted**, assigned **pro**",
             "",
             "Mars matters.",
             "",
-            "### Round 1 — Zeno",
+            "### Round 1 - Zeno",
             "",
-            "**mock/scripted** · assigned **con**",
+            "**mock/scripted**, assigned **con**",
             "",
             "Too costly.",
             "",
             "## Outcome: verdict",
             "**Winning position:** pro",
             "",
-            "- **Support:** unmeasured — no debater's final position could be read",
+            "- **Support:** unmeasured: no debater's final position could be read",
             "- **How decided:** moderator's verdict on argument strength",
             "",
             "VERDICT: the pro case prevails.",
@@ -926,7 +926,7 @@ def test_markdown_marks_differing_instructions_as_differing() -> None:
 
     md = to_markdown(chamber)
 
-    assert "**Instructions** — these differ by debater:" in md
+    assert "**Instructions** (these differ by debater):" in md
     assert "- **Ada:** Be terse." in md
     assert "- **Zeno:** _(none)_" in md
 
@@ -938,7 +938,7 @@ def test_markdown_says_when_instructions_are_shared() -> None:
 
     md = to_markdown(chamber)
 
-    assert "**Instructions** — identical for every debater:" in md
+    assert "**Instructions** (identical for every debater):" in md
     assert "> Speak plainly." in md
 
 
@@ -951,8 +951,8 @@ def test_markdown_turn_provenance_carries_every_fact_it_has() -> None:
     md = to_markdown(chamber)
 
     assert (
-        "**mock/scripted** · assigned **pro** · judged as **con** · "
-        "11+22 tokens · **flagged as a repeat**" in md
+        "**mock/scripted**, assigned **pro**, judged as **con**, "
+        "11+22 tokens, **flagged as a repeat**" in md
     )
 
 
@@ -981,7 +981,7 @@ def test_markdown_gives_system_turns_no_provenance_line() -> None:
     )
 
     md = to_markdown(chamber)
-    section = md.split("### Round 1 — Moderator note")[1]
+    section = md.split("### Round 1 - Moderator note")[1]
     assert "assigned" not in section.split("\n## ")[0]
 
 
@@ -993,7 +993,7 @@ def test_markdown_reasoning_note_states_who_did_not_see_it() -> None:
 
     md = to_markdown(chamber)
 
-    assert "**⟨model reasoning — not part of the debate⟩**" in md
+    assert "**Model reasoning (not part of the debate)**" in md
     assert "> Okay, let me unpack this." in md
     assert "no other debater, the moderator" in md
     assert "did not shape the debate" in md
@@ -1040,4 +1040,43 @@ def test_markdown_puts_nothing_between_a_system_turn_and_its_text() -> None:
 
     md = to_markdown(chamber)
 
-    assert "### Round 1 — Moderator note\nStay concrete." in md
+    assert "### Round 1 - Moderator note\nStay concrete." in md
+
+
+def test_markdown_scaffolding_is_ascii() -> None:
+    """The export must not *add* characters a downstream converter may choke on.
+
+    It cannot promise an ASCII file: the turns are the record, and models emit
+    curly quotes, en dashes and accented words. Measured on one real export, 219
+    of 287 non-ASCII characters were inside the debaters' own prose. What the
+    export controls is its own scaffolding — headings, labels, separators — and a
+    chamber whose every input is ASCII should therefore render as ASCII.
+
+    Reported from a real pipeline: an md-to-PDF converter mangled the em dashes,
+    and an editor flagged the U+00B7 separator this file used between the facts
+    on a turn's provenance line.
+    """
+    chamber = _chamber_with_debate()
+    chamber.description = "Plain ASCII description."
+    for participant in chamber.participants:
+        participant.tuning.persona = "an economist"
+        participant.tuning.instructions = "Be terse."
+    chamber.moderator = Moderator(provider=ProviderType.MOCK, model="arbiter")
+    chamber.settings.max_duration_seconds = 60
+    chamber.config = {"stop_reason": "max_rounds", "rounds_completed": 1, "tokens_used": 10}
+    chamber.turns[0].metadata.update(
+        {"argued": "con", "prompt_tokens": 1, "completion_tokens": 2, "repeated": True}
+    )
+    chamber.turns[1].metadata[REASONING_KEY] = "Plain reasoning.\n\nSecond line."
+    chamber.stance_history.append(
+        StancePoll(
+            round_index=0,
+            stances={str(chamber.participants[0].id): Stance.PRO},
+            unparsed=(str(chamber.participants[1].id),),
+        )
+    )
+
+    md = to_markdown(chamber)
+
+    offenders = sorted({character for character in md if ord(character) > 127})
+    assert not offenders, f"non-ASCII in export scaffolding: {offenders}"

@@ -21,8 +21,8 @@ from cicero.core.roster import deciding_stances
 from cicero.domain.enums import ConsensusOutcome, Stance
 from cicero.domain.models import Chamber, ConsensusResult, Participant
 
-UNMEASURED = "unmeasured — no debater's final position could be read"
-UNRESOLVED = "unresolved — no position prevailed"
+UNMEASURED = "unmeasured: no debater's final position could be read"
+UNRESOLVED = "unresolved: no position prevailed"
 
 #: Shown only when a stance label on display could be read as a characterisation of a
 #: debater rather than as what the poll recorded. ``neutral`` is the one overloaded
@@ -37,7 +37,7 @@ UNRESOLVED = "unresolved — no position prevailed"
 STANCE_CAVEAT = (
     "Stance labels record how each debater answered a three-word poll, not what they "
     "argued. A neutral answer covers both holding no position and holding a compromise "
-    "the poll has no word for — read the transcript for what a debater actually held."
+    "the poll has no word for; read the transcript for what a debater actually held."
 )
 
 _BASIS: dict[ConsensusOutcome, str] = {
@@ -101,15 +101,15 @@ def support_summary(chamber: Chamber) -> str:
         # stance), but a chamber concluded before that invariant held is still
         # read through this code path, so fall back rather than lie about it.
         if winner is None:
-            return f"unanimous — all {total} debaters"
-        return f"unanimous — all {total} debaters on {winner.value}"
+            return f"unanimous: all {total} debaters"
+        return f"unanimous: all {total} debaters on {winner.value}"
     if consensus.outcome is ConsensusOutcome.VERDICT:
         # Checked ahead of the shared "winner is None" guard below: a VERDICT
         # whose WINNER: line could not be read must not be reported as
         # "unresolved" — the judge did decide, it just could not be recorded.
         if winner is None:
-            return "judge-decided — the judge's ruling could not be read"
-        return f"judge-decided — {winner.value} ruled, no majority among {total} debaters"
+            return "judge-decided: the judge's ruling could not be read"
+        return f"judge-decided: {winner.value} ruled, no majority among {total} debaters"
     if winner is None:
         return UNRESOLVED
     counts = Counter(deciding.values())
@@ -129,8 +129,8 @@ def support_summary(chamber: Chamber) -> str:
         # CONSENSUS, not MAJORITY), but if it ever is reached there is no
         # non-winning stance to name — say so plainly rather than emitting a
         # dangling "()".
-        return f"contested — {held} of {total} debaters settled on {winner.value}"
-    return f"contested — {held} of {total} debaters settled on {winner.value} ({breakdown})"
+        return f"contested: {held} of {total} debaters settled on {winner.value}"
+    return f"contested: {held} of {total} debaters settled on {winner.value} ({breakdown})"
 
 
 def decision_basis(chamber: Chamber) -> str:
@@ -198,7 +198,7 @@ def movements(chamber: Chamber) -> tuple[str, ...]:
         suffix = ", muted" if participant.muted else ""
         moved.append(
             f"{participant.display_name} "
-            f"({measured[0].value}→{measured[-1].value}{suffix})"
+            f"({measured[0].value} to {measured[-1].value}{suffix})"
         )
     return tuple(moved)
 

@@ -99,7 +99,7 @@ def debater_compliance(chamber: Chamber, participant: Participant) -> Compliance
 #: debater failed.
 UNOPPOSED_CAVEAT = (
     "No debater was judged to argue against the winning position, though one was "
-    "assigned to. Nothing in the judged turns contests it — read the transcript "
+    "assigned to. Nothing in the judged turns contests it; read the transcript "
     "before treating this as a tested result."
 )
 

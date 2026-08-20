@@ -43,7 +43,7 @@ def to_export_dict(chamber: Chamber) -> dict[str, Any]:
 REASONING_NOTE = (
     "Reasoning blocks record what a model generated *before* writing its turn. "
     "They were stripped from the turn itself, so no other debater, the moderator "
-    "and the compliance judge never saw them — they did not shape the debate."
+    "and the compliance judge never saw them; they did not shape the debate."
 )
 
 
@@ -131,12 +131,12 @@ def _prompts(chamber: Chamber) -> list[str]:
     elif len(instructions) == 1:
         lines += [
             "",
-            "**Instructions** — identical for every debater:",
+            "**Instructions** (identical for every debater):",
             "",
             _blockquote(instructions.pop()),
         ]
     else:
-        lines += ["", "**Instructions** — these differ by debater:", ""]
+        lines += ["", "**Instructions** (these differ by debater):", ""]
         lines += [
             f"- **{p.display_name}:** {p.tuning.instructions.strip() or '_(none)_'}"
             for p in chamber.participants
@@ -172,7 +172,7 @@ def _turn_provenance(chamber: Chamber, turn: Turn) -> str:
         facts.append("**flagged as a repeat**")
     if turn.metadata.get("error"):
         facts.append(f"**provider error:** {turn.metadata['error']}")
-    return " · ".join(facts)
+    return ", ".join(facts)
 
 
 def _token_use(chamber: Chamber) -> list[str]:
@@ -200,7 +200,14 @@ def _stance_history_header(chamber: Chamber) -> str:
 
 
 def to_markdown(chamber: Chamber) -> str:
-    """Render a readable Markdown transcript of the debate."""
+    """Render the debate as a complete Markdown record.
+
+    Everything this function *writes* is ASCII. The turns themselves are not and
+    cannot be — models emit curly quotes, en dashes and accented words, and that
+    is the record — but the scaffolding around them should not add characters a
+    downstream converter may choke on. Measured on one real export: 219 of 287
+    non-ASCII characters were inside the debaters' own prose.
+    """
     lines: list[str] = [f"# Debate: {chamber.topic}", ""]
     if chamber.category.strip():
         lines.append(f"**Category:** {chamber.category}")
@@ -233,7 +240,7 @@ def to_markdown(chamber: Chamber) -> str:
         else:
             speaker = chamber.participant_by_id(turn.participant_id)
             name = speaker.display_name if speaker is not None else "unknown"
-        lines.append(f"### Round {turn.round_index + 1} — {name}")
+        lines.append(f"### Round {turn.round_index + 1} - {name}")
         provenance = _turn_provenance(chamber, turn)
         if provenance:
             lines.extend(["", provenance, ""])
@@ -241,7 +248,7 @@ def to_markdown(chamber: Chamber) -> str:
         reasoning = turn.metadata.get(REASONING_KEY)
         if isinstance(reasoning, str) and reasoning.strip():
             lines.extend(
-                ["", "**⟨model reasoning — not part of the debate⟩**", "", _blockquote(reasoning)]
+                ["", "**Model reasoning (not part of the debate)**", "", _blockquote(reasoning)]
             )
         if turn.citations:
             lines.append("")
@@ -267,7 +274,7 @@ def to_markdown(chamber: Chamber) -> str:
         if any(poll.unparsed for poll in chamber.stance_history):
             lines.append("")
             lines.append(
-                "`(?)` — the debater's reply could not be read; the previous "
+                "`(?)`: the debater's reply could not be read; the previous "
                 "value was carried forward and is not evidence of their position."
             )
         lines.append("")

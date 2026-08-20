@@ -47,9 +47,23 @@ REASONING_NOTE = (
 )
 
 
-def _blockquote(text: str) -> str:
-    """As a blockquote, which every Markdown renderer sets apart."""
-    return "\n".join(f"> {line}" if line.strip() else ">" for line in text.splitlines())
+def _quoted_block(text: str) -> str:
+    """Text the app did not write, set apart without a blockquote.
+
+    A blockquote would be the obvious markup, and it is what this used to emit.
+    But a Markdown-to-PDF converter renders blockquotes in italic, so emphasis
+    *inside* one becomes italic applied twice — reported from a real pipeline as
+    ``could not locate "helveticaii" among embedded core font definition files``,
+    helvetica + I + I. The text here is written by models and by users, and
+    models reach for ``*asides*`` constantly, so the combination is not avoidable
+    by asking them nicely.
+
+    Escaping their emphasis would alter what they wrote, and this is a record, so
+    the blockquote goes instead: the reasoning already sits between horizontal
+    rules under its own subheading, which separates it more clearly in a PDF than
+    a blockquote ever did.
+    """
+    return text.strip()
 
 
 def _run_configuration(chamber: Chamber) -> list[str]:
@@ -133,7 +147,7 @@ def _prompts(chamber: Chamber) -> list[str]:
             "",
             "**Instructions** (identical for every debater):",
             "",
-            _blockquote(instructions.pop()),
+            _quoted_block(instructions.pop()),
         ]
     else:
         lines += ["", "**Instructions** (these differ by debater):", ""]
@@ -260,7 +274,7 @@ def to_markdown(chamber: Chamber) -> str:
                     "",
                     "#### Model reasoning (not part of the debate)",
                     "",
-                    _blockquote(reasoning),
+                    _quoted_block(reasoning),
                     "",
                     "---",
                 ]

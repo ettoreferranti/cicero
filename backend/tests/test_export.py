@@ -939,7 +939,7 @@ def test_markdown_says_when_instructions_are_shared() -> None:
     md = to_markdown(chamber)
 
     assert "**Instructions** (identical for every debater):" in md
-    assert "> Speak plainly." in md
+    assert "Speak plainly." in md
 
 
 def test_markdown_turn_provenance_carries_every_fact_it_has() -> None:
@@ -997,7 +997,7 @@ def test_markdown_reasoning_note_states_who_did_not_see_it() -> None:
     # Fenced by rules at both ends, so the boundary survives a converter that
     # renders bold and blockquotes faintly.
     assert "\n---\n\n#### Model reasoning" in md
-    assert "> Okay, let me unpack this." in md
+    assert "Okay, let me unpack this." in md
     assert "no other debater, the moderator" in md
     assert "did not shape the debate" in md
 
@@ -1012,15 +1012,16 @@ def test_markdown_token_use_rows_are_exact() -> None:
     assert "| Zeno | 1 | 0 | 0 | 0 |" in md
 
 
-def test_markdown_blockquotes_every_line_of_multi_line_reasoning() -> None:
-    """Narration runs to paragraphs. A blockquote that only marked the first line
-    would leave the rest reading as the debate's own prose."""
+def test_markdown_keeps_multi_line_reasoning_whole() -> None:
+    """Narration runs to paragraphs, and every one of them belongs to the block
+    between the rules -- a renderer that dropped the blank line would run the
+    thoughts together."""
     chamber = _chamber_with_debate()
     chamber.turns[0].metadata[REASONING_KEY] = "First thought.\n\nSecond thought."
 
     md = to_markdown(chamber)
 
-    assert "> First thought.\n>\n> Second thought." in md
+    assert "First thought.\n\nSecond thought." in md
 
 
 def test_markdown_reports_a_genuine_zero_token_count() -> None:
@@ -1117,3 +1118,29 @@ def test_markdown_never_nests_emphasis() -> None:
         if italicised_whole(line) and "*" in line[1:-1]
     ]
     assert not offenders, f"nested emphasis in: {offenders}"
+
+
+def test_markdown_never_puts_emphasis_inside_a_blockquote() -> None:
+    """Blockquote plus emphasis is italic applied twice.
+
+    A Markdown-to-PDF converter renders a blockquote in italic; emphasis inside
+    one then asks its font library for a style that does not exist, reported as
+    `could not locate "helveticaii"`. Confirmed by isolation: a blockquote alone
+    converts, emphasis alone converts, the two together fail.
+
+    The text at risk is written by models and users, not by this module -- the
+    turn that first broke it contained `*checks Brenner's last line*` -- so the
+    guard has to hold for arbitrary content, which is why the blockquote is gone
+    rather than the emphasis escaped.
+    """
+    chamber = _chamber_with_debate()
+    chamber.turns[0].metadata[REASONING_KEY] = "*checks the rules again* Then a thought."
+    for participant in chamber.participants:
+        participant.tuning.instructions = "Be *terse*."
+
+    offenders = [
+        line
+        for line in to_markdown(chamber).splitlines()
+        if line.lstrip().startswith(">") and "*" in line
+    ]
+    assert not offenders, f"emphasis inside a blockquote: {offenders}"

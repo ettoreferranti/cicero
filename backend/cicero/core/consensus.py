@@ -26,6 +26,7 @@ from cicero.core import prompts
 from cicero.core.prompt_builder import (
     build_moderator_messages,
     build_stance_poll_messages,
+    strip_reasoning,
 )
 from cicero.core.prompts import (
     DIRECTIVE_HEADLINE,
@@ -38,19 +39,6 @@ from cicero.domain.models import MAX_HEADLINE_LENGTH, Chamber, ConsensusResult
 from cicero.providers.base import GenerateOptions, Provider, ProviderError
 from cicero.providers.factory import ProviderFactory
 
-# Reasoning models (qwen3 and friends) narrate before answering, and that
-# narration argues *both* sides — scanning it would score whichever side the
-# model happened to muse about first.
-_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-# The same narration, closed but never opened. Ollama asked for ``think: false``
-# writes it into ``content`` terminated by a bare ``</think>``, so the matched
-# pair above never fires. Measured on the F10 benchmark: of 32 qwen3:30b
-# compliance replies, 0 carried an opening tag and 32 carried the closing one,
-# and the unstripped narration cost 6 of 32 verdicts — it quotes the instruction
-# ("report only pro, con, or neutral") and the first stance word in that
-# quotation was being read as the answer. Greedy on purpose: everything up to
-# the *last* close is narration.
-_UNOPENED_THINK = re.compile(r".*</think>", re.DOTALL | re.IGNORECASE)
 _WORDS = re.compile(r"[a-z]+")
 
 #: Accepted when the reply *is* a single word, which is what the poll asks for.
@@ -118,14 +106,17 @@ class StanceReport:
 
 
 def _strip_reasoning(text: str) -> str:
-    """Drop a reasoning model's narration, leaving the answer it settled on.
+    """The answer a reasoning model settled on, with its narration removed.
 
-    Matched blocks go first; whatever unopened narration is left over goes
-    second. A reply that is *all* narration comes back empty, and an empty reply
-    reads as unmeasured — which is the honest answer for a model that thought out
-    loud and never committed.
+    Delegates to ``prompt_builder.strip_reasoning``, which the turn path uses too
+    (issue #30). One implementation: this defect existed because the stance
+    parser stripped narration and the turn path did not, and two copies of the
+    rule would let them drift apart again. A reply that is *all* narration comes
+    back empty, and an empty reply reads as unmeasured — the honest answer for a
+    model that thought out loud and never committed.
     """
-    return _UNOPENED_THINK.sub("", _THINK_BLOCK.sub(" ", text))
+    answer, _ = strip_reasoning(text)
+    return answer
 
 
 def parse_stance(text: str) -> Stance | None:

@@ -44,6 +44,32 @@ def system_speaker_label(turn: Turn) -> str:
     return _SYSTEM_SPEAKERS.get(str(kind), prompts.SYSTEM_SPEAKER)
 
 
+#: A reasoning model's narration. Two shapes: a well-formed pair, and — the one
+#: Ollama produces under ``think: false`` — a closing tag that was never opened,
+#: so a matched-pair strip never fires. Measured on qwen3:30b, 6 of 6 turns in a
+#: real debate arrived as ~2,800 characters of task deliberation, a bare
+#: ``</think>``, then the speech.
+_THINK_PAIR = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_THINK_UNOPENED = re.compile(r".*</think>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(text: str) -> tuple[str, str]:
+    """Split a reply into what the model said and what it was thinking.
+
+    Returns ``(answer, narration)``. ``narration`` is ``""`` when there was none,
+    which is how a caller tells "nothing was stripped" from "the narration was
+    empty". An ``answer`` of ``""`` means the reply was *all* narration — the
+    model thought and never spoke.
+
+    Matched blocks go first, then any unopened remainder, so an answer written
+    *before* a reasoning block survives; the greedy strip alone would swallow it.
+    """
+    answer = _THINK_UNOPENED.sub("", _THINK_PAIR.sub(" ", text)).strip()
+    if answer == text.strip():
+        return answer, ""
+    return answer, text.strip()[: len(text.strip()) - len(answer)].strip()
+
+
 #: A speaker label the model copied out of the transcript and into its own turn
 #: — observed as a reply literally beginning "[You (pro)]: I appreciate...".
 #: Anchored on the "(stance)]:" shape so ordinary bracketed prose is untouched.

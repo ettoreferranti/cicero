@@ -186,6 +186,14 @@ erDiagram
     text excerpt
   }
 ```
+A recorded turn is the model's *speech*, not its raw reply: `strip_reasoning`
+removes a reasoning model's narration (Ollama writes it into `content` under
+`think: false`, closed by a bare `</think>`) and `strip_echoed_speaker_label`
+removes a transcript label the model copied. The narration is kept under
+`metadata["reasoning"]` rather than discarded. Everything downstream — the
+compliance judge, repetition detection, the moderator's transcript, exports, the
+UI — therefore reads argument rather than deliberation.
+
 `PARTICIPANT.tuning` holds per-debater generation settings: `temperature`,
 `max_tokens`, `persona`, `instructions` (FR-11), and `allow_reasoning`. The last
 defaults to `True` and matters only for models with a reasoning mode: Ollama

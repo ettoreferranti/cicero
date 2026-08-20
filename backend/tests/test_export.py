@@ -993,7 +993,10 @@ def test_markdown_reasoning_note_states_who_did_not_see_it() -> None:
 
     md = to_markdown(chamber)
 
-    assert "**Model reasoning (not part of the debate)**" in md
+    assert "#### Model reasoning (not part of the debate)" in md
+    # Fenced by rules at both ends, so the boundary survives a converter that
+    # renders bold and blockquotes faintly.
+    assert "\n---\n\n#### Model reasoning" in md
     assert "> Okay, let me unpack this." in md
     assert "no other debater, the moderator" in md
     assert "did not shape the debate" in md

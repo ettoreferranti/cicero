@@ -247,8 +247,23 @@ def to_markdown(chamber: Chamber) -> str:
         lines.append(turn.content)
         reasoning = turn.metadata.get(REASONING_KEY)
         if isinstance(reasoning, str) and reasoning.strip():
+            # A horizontal rule and a real subheading, not just bold text. Bold
+            # and blockquotes survive a Markdown-to-PDF conversion too faintly to
+            # separate a model's narration from the speech it wrote, and a reader
+            # who cannot tell them apart is reading deliberation as argument. The
+            # rule closes the block as well, so the boundary is explicit at both
+            # ends rather than relying on the next turn's heading.
             lines.extend(
-                ["", "**Model reasoning (not part of the debate)**", "", _blockquote(reasoning)]
+                [
+                    "",
+                    "---",
+                    "",
+                    "#### Model reasoning (not part of the debate)",
+                    "",
+                    _blockquote(reasoning),
+                    "",
+                    "---",
+                ]
             )
         if turn.citations:
             lines.append("")

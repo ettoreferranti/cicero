@@ -41,7 +41,7 @@ def to_export_dict(chamber: Chamber) -> dict[str, Any]:
 #: the moderator, or the compliance judge ever read it (#30). Rendering it beside
 #: the speech without saying so would undo exactly that distinction.
 REASONING_NOTE = (
-    "Reasoning blocks record what a model generated *before* writing its turn. "
+    "Reasoning blocks record what a model generated before writing its turn. "
     "They were stripped from the turn itself, so no other debater, the moderator "
     "and the compliance judge never saw them; they did not shape the debate."
 )

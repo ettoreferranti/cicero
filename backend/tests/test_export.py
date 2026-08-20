@@ -1083,3 +1083,37 @@ def test_markdown_scaffolding_is_ascii() -> None:
 
     offenders = sorted({character for character in md if ord(character) > 127})
     assert not offenders, f"non-ASCII in export scaffolding: {offenders}"
+
+
+def test_markdown_never_nests_emphasis() -> None:
+    """A line wrapped in `*...*` must not contain another `*`.
+
+    Nested emphasis is not just ugly: a Markdown-to-PDF converter reads it as
+    italic applied twice and asks its font library for a style that does not
+    exist. Reported from a real pipeline as `could not locate "helveticaii" among
+    embedded core font definition files` -- helvetica + I + I.
+
+    The note about reasoning blocks caused it by emphasising one word inside a
+    string the renderer then italicised whole.
+    """
+    chamber = _chamber_with_debate()
+    chamber.turns[0].metadata[REASONING_KEY] = "Plain reasoning."
+    chamber.consensus = ConsensusResult(
+        outcome=ConsensusOutcome.DISAGREEMENT, statement="No agreement."
+    )
+
+    def italicised_whole(line: str) -> bool:
+        """Wrapped in single asterisks. `**bold**` runs are not this."""
+        return (
+            line.startswith("*")
+            and not line.startswith("**")
+            and line.endswith("*")
+            and not line.endswith("**")
+        )
+
+    offenders = [
+        line
+        for line in to_markdown(chamber).splitlines()
+        if italicised_whole(line) and "*" in line[1:-1]
+    ]
+    assert not offenders, f"nested emphasis in: {offenders}"

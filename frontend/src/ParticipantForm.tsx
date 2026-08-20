@@ -223,6 +223,14 @@ export function ParticipantForm({
             onChange={(e) => setTuning({ instructions: e.target.value })}
             style={{ flex: 1, minWidth: "12rem" }}
           />
+          <label className="muted" style={{ fontSize: "0.85rem" }}>
+            <input
+              type="checkbox"
+              checked={draft.tuning.allow_reasoning}
+              onChange={(e) => setTuning({ allow_reasoning: e.target.checked })}
+            />{" "}
+            Let this model think first
+          </label>
         </div>
       </details>
     </form>

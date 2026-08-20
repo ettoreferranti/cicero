@@ -26,7 +26,7 @@ from cicero.domain.enums import (
     ProviderType,
     Stance,
 )
-from cicero.domain.models import Chamber, Citation, Turn
+from cicero.domain.models import Chamber, Citation, Participant, Turn
 from cicero.persistence.memory import InMemoryChamberRepository
 from cicero.providers.base import (
     GenerateOptions,
@@ -1338,3 +1338,81 @@ async def test_an_errored_turn_is_not_sent_to_the_judge() -> None:
     assert debate_turns
     assert all(t.content == "" for t in debate_turns)
     assert judged == []
+
+
+# --- Per-debater reasoning control (issue #28) --------------------------------
+
+
+class RecordingProvider(ScriptedProvider):
+    """A ScriptedProvider that keeps the options it was called with."""
+
+    def __init__(self) -> None:
+        super().__init__(moderator_reply="STATEMENT.")
+        self.options: list[GenerateOptions] = []
+
+    async def generate(
+        self, messages: list[Message], options: GenerateOptions
+    ) -> GenerateResult:
+        self.options.append(options)
+        return await super().generate(messages, options)
+
+    def turn_options(self, participant: Participant) -> list[GenerateOptions]:
+        """Just the turn calls.
+
+        The same provider also answers the stance poll, which sets
+        ``allow_reasoning=False`` for its own reasons (a thinking model asked for
+        one word once burned the whole budget and returned empty content). Only
+        the turn budget comes from the participant's tuning, so that is what
+        separates them.
+        """
+        return [o for o in self.options if o.max_tokens == participant.tuning.max_tokens]
+
+
+async def test_a_turn_carries_the_participants_reasoning_setting() -> None:
+    """A thinking model spends `max_tokens` on reasoning before it writes a word.
+
+    Ollama counts reasoning against ``num_predict`` but returns it in a separate
+    ``thinking`` field, so on a reasoning model ``tuning.max_tokens`` is a budget
+    shared between invisible narration and the speech — in that order. Measured
+    on muse-glimmer:30b-mlx at num_predict=1400 with a transcript in context:
+    three samples produced 3733-6319 characters of thinking and 0-2635 of
+    content, every one cut mid-sentence; with reasoning off, three samples
+    finished cleanly on ~60% of the same budget.
+
+    The flag already existed on GenerateOptions and the stance poll already set
+    it. Turns could not, so there was no way to make the budget mean the turn.
+    """
+    quiet = make_participant("Quiet", Stance.PRO)
+    quiet.tuning.allow_reasoning = False
+    loud = make_participant("Loud", Stance.CON)
+    quiet_provider, loud_provider = RecordingProvider(), RecordingProvider()
+    repo = InMemoryChamberRepository()
+    factory = StubFactory({quiet.id: quiet_provider, loud.id: loud_provider})
+
+    budget = DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    await _engine(factory, repo).run(make_chamber(quiet, loud), budget)
+
+    quiet_turns = quiet_provider.turn_options(quiet)
+    loud_turns = loud_provider.turn_options(loud)
+    assert quiet_turns, "the quiet debater never spoke"
+    assert loud_turns, "the loud debater never spoke"
+    # Per debater, not a global switch: one asked for silence, the other did not.
+    assert all(o.allow_reasoning is False for o in quiet_turns)
+    assert all(o.allow_reasoning is True for o in loud_turns)
+
+
+async def test_a_turn_allows_reasoning_by_default() -> None:
+    """Default True. Reasoning is useful in a debate — the defect is that it was
+    unavoidable and unbudgeted, not that it exists — so existing chambers must
+    keep behaving exactly as they did."""
+    ada, bob = make_participant("Ada", Stance.PRO), make_participant("Bob", Stance.CON)
+    ada_provider, bob_provider = RecordingProvider(), RecordingProvider()
+    repo = InMemoryChamberRepository()
+    factory = StubFactory({ada.id: ada_provider, bob.id: bob_provider})
+
+    budget = DebateBudget(max_rounds=1, max_total_tokens=100_000)
+    await _engine(factory, repo).run(make_chamber(ada, bob), budget)
+
+    seen = ada_provider.turn_options(ada) + bob_provider.turn_options(bob)
+    assert seen
+    assert all(o.allow_reasoning is True for o in seen)

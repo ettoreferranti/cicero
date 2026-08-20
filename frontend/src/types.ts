@@ -39,6 +39,15 @@ export interface ParticipantTuning {
   persona: string;
   /** How this debater should argue — "be extra polite", "speak in rhyme". */
   instructions: string;
+  /**
+   * Whether this debater's model may "think" before writing its turn.
+   *
+   * Reasoning is charged against the same budget as the reply: Ollama counts it
+   * against `num_predict` but returns it in a separate field, so leaving this on
+   * means `max_tokens` is shared between invisible narration and the actual
+   * speech. Turn it off when the budget needs to mean the turn.
+   */
+  allow_reasoning: boolean;
 }
 
 // Must match ParticipantTuning's defaults in the backend: tuningSummary() marks
@@ -48,6 +57,7 @@ export const DEFAULT_TUNING: ParticipantTuning = {
   max_tokens: 2048,
   persona: "",
   instructions: "",
+  allow_reasoning: true,
 };
 
 export interface Participant {

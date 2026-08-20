@@ -18,7 +18,7 @@ import {
   turnSpeaker,
 } from "./format";
 import { DEFAULT_TUNING } from "./types";
-import type { Participant, Stance, StancePoll, Turn } from "./types";
+import type { Participant, ParticipantTuning, Stance, StancePoll, Turn } from "./types";
 
 function turn(
   id: string,
@@ -308,9 +308,26 @@ describe("tuningSummary", () => {
     expect(tuningSummary({ ...DEFAULT_TUNING, max_tokens: 1200 })).toBe("1200 tok");
     expect(tuningSummary({ ...DEFAULT_TUNING, persona: "an economist" })).toBe("persona");
     expect(tuningSummary({ ...DEFAULT_TUNING, instructions: "terse" })).toBe("instructions");
+    expect(tuningSummary({ ...DEFAULT_TUNING, allow_reasoning: false })).toBe("no reasoning");
     expect(
-      tuningSummary({ temperature: 0.9, max_tokens: 1200, persona: "p", instructions: "i" }),
+      tuningSummary({
+        temperature: 0.9,
+        max_tokens: 1200,
+        persona: "p",
+        instructions: "i",
+        allow_reasoning: true,
+      }),
     ).toBe("temp 0.9 · 1200 tok · persona · instructions");
+  });
+
+  it("does not read a missing allow_reasoning as reasoning being off", () => {
+    // `!undefined` is true, so a payload that simply omits the key would be
+    // labelled "no reasoning" — claiming a setting the user never made. The
+    // cast is the point: the current API always sends the field, so the type
+    // says this cannot happen, but a stale cache or an older server can still
+    // put it in front of this function and a wrong label is worse than none.
+    const legacy = { temperature: 0.7, max_tokens: 2048, persona: "", instructions: "" };
+    expect(tuningSummary(legacy as ParticipantTuning)).toBe("");
   });
 
   it("treats blank persona/instructions as unset", () => {

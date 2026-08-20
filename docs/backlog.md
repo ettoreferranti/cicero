@@ -416,6 +416,59 @@ unfixed — too small to measure a prompt change against on this fixture. The
 clause is therefore still untested, and now needs a larger benchmark rather than a
 cheap re-run. Recorded in that decision record too.
 
+### Bug — a debater's token budget was shared with invisible reasoning (2026-08-19)
+
+Found while running a rhetoric experiment where the turn text *is* the
+measurement, so a silently truncated speech corrupts data rather than merely
+reading badly. Filed as #28.
+
+Debate turns were generated with `GenerateOptions.allow_reasoning` at its default
+of `True` — the orchestrator built the options from `tuning.temperature` and
+`tuning.max_tokens` and never touched the flag. Ollama counts reasoning tokens
+against `num_predict` but returns them in a **separate `thinking` field**, so on a
+thinking model `tuning.max_tokens` was not a budget for the turn: it was a budget
+shared between invisible narration and the turn, in that order.
+
+Measured on `muse-glimmer:30b-mlx` at `num_predict=1400` with a debate transcript
+in context, three samples per arm:
+
+| reasoning | done_reason | tokens | thinking chars | content chars | ends cleanly |
+|---|---|---|---|---|---|
+| on (the default) | length | 1400 | 6319 | **0** | no |
+| on | length | 1400 | 3733 | 2635 | no |
+| on | length | 1400 | 5297 | 898 | no |
+| off | stop | 863 | 0 | 3041 | yes |
+| off | stop | 875 | 0 | 3294 | yes |
+| off | stop | 723 | 0 | 2525 | yes |
+
+With reasoning on, every sample hit the cap and stopped mid-sentence; one
+returned **no content at all**. With it off, every sample finished cleanly on
+~60% of the same budget. In a real three-round debate this cut **4 of 6** turns
+from that model, one of them to 173 characters — served by the API as an ordinary
+turn, because nothing records that a turn was truncated.
+
+This is the same mechanism as the *"reasoning models never answered the stance
+poll"* entry above, which added `GenerateOptions.allow_reasoning` and set it
+`False` for the poll. Turns never got the same treatment and there was no way to
+ask for it: `ParticipantTuning` exposed `temperature`, `max_tokens`, `persona`
+and `instructions` only. Affects any thinking model; in a five-model local roster
+it hit three.
+
+Fixed by exposing the control that already existed rather than inventing a new
+one: `ParticipantTuning.allow_reasoning` (and `TuningIn`), passed through when the
+turn's options are built. **Default `True`**, so every existing chamber behaves
+exactly as before — reasoning is useful in a debate, and the defect was that it
+was unavoidable and unbudgeted, not that it existed.
+
+Note this changes the serialized shape of the tuning block, which is part of the
+API response. The exact-shape assertion in `test_add_participant_accepts_tuning`
+caught it, which is what an exact assertion there is for.
+
+**Not fixed:** truncation is still invisible. Nothing records `done_reason` on a
+turn, so a cut speech cannot be identified after the fact — by the compliance
+judge, by repetition detection, by an export, or by a reader. That is the deeper
+fix and is left open in #28.
+
 ## Cross-cutting "Definition of Done" (every story)
 1. Code + tests (unit/integration) with providers mocked.
 2. Mutation score on touched core logic meets threshold (or justified exclusion).

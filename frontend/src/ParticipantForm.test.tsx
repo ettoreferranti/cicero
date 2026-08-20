@@ -141,3 +141,87 @@ describe("per-debater scope cues", () => {
     expect(form.style.borderLeftColor).toBe("");
   });
 });
+
+/**
+ * Reasoning is charged against the same budget as the turn.
+ *
+ * Ollama counts a thinking model's reasoning tokens against `num_predict` but
+ * returns them in a separate field, so `max_tokens` is shared between invisible
+ * narration and the speech. Measured on muse-glimmer:30b-mlx at 1400 tokens,
+ * three samples returned 0-2635 characters of content, every one cut
+ * mid-sentence.
+ *
+ * The control has to live here, not only in the API: a PATCH replaces the whole
+ * tuning block, so a form that does not know the field would silently reset it
+ * to `true` the next time anyone edited the debater.
+ */
+describe("reasoning control", () => {
+  it("submits the setting the engine reads", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(() => Promise.resolve());
+    render(
+      <ParticipantForm
+        formLabel="edit Ada"
+        submitLabel="Save"
+        initial={{
+          display_name: "Ada",
+          provider: "mock",
+          model: "mock-small",
+          stance: "pro",
+          tuning: DEFAULT_TUNING,
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await user.click(screen.getByLabelText(/let this model think/i));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tuning: expect.objectContaining({ allow_reasoning: false }),
+      }),
+    );
+  });
+
+  it("is on by default, so an untouched debater behaves as before", () => {
+    render(<ParticipantForm formLabel="add participant" submitLabel="Add" onSubmit={vi.fn()} />);
+    expect(screen.getByLabelText(/let this model think/i)).toBeChecked();
+  });
+
+  it("preserves an existing false rather than resetting it on edit", () => {
+    render(
+      <ParticipantForm
+        formLabel="edit Ada"
+        submitLabel="Save"
+        initial={{
+          display_name: "Ada",
+          provider: "mock",
+          model: "mock-small",
+          stance: "pro",
+          tuning: { ...DEFAULT_TUNING, allow_reasoning: false },
+        }}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText(/let this model think/i)).not.toBeChecked();
+  });
+
+  it("marks a debater with reasoning off in the collapsed summary", () => {
+    render(
+      <ParticipantForm
+        formLabel="edit Ada"
+        submitLabel="Save"
+        initial={{
+          display_name: "Ada",
+          provider: "mock",
+          model: "mock-small",
+          stance: "pro",
+          tuning: { ...DEFAULT_TUNING, allow_reasoning: false },
+        }}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Tuning for Ada — no reasoning/)).toBeInTheDocument();
+  });
+});

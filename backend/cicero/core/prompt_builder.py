@@ -53,6 +53,13 @@ _THINK_PAIR = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _THINK_UNOPENED = re.compile(r".*</think>", re.DOTALL | re.IGNORECASE)
 
 
+#: Where a turn keeps the narration that was stripped out of it (issue #30).
+#: Present only when there was some, so a reader can tell "nothing was stripped"
+#: from "the narration was empty". Lives here rather than in the engine because
+#: the renderer needs it too, and a leaf module should not import the engine.
+REASONING_KEY = "reasoning"
+
+
 def strip_reasoning(text: str) -> tuple[str, str]:
     """Split a reply into what the model said and what it was thinking.
 

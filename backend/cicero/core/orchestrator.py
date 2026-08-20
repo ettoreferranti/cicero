@@ -29,6 +29,7 @@ from cicero.core.consensus import ConsensusEngine, StanceReport, is_consensus
 from cicero.core.prompt_builder import (
     KIND_EVIDENCE,
     KIND_MODERATOR_NOTE,
+    REASONING_KEY,
     build_turn_messages,
     strip_echoed_speaker_label,
     strip_reasoning,
@@ -59,11 +60,6 @@ from cicero.providers.base import (
     Role,
 )
 from cicero.providers.factory import ProviderFactory
-
-#: Where a turn keeps the narration that was stripped out of it (issue #30).
-#: Present only when there was some, so a reader can tell "nothing was stripped"
-#: from "the narration was empty".
-REASONING_KEY = "reasoning"
 
 MIN_PARTICIPANTS = 2
 

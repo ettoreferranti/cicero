@@ -60,7 +60,7 @@ def test_support_reports_unanimity() -> None:
         winner=Stance.PRO,
         unparsed=[],
     )
-    assert support_summary(chamber) == "unanimous — all 3 debaters on pro"
+    assert support_summary(chamber) == "unanimous: all 3 debaters on pro"
 
 
 def test_support_reports_unanimity_without_a_recorded_winner() -> None:
@@ -74,7 +74,7 @@ def test_support_reports_unanimity_without_a_recorded_winner() -> None:
         winner=None,
         unparsed=[],
     )
-    assert support_summary(chamber) == "unanimous — all 3 debaters"
+    assert support_summary(chamber) == "unanimous: all 3 debaters"
 
 
 def test_support_reports_a_contested_majority_naming_the_non_winning_stance() -> None:
@@ -87,7 +87,7 @@ def test_support_reports_a_contested_majority_naming_the_non_winning_stance() ->
     # Non-winners are all one stance (con) — must be named as "con", not
     # blanket "dissent": a debater who did not settle on the winning stance did
     # not necessarily oppose it.
-    assert support_summary(chamber) == "contested — 2 of 3 debaters settled on neutral (1 con)"
+    assert support_summary(chamber) == "contested: 2 of 3 debaters settled on neutral (1 con)"
 
 
 def test_support_orders_a_mixed_non_winning_breakdown_by_enum_declaration() -> None:
@@ -113,7 +113,7 @@ def test_support_orders_a_mixed_non_winning_breakdown_by_enum_declaration() -> N
     # first regardless of insertion order or which has the higher count — this
     # is the case a count- or dict-ordered breakdown would get wrong.
     assert support_summary(chamber) == (
-        "contested — 2 of 4 debaters settled on pro (1 con, 1 neutral)"
+        "contested: 2 of 4 debaters settled on pro (1 con, 1 neutral)"
     )
 
 
@@ -127,7 +127,7 @@ def test_support_guards_a_majority_with_no_non_winning_stance() -> None:
         winner=Stance.PRO,
         unparsed=[],
     )
-    assert support_summary(chamber) == "contested — 3 of 3 debaters settled on pro"
+    assert support_summary(chamber) == "contested: 3 of 3 debaters settled on pro"
 
 
 def test_support_reports_a_judge_verdict() -> None:
@@ -137,7 +137,7 @@ def test_support_reports_a_judge_verdict() -> None:
         winner=Stance.PRO,
         unparsed=[],
     )
-    assert support_summary(chamber) == "judge-decided — pro ruled, no majority among 3 debaters"
+    assert support_summary(chamber) == "judge-decided: pro ruled, no majority among 3 debaters"
 
 
 def test_support_reports_a_judge_verdict_with_no_readable_winner() -> None:
@@ -150,7 +150,7 @@ def test_support_reports_a_judge_verdict_with_no_readable_winner() -> None:
         winner=None,
         unparsed=[],
     )
-    assert support_summary(chamber) == "judge-decided — the judge's ruling could not be read"
+    assert support_summary(chamber) == "judge-decided: the judge's ruling could not be read"
 
 
 def test_support_reports_disagreement_as_unresolved() -> None:
@@ -159,7 +159,7 @@ def test_support_reports_disagreement_as_unresolved() -> None:
         {"a": Stance.PRO, "b": Stance.CON, "c": Stance.NEUTRAL},
         unparsed=[],
     )
-    assert support_summary(chamber) == "unresolved — no position prevailed"
+    assert support_summary(chamber) == "unresolved: no position prevailed"
 
 
 def test_support_excludes_a_muted_debater_from_the_denominator() -> None:
@@ -171,7 +171,7 @@ def test_support_excludes_a_muted_debater_from_the_denominator() -> None:
     )
     chamber.participants[2].muted = True
     # A muted debater does not vote (FR-13), so it cannot pad the support count.
-    assert support_summary(chamber) == "unanimous — all 2 debaters on pro"
+    assert support_summary(chamber) == "unanimous: all 2 debaters on pro"
 
 
 def test_support_says_unmeasured_when_nothing_was_recorded() -> None:
@@ -179,7 +179,7 @@ def test_support_says_unmeasured_when_nothing_was_recorded() -> None:
     chamber.consensus.final_stances = {}
     # Never "0 of 3", which reads as a measured result of zero support.
     assert support_summary(chamber) == (
-        "unmeasured — no debater's final position could be read"
+        "unmeasured: no debater's final position could be read"
     )
 
 
@@ -197,7 +197,7 @@ def test_support_prefers_the_recorded_unparsed_set_over_a_stale_poll() -> None:
     chamber.stance_history = [
         StancePoll(round_index=0, stances={}, unparsed=[str(ada.id)]),
     ]
-    assert support_summary(chamber) == "unanimous — all 3 debaters on pro"
+    assert support_summary(chamber) == "unanimous: all 3 debaters on pro"
 
 
 def test_support_falls_back_to_the_last_poll_for_a_historical_chamber() -> None:
@@ -210,7 +210,7 @@ def test_support_falls_back_to_the_last_poll_for_a_historical_chamber() -> None:
     ada = chamber.participants[0]
     # Never measured anywhere, so deciding_stances drops it.
     chamber.stance_history = [StancePoll(round_index=0, stances={}, unparsed=[str(ada.id)])]
-    assert support_summary(chamber) == "unanimous — all 2 debaters on pro"
+    assert support_summary(chamber) == "unanimous: all 2 debaters on pro"
 
 
 def test_support_for_a_historical_chamber_without_history_counts_everyone() -> None:
@@ -220,7 +220,7 @@ def test_support_for_a_historical_chamber_without_history_counts_everyone() -> N
         winner=Stance.PRO,
         unparsed=None,
     )
-    assert support_summary(chamber) == "unanimous — all 3 debaters on pro"
+    assert support_summary(chamber) == "unanimous: all 3 debaters on pro"
 
 
 def test_decision_basis_per_outcome() -> None:
@@ -270,7 +270,7 @@ def test_movements_reports_who_changed_between_first_and_last_measurement() -> N
                      str(kant.id): Stance.NEUTRAL},
         ),
     ]
-    assert movements(chamber) == ("Ada (pro→neutral)",)
+    assert movements(chamber) == ("Ada (pro to neutral)",)
 
 
 def test_movements_is_empty_without_history() -> None:
@@ -331,7 +331,7 @@ def test_movements_flags_a_muted_debater() -> None:
     ]
     # Still polled (FR-13), so still reported — and where it ended up is
     # interesting precisely because it did not count.
-    assert movements(chamber) == ("Ada (pro→neutral, muted)",)
+    assert movements(chamber) == ("Ada (pro to neutral, muted)",)
 
 
 def test_summarize_outcome_bundles_the_headline_with_the_derived_values() -> None:
@@ -345,7 +345,7 @@ def test_summarize_outcome_bundles_the_headline_with_the_derived_values() -> Non
     summary = summarize_outcome(chamber)
     assert summary is not None
     assert summary.headline == "Mars should wait."
-    assert summary.support == "unanimous — all 3 debaters on pro"
+    assert summary.support == "unanimous: all 3 debaters on pro"
     assert summary.decided_by == "all debaters converged"
     assert summary.movements == ()
 
@@ -375,7 +375,7 @@ def test_movements_keeps_scanning_past_a_debater_who_never_moved() -> None:
             stances={str(ada.id): Stance.PRO, str(zeno.id): Stance.NEUTRAL},
         ),
     ]
-    assert movements(chamber) == ("Zeno (con→neutral)",)
+    assert movements(chamber) == ("Zeno (con to neutral)",)
 
 
 def test_movements_reports_the_last_measurement_not_the_second() -> None:
@@ -386,7 +386,7 @@ def test_movements_reports_the_last_measurement_not_the_second() -> None:
         StancePoll(round_index=1, stances={str(ada.id): Stance.CON}),
         StancePoll(round_index=2, stances={str(ada.id): Stance.NEUTRAL}),
     ]
-    assert movements(chamber) == ("Ada (pro→neutral)",)
+    assert movements(chamber) == ("Ada (pro to neutral)",)
 
 
 def test_outcome_summary_is_frozen() -> None:
@@ -509,7 +509,7 @@ def test_caveat_prose_is_pinned_verbatim() -> None:
     assert summary.caveat == (
         "Stance labels record how each debater answered a three-word poll, not what "
         "they argued. A neutral answer covers both holding no position and holding a "
-        "compromise the poll has no word for — read the transcript for what a debater "
+        "compromise the poll has no word for; read the transcript for what a debater "
         "actually held."
     )
 

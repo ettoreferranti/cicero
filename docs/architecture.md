@@ -417,7 +417,7 @@ streaming path:
   | `POST /chambers/{id}/compliance/rejudge` | Re-run the compliance judge over a concluded chamber's turns, replacing `argued` (FR-34); 409 unless `concluded` |
   | `POST /chambers/{id}/clone` | Draft copy for a rerun (FR-5) |
   | `GET /chambers/{a}/compare/{b}` | Run-vs-run comparison (FR-32) |
-  | `GET /chambers/{id}/export?format=json\|markdown` | Export (FR-31) |
+  | `GET /chambers/{id}/export?format=json\|markdown` | Export (FR-31). Markdown is a complete record — run configuration, per-debater tuning and prompts, per-turn provenance and model reasoning, stance history, outcome, token use — not just the transcript |
   | `GET /chambers/{id}/outcome` | Derived headline/support/basis/movement (FR-23, F5); payload also carries the compliance fields `compliance_caveat` and `noncompliance` (FR-34, F9) |
   | `GET /chambers/{id}/metrics` | Per-participant token/turn/error counts (FR-33) |
   | `GET /providers`, `GET /providers/{p}/models` | Provider + model discovery (FR-12) |

@@ -523,6 +523,71 @@ a repeat — with the narration still on the turn.
 Nothing records `done_reason`, so a *truncated* turn remains as invisible as this
 one was. Both are the same gap; the truncation half is still open on #28.
 
+### The Markdown export became a complete record (2026-08-20)
+
+Prompted by a real need: sharing two runs with an outside researcher, where the
+question is not "what did they say" but "under what conditions did they say it".
+The export named the models and printed the prose, and dropped everything else —
+so two runs differing only in `max_rounds`, in temperature, or in the moderator
+exported **identically**, and nothing in the file said which model produced which
+turn beyond a display name someone chose.
+
+Added, all of it data the app already held:
+
+- **Run configuration** — rounds, convergence, decision rule, token budget, web
+  evidence, repetition stop, the moderator with its own settings, and from
+  `chamber.config` how the debate ended: stop reason, rounds completed, tokens
+  used.
+- **Per-debater tuning** — provider/model, assigned stance, temperature, max
+  tokens, and whether reasoning was allowed. The roster moved from a bullet list
+  to a table to fit.
+- **The prompts** — instructions and personas. Printed **once** when identical,
+  and *said* to be identical: in a comparison where the model is the variable,
+  that sameness is the control, and a reader cannot verify it from a per-debater
+  list that happens to repeat.
+- **Per-turn provenance** — the model that produced it, the side it was
+  assigned, the side the compliance judge said it argued, token cost, and the
+  repeat / provider-error flags.
+- **Model reasoning**, under `⟨model reasoning — not part of the debate⟩`, with a
+  note above the transcript saying the engine stripped it before the turn was
+  stored, so no debater, the moderator or the judge ever read it. The note is
+  omitted when there is no reasoning — a caveat about something absent is noise.
+- **Token use per debater**, from the existing metrics.
+
+Full record by default rather than behind `?detail=`. The only consumer is a
+download link in the UI — nothing machine-parses this output, unlike the JSON
+export (#16) — so there is no contract to break, and an export that omits the
+settings and prompts that produced the run is simply incomplete.
+
+`REASONING_KEY` moved from `orchestrator` to `prompt_builder`, beside the
+`strip_reasoning` that produces its content, so a leaf renderer does not have to
+import the engine to name a metadata key.
+
+Five whole-document layout tests changed, which is what they are for. Two
+containment tests changed too, both legitimately: the roster's names are table
+cells rather than bold runs now, and one asserted no debater name appeared after
+`## Transcript` - the token-use table names them all, so it was rescoped to the
+transcript section, which is what it meant.
+
+#### Everything the export writes is now ASCII
+
+Reported from a real pipeline: an md-to-PDF converter mangled the em dashes, and
+an editor flagged the `U+00B7` middle dot used as a separator on the provenance
+line. Measured on one export: 287 non-ASCII characters, **219 of them inside the
+debaters' own prose** - curly quotes, en dashes, `Henin`, `Bjorn`. Those cannot
+be touched; the turns are the record.
+
+What the app *writes* now is ASCII throughout: the provenance separator (45
+occurrences per file), the reasoning heading's angle brackets, the round headings
+(`### Round 1 - Ada`), the instructions labels, the `(?)` note, and the outcome
+strings in `outcome.py` and `compliance.py` - `unanimous:`, `contested:`,
+`judge-decided:`, `unmeasured:`, `pro to neutral`.
+
+`test_markdown_scaffolding_is_ascii` pins it: a chamber whose every input is
+ASCII must render as ASCII. That is the honest form of the promise - the export
+adds nothing, and a file will still carry whatever the models wrote. A downstream
+converter needs to read UTF-8 regardless.
+
 ## Cross-cutting "Definition of Done" (every story)
 1. Code + tests (unit/integration) with providers mocked.
 2. Mutation score on touched core logic meets threshold (or justified exclusion).

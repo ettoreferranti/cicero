@@ -202,3 +202,29 @@ def test_compliance_measurement_can_be_disabled() -> None:
     from cicero.domain.models import DebateSettings
 
     assert DebateSettings(measure_compliance=False).measure_compliance is False
+
+
+def test_a_debate_runs_several_rounds_before_it_may_stop_early() -> None:
+    # One round is opening statements: nobody has answered anybody yet. Polling
+    # after it let a chamber whose pro debaters had merely been out-argued once
+    # record "consensus" and stop, five rounds before the convergence phase it
+    # was configured to reach.
+    from cicero.domain.models import DebateSettings
+
+    assert DebateSettings().min_rounds == 3
+
+
+def test_the_default_floor_gives_way_to_a_shorter_debate() -> None:
+    # The floor is a default, not a new lower bound on max_rounds: asking for a
+    # two-round debate must stay legal rather than fail validation on a value
+    # the caller never set.
+    from cicero.domain.models import DebateSettings
+
+    assert DebateSettings(max_rounds=2).min_rounds == 2
+
+
+def test_an_explicit_floor_above_the_ceiling_is_still_rejected() -> None:
+    from cicero.domain.models import DebateSettings
+
+    with pytest.raises(ValidationError, match="min_rounds cannot exceed max_rounds"):
+        DebateSettings(max_rounds=2, min_rounds=3)

@@ -105,7 +105,13 @@ class DebateSettings(_Base):
     max_total_tokens: int = Field(default=200_000, gt=0, le=5_000_000)
     #: Wall-clock cap for the whole debate; ``None`` means no time limit.
     max_duration_seconds: float | None = Field(default=None, gt=0, le=86_400)
-    min_rounds: int = Field(default=1, ge=1)
+    #: Rounds that must run before the engine may look for an early stop. One
+    #: round is only opening statements — nobody has answered anybody yet — and
+    #: polling after it let a chamber record "consensus" the first time the pro
+    #: side was out-argued, rounds before the convergence phase it was
+    #: configured to reach. A default, not a lower bound on ``max_rounds``: a
+    #: caller asking for a shorter debate gets one (see the validator).
+    min_rounds: int = Field(default=3, ge=1)
     decision_rule: DecisionRule = DecisionRule.JUDGE
     #: How many closing rounds are steered toward common ground (0 disables).
     convergence_rounds: int = Field(default=2, ge=0, le=100)
@@ -128,7 +134,12 @@ class DebateSettings(_Base):
     @model_validator(mode="after")
     def _check_round_bounds(self) -> DebateSettings:
         if self.min_rounds > self.max_rounds:
-            raise ValueError("min_rounds cannot exceed max_rounds")
+            if "min_rounds" in self.model_fields_set:
+                raise ValueError("min_rounds cannot exceed max_rounds")
+            # Only the default overshot, so the shorter debate the caller
+            # actually asked for wins: the floor gives way rather than
+            # rejecting a value nobody set.
+            self.min_rounds = self.max_rounds
         return self
 
 

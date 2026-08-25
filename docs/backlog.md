@@ -523,6 +523,56 @@ a repeat — with the narration still on the turn.
 Nothing records `done_reason`, so a *truncated* turn remains as invisible as this
 one was. Both are the same gap; the truncation half is still open on #28.
 
+### Bug — a debate could conclude on its opening statements (2026-08-25)
+
+Two chambers on the same motion — *"Colombia should make coca production
+completely legal, regulated, and taxed…"* — each ran **one round, four turns**,
+and recorded `stop_reason: consensus` with a `con` winner. Nobody had answered
+anybody. Reproduced exactly by replaying the stored transcripts against the same
+Ollama models at temperature 0, so none of the below is inference.
+
+Three things stacked, in the order they fire:
+
+- **`min_rounds` defaulted to `1`.** `may_stop_early()` is
+  `rounds_completed >= min_rounds`, so the consensus check ran the moment round 0
+  closed — with `max_rounds: 8` and `convergence_rounds: 2`, five rounds before
+  the convergence phase it was configured to reach. This was already known and
+  already written down: `model-selection.md` ends its worked example with *"raise
+  `min_rounds` above 1 — a unanimous first poll otherwise ends the run before any
+  exchange happens."* It was advice to the operator; it is now the default (`3`,
+  and it gives way rather than raising when `max_rounds` is smaller, so asking for
+  a two-round debate stays legal).
+
+- **The 512-token poll budget left `deepseek-r1:8b` unreadable.** It spent the
+  whole budget reasoning and Ollama returned no content at all → `ProviderError` →
+  `unparsed`. Because it was that debater's **first** poll, `deciding_stances`
+  classified it a phantom and dropped it from the tally entirely. Measured at
+  increasing caps against the real transcript: 512 fails, **1024 answers cleanly**
+  (`_POLL_MAX_TOKENS` raised accordingly). This is the third defect in this file
+  caused by a reasoning model and a tight budget.
+
+- **Both pro debaters reported `con` about themselves.** Not a parse failure —
+  `strip_reasoning` correctly reduced 1,975 characters of `qwen3:30b` narration to
+  the bare word `con`. The poll drops the persona and instructions by design and
+  explicitly invites side-switching, and the pro side had been instructed to
+  invent facts and attack people, so polled without their personas the models read
+  their own transcript and scored the other side higher. In the second run the pro
+  debater did not even need the poll: it defected inside its opening turn — *"I
+  withdraw my support immediately."*
+
+So the engine did what it says. The tally that ended debate 1 had three voters,
+all `con`, and `is_consensus` was correct about them.
+
+**What the record shows the poll missed.** The compliance judge had already read
+the same four turns and scored the round **2–2** — it reads Donald's turn as `pro`,
+which is what the prose argues, and it read `deepseek-r1:8b` in both runs where the
+poll could read it in neither. Debate 1 had no moderator configured, so the judge
+fell back to the first participant's model: `qwen3:30b`, the *same model* as the
+debater it disagreed with. The variable is the question asked, not the model.
+
+The first two causes are fixed here. The third is not a defect to fix but a signal
+to stop trusting on its own, and it is specified separately as **F11**.
+
 ### The Markdown export became a complete record (2026-08-20)
 
 Prompted by a real need: sharing two runs with an outside researcher, where the

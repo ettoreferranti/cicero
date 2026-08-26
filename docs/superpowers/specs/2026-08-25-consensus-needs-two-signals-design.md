@@ -67,8 +67,18 @@ replayed over the real corpus — no model calls, no new runs.
 second:
 
 ```
-python scripts/replay_consensus_gate.py --database-url sqlite:///./cicero.db
+python scripts/replay_consensus_gate.py                      # committed fixtures
+python scripts/replay_consensus_gate.py --database-url ...   # a live database
 ```
+
+With no arguments it scores the four chambers committed under
+`backend/tests/fixtures/consensus_gate/` — the ones this argument actually turns on,
+including the two originals that no longer exist anywhere else. Their debater names
+were replaced with the neutral roster the rest of the suite uses; nothing else about
+the records was altered. `tests/test_consensus_gate_fixtures.py` pins the
+conclusions drawn from them, so a change to `is_consensus`, `deciding_stances` or the
+judged-stance rule that would invalidate this spec fails the build instead of
+quietly ageing the document.
 
 **16 concluded chambers carry both signals** (the rest ran before F9 or with
 `measure_compliance` off). Judged sides are filtered exactly as `deciding_stances`
@@ -271,10 +281,9 @@ debate run past an apparent consensus is owed the reason.
   directly and failed. Re-run the replay as runs accumulate.
 
 - **The two original Colombia chambers were deleted from the maintainer's database
-  on 2026-08-26**, after this measurement and before this spec was updated. Their
-  ids (`1d419178`, `5e94e519`) no longer resolve, and a replay run today will not
-  show them — which is why the rerun above, not the originals, carries the argument.
-  Their record survives in the backlog's 2026-08-25 bug note and in PR #35. A
-  corpus that lives only in a mutable local database is not a durable benchmark;
-  committing the decisive chambers as fixtures, the way F10 did, is the fix if this
-  evidence is going to be relied on again.
+  on 2026-08-26**, after this measurement. Their ids (`1d419178`, `5e94e519`) no
+  longer resolve and a `--database-url` replay will not show them. That is why they
+  are committed as fixtures: a corpus living only in a mutable local database is not
+  a benchmark. The wider 16-chamber measurement above is *not* reproducible from
+  this repository — only the four decisive chambers are — so treat its aggregate
+  counts as a dated observation and the fixtures as the durable claim.

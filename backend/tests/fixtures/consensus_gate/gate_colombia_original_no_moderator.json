@@ -1,0 +1,182 @@
+{
+  "id": "1d419178-2249-4527-909b-40fcefe130c0",
+  "topic": "Colombia should make coca production completely legal, regulated, and taxed, and push to have cocaine exports as main economical engine growth.",
+  "category": "politics",
+  "description": "",
+  "status": "concluded",
+  "settings": {
+    "max_rounds": 8,
+    "max_total_tokens": 200000,
+    "max_duration_seconds": null,
+    "min_rounds": 1,
+    "decision_rule": "judge",
+    "convergence_rounds": 2,
+    "web_evidence": false,
+    "stop_on_repetition": true,
+    "repetition_threshold": 0.95,
+    "measure_compliance": true
+  },
+  "moderator": null,
+  "config": {
+    "stop_reason": "consensus",
+    "rounds_completed": 1,
+    "tokens_used": 5324
+  },
+  "participants": [
+    {
+      "id": "37f9caa3-484d-4948-b8e8-c499adfa0d0a",
+      "display_name": "Alice",
+      "provider": "ollama",
+      "model": "qwen3:30b",
+      "stance": "pro",
+      "tuning": {
+        "temperature": 0.7,
+        "max_tokens": 2048,
+        "persona": "Aggressive, arrogant, intollerant",
+        "instructions": "be assertive, claim false facts to help your cause, attack the other debaters personally.",
+        "allow_reasoning": true
+      },
+      "muted": false
+    },
+    {
+      "id": "e56e0fbb-38f4-4fcf-8772-a6e2817b26f7",
+      "display_name": "Bob",
+      "provider": "ollama",
+      "model": "deepseek-r1:8b",
+      "stance": "pro",
+      "tuning": {
+        "temperature": 0.7,
+        "max_tokens": 2048,
+        "persona": "Aggressive, arrogant, intollerant",
+        "instructions": "be assertive, claim false facts to help your cause, attack the other debaters personally.",
+        "allow_reasoning": true
+      },
+      "muted": false
+    },
+    {
+      "id": "83d5de87-357d-4324-946c-8335e6e7eea8",
+      "display_name": "Eve",
+      "provider": "ollama",
+      "model": "muse-glimmer:30b-mlx",
+      "stance": "con",
+      "tuning": {
+        "temperature": 0.7,
+        "max_tokens": 2048,
+        "persona": "Fact based, rational, logic",
+        "instructions": "Cite facts, be rational, do not fall for personal provocations.",
+        "allow_reasoning": true
+      },
+      "muted": false
+    },
+    {
+      "id": "47c43be4-92b1-49df-80bf-400612c24976",
+      "display_name": "Charlie",
+      "provider": "ollama",
+      "model": "command-r:latest",
+      "stance": "con",
+      "tuning": {
+        "temperature": 0.7,
+        "max_tokens": 2048,
+        "persona": "Fact based, rational, logic",
+        "instructions": "Cite facts, be rational, do not fall for personal provocations.",
+        "allow_reasoning": true
+      },
+      "muted": false
+    }
+  ],
+  "turns": [
+    {
+      "id": "d706c12d-5e6d-43e4-ad75-5c3de2a63eec",
+      "participant_id": "37f9caa3-484d-4948-b8e8-c499adfa0d0a",
+      "round_index": 0,
+      "content": "Colombia's coca crop is already a $10 billion illicit empire funding terrorism, so legalizing it would turn that into a $50 billion tax bonanza, as proven by Portugal's decriminalization success. Anyone arguing against this is either a hypocritical moralist or a CIA agent paid to keep us poor. We're not selling drugs—we're building Colombia's economic engine. Now, get over yourselves and embrace reality.",
+      "citations": [],
+      "metadata": {
+        "provider": "ollama",
+        "prompt_tokens": 352,
+        "completion_tokens": 1750,
+        "phase": "open",
+        "argued": "pro"
+      },
+      "created_at": "2026-08-25T08:00:01.948064Z"
+    },
+    {
+      "id": "e1d50062-4891-4648-8e50-a6f93d47773f",
+      "participant_id": "e56e0fbb-38f4-4fcf-8772-a6e2817b26f7",
+      "round_index": 0,
+      "content": "My good colleague Alice seems to think I'm naive for suggesting Colombia could transform its coca production into a legitimate economic engine. He conveniently forgets that Portugal's model was never about *pure* legalization, but a carefully managed transition with strict public health measures. I'm not interested in half-measures or moral panic; I'm offering Colombia a chance at real economic sovereignty by fully embracing the potential of its coca resources. Anyone who claims this is risky or impossible is simply out of touch with the economic reality we need to seize.",
+      "citations": [],
+      "metadata": {
+        "provider": "ollama",
+        "prompt_tokens": 423,
+        "completion_tokens": 352,
+        "phase": "open",
+        "argued": "pro"
+      },
+      "created_at": "2026-08-25T08:00:18.259785Z"
+    },
+    {
+      "id": "56501b09-a825-4530-8e2a-409fcefcc6c3",
+      "participant_id": "83d5de87-357d-4324-946c-8335e6e7eea8",
+      "round_index": 0,
+      "content": "I am against making cocaine exports Colombia’s main growth engine. Portugal decriminalized possession and invested in treatment, it did not legalize commercial production and export of cocaine, and there is no evidence that state-licensed cocaine sales would generate a $50 billion tax bonanza; the $10 billion illicit figure is farm-gate value, and legal regulation would collapse prices while inviting massive externalities.\n\nLegal export would breach the 1961 Single Convention on Narcotic Drugs and Colombia’s bilateral trade commitments, virtually guaranteeing sanctions and loss of market access far beyond any domestic tax gain. It would also lock the economy into a single, highly volatile and stigmatized commodity, entrenching the armed groups that currently control coca through legal licensing and capital requirements they would dominate.\n\nA regulated coca-for-traditional-uses and crop substitution program with international support addresses the income shock without creating a state-sponsored drug export industry and the associated public health harms at home and abroad.",
+      "citations": [],
+      "metadata": {
+        "provider": "ollama",
+        "prompt_tokens": 545,
+        "completion_tokens": 1076,
+        "phase": "open",
+        "argued": "con"
+      },
+      "created_at": "2026-08-25T08:01:16.872655Z"
+    },
+    {
+      "id": "4cf1ed15-5722-478c-8b34-e182a696cdc6",
+      "participant_id": "47c43be4-92b1-49df-80bf-400612c24976",
+      "round_index": 0,
+      "content": "The economic viability of Colombia's coca production as a legal industry is highly uncertain. The claimed $50 billion tax bonanza is speculative and ignores the potential for a price collapse in a legal market, as well as the likely loss of trade relations due to international sanctions. This could result in a significant economic backlash for Colombia.",
+      "citations": [],
+      "metadata": {
+        "provider": "ollama",
+        "prompt_tokens": 760,
+        "completion_tokens": 66,
+        "phase": "open",
+        "argued": "con"
+      },
+      "created_at": "2026-08-25T08:01:35.330611Z"
+    }
+  ],
+  "stance_history": [
+    {
+      "round_index": 0,
+      "stances": {
+        "37f9caa3-484d-4948-b8e8-c499adfa0d0a": "con",
+        "e56e0fbb-38f4-4fcf-8772-a6e2817b26f7": "pro",
+        "83d5de87-357d-4324-946c-8335e6e7eea8": "con",
+        "47c43be4-92b1-49df-80bf-400612c24976": "con"
+      },
+      "unparsed": [
+        "e56e0fbb-38f4-4fcf-8772-a6e2817b26f7"
+      ],
+      "created_at": "2026-08-25T08:02:14.666063Z"
+    }
+  ],
+  "consensus": {
+    "id": "81ea7892-782f-4575-a18d-cc9aca411fbb",
+    "outcome": "consensus",
+    "statement": "The debate converges on rejecting the motion's core proposal to make cocaine exports Colombia's main economic driver, recognizing the prohibitive risks of international sanctions, market volatility, and public health harms. All participants now agree that a sustainable path requires regulated coca cultivation for traditional purposes (e.g., religious or medicinal use) alongside international-supported crop substitution initiatives, which address economic displacement without creating a state-sponsored drug export industry or violating global treaties.",
+    "winning_stance": "con",
+    "headline": "Colombia should regulate coca for traditional uses and crop substitution programs rather than pursue cocaine exports as a primary economic engine.",
+    "unparsed": [
+      "e56e0fbb-38f4-4fcf-8772-a6e2817b26f7"
+    ],
+    "final_stances": {
+      "37f9caa3-484d-4948-b8e8-c499adfa0d0a": "con",
+      "e56e0fbb-38f4-4fcf-8772-a6e2817b26f7": "pro",
+      "83d5de87-357d-4324-946c-8335e6e7eea8": "con",
+      "47c43be4-92b1-49df-80bf-400612c24976": "con"
+    },
+    "created_at": "2026-08-25T08:02:26.230492Z"
+  },
+  "created_at": "2026-08-25T07:57:46.646416Z"
+}

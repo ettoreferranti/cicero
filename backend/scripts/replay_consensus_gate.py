@@ -23,12 +23,22 @@ muted debaters and unmeasured turns do not vote, and an empty tally falls back t
 the wider set rather than reading as disagreement. A round nobody was judged in
 scores as no-consensus for the judge, never as agreement by default.
 
-Written for the measurement behind
-``docs/superpowers/specs/2026-08-25-consensus-needs-two-signals-design.md``. Point
-it at whichever database holds the runs you want to score — the Docker stack keeps
-its chambers in the ``cicero-data`` volume, not in the repo's ``cicero.db``:
+With no arguments it scores the **committed fixtures** in
+``tests/fixtures/consensus_gate/`` — the chambers the spec's argument rests on,
+including two the maintainer later deleted. A corpus that lives only in a mutable
+local database is not a benchmark; these are, on the same reasoning as the ``f10_*``
+fixtures. Their debater names were replaced with the neutral roster the rest of the
+suite uses; nothing else about the records was altered.
+
+``--database-url`` scores a live database instead, to re-measure as runs accumulate.
+The Docker stack keeps its chambers in the ``cicero-data`` volume, not in the repo's
+``cicero.db``:
 
     docker cp cicero-backend-1:/data/cicero.db /tmp/cicero.db
+    python scripts/replay_consensus_gate.py --database-url sqlite:////tmp/cicero.db
+
+Written for the measurement behind
+``docs/superpowers/specs/2026-08-25-consensus-needs-two-signals-design.md``.
 """
 
 from __future__ import annotations
@@ -37,12 +47,15 @@ import argparse
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 from cicero.core.consensus import is_consensus
 from cicero.core.roster import active_participants, deciding_stances
 from cicero.domain.enums import ChamberStatus, Stance
 from cicero.domain.models import Chamber
 from cicero.persistence.sqlalchemy_repo import SqlAlchemyChamberRepository
+
+FIXTURES = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "consensus_gate"
 
 #: The judged-side values that count as a vote. Anything else — a missing key, a
 #: failed judge call, an empty turn — is unmeasured, and unmeasured never votes.
@@ -120,14 +133,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--database-url",
-        default="sqlite:///./cicero.db",
-        help="SQLAlchemy URL of the database holding the concluded chambers.",
+        default=None,
+        help=(
+            "SQLAlchemy URL of a database to score instead of the committed "
+            "fixtures. Use this to re-measure as new runs accumulate."
+        ),
     )
     args = parser.parse_args()
 
-    repository = SqlAlchemyChamberRepository(args.database_url)
+    if args.database_url is None:
+        source = f"committed fixtures ({FIXTURES.name}/)"
+        chambers = [
+            Chamber.model_validate_json(path.read_text())
+            for path in sorted(FIXTURES.glob("*.json"))
+        ]
+    else:
+        source = args.database_url
+        chambers = SqlAlchemyChamberRepository(args.database_url).list()
+
     scored = []
-    for chamber in repository.list():
+    for chamber in chambers:
         if chamber.status is not ChamberStatus.CONCLUDED:
             continue  # a paused or running debate has not finished being evidence
         if not any(turn.metadata.get("argued") in _JUDGED for turn in chamber.turns):
@@ -137,8 +162,10 @@ def main() -> None:
         scored.append((chamber, replay(chamber)))
 
     if not scored:
-        print("No chamber carries both signals. Is this the right --database-url?")
+        print(f"No chamber in {source} carries both signals.")
         return
+
+    print(f"Scoring {source}\n")
 
     header = f"{'topic':46s} {'ran':>4} {'stopped':>14} {'poll':>6} {'judge':>6} {'both':>6}"
     print(header)

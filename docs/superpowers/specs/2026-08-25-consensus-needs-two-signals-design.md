@@ -77,8 +77,8 @@ filters polled ones: muted debaters and unmeasured turns do not vote.
 | gate | fires in | would cut short a debate that actually ran longer |
 |---|---|---|
 | `poll` (ships today) | 6 of 16 | 0 |
-| `judge` (the replacement) | 10 of 16 | **8** |
-| `poll` **and** `judge` | 2 of 16 | 0 |
+| `judge` (the replacement) | 11 of 16 | **8** |
+| `poll` **and** `judge` | 3 of 16 | 0 |
 
 **A judge-only gate is much worse than what ships.** It would have ended 8 of 16
 debates early — the `Should the canton of Zürich secede` chamber at round 1 of the
@@ -94,18 +94,77 @@ chambers where the poll fired:
 
 | chamber | poll fired | judge agreed | verdict |
 |---|---|---|---|
-| Colombia (×2) | r1 | **no** — 2–2, 3–1 | blocked ✅ |
+| Colombia (rerun, post-fix) | r4 | **no** — 2–2 | blocked ✅ |
 | Zürich secession | r1 | **no** — 3–1 | blocked ✅ |
 | US presidency | r1 | **no** — 2–2 | blocked ✅ |
-| Switzerland invades Italy | r1 | yes — 4–0 con | kept |
+| Watering lawns (post-fix) | r7 | yes — 4–0 con | kept |
 | Deadliest pathogen | r8 | yes — 5–0 pro | kept |
+| Switzerland invades Italy | r1 | yes — 4–0 con | kept |
 
-All four blocked stops are round-1 stops. Both kept stops are ones where an
-independent reader confirms a single position held: the pathogen chamber ran its
-full eight rounds, and the invasion chamber is the single-model roster written up
-in [`model-selection.md`](../../model-selection.md) where *nobody argued the
-motion*. **Zero legitimate stops are lost, and no `max_rounds` debate is affected
-at all** — the poll never fired in those, so nothing changes.
+Every kept stop is one where an independent reader confirms a single position
+held. **Zero legitimate stops are lost, and no `max_rounds` debate is affected at
+all** — the poll never fired in those, so nothing changes.
+
+The invasion chamber is the single-model roster written up in
+[`model-selection.md`](../../model-selection.md) where *nobody argued the motion*;
+see *What this does not fix*.
+
+### The decisive test: two chambers run *after* the round floor was fixed
+
+The measurement above is retrospective, over debates that ran with `min_rounds: 1`.
+The obvious objection is that the round floor was the whole problem and a poll
+consulted three rounds later would be fine. It is not, and the corpus now contains
+the direct test.
+
+**The Colombia motion, rerun.** A clone of the original chamber, identical roster,
+personas and moderator, with only `min_rounds` changed from 1 to 3, and the poll
+budget already raised so every reply was readable (`unparsed` is empty throughout).
+It ran 4 rounds and stopped on `consensus`, winner `con`:
+
+| round | Donald (pro) | JD (pro) | Barak (con) | Kamala (con) |
+|---|---|---|---|---|
+| R3 | **con**/pro | pro/pro | con/con | con/con |
+| R4 | **con**/pro | **con**/pro | con/con | con/con |
+
+*(self-poll / judged from prose. Rounds 1–2 precede the first poll.)*
+
+**Both pro debaters argued pro in all four rounds** — the judge labels every one of
+their eight turns `pro` — and the round-4 poll recorded all four debaters as `con`.
+Their round-4 turns are not concessions:
+
+> Donald: *"help me build the **real** plan: legalize, tax, and fund rural
+> development with that revenue."*
+>
+> JD: *"focus on how this revolution will end cartel violence and transform our
+> economy."*
+
+The debate concluded that the chamber was unanimously against the motion while half
+the room was arguing for it in the very round that ended it.
+
+Note the likely mechanism, visible in Donald's turn: he opens by conceding one
+arithmetic point — *"the $20 billion was my bad math"* — and then restates the pro
+case in full. The poll appears to read *conceded a sub-point* as *changed sides*.
+That is a failure mode no round floor can reach.
+
+**So the round floor delays the false stop; it does not prevent it.** Round 1
+became round 4. The judge read the stopping round 2–2 and the conjunction would
+have blocked it.
+
+**The watering-lawns chamber, the control.** Also post-fix, 7 rounds, and a real
+debate: the pro-assigned debater concedes in writing at round 4 (*"I therefore
+update to oppose a ban as a standalone measure"*) and the chamber converges
+honestly. Poll and judge agree 4–0 at the stopping round, so the conjunction keeps
+it untouched. That is the third independent confirmation on the kept side, and it
+is the answer to the objection that a second condition would just make debates run
+to `max_rounds`.
+
+One caution from that same chamber, which argues for reading the two signals as
+*different instruments* rather than one being right: across its 20 measured cells
+poll and judge disagree 8 times, but 6 of those are a `neutral` poll answer against
+a polar judged label — two debaters assigned `neutral`, answering `neutral`, whose
+hedging prose the judge must still resolve to a side. That is a vocabulary
+mismatch, not an error, and a conjunction treats it as disagreement. It is why the
+gate must stay a veto on a stop the poll *already proposed*, never a trigger.
 
 ### What this does not fix
 
@@ -204,7 +263,18 @@ debate run past an apparent consensus is owed the reason.
   names this condition: mechanisms that failed on constrained analytical output may
   simply work, at which point a richer stance signal beats a conjunction of two
   poor ones.
-- **If the corpus grows.** 16 chambers, 6 poll firings and 2 surviving stops is a
-  small sample. It is enough to reject judge-only replacement (8 failures is not
-  noise) and enough to justify building the conjunction, but the "zero legitimate
-  stops lost" claim rests on two chambers. Re-run the replay as runs accumulate.
+- **If the corpus grows.** 16 chambers and 6 poll firings is still a small sample.
+  It is enough to reject judge-only replacement (8 failures is not noise) and, with
+  the two post-fix chambers above, enough to justify building the conjunction: the
+  "zero legitimate stops lost" claim now rests on three chambers rather than two,
+  and the "the round floor was the whole problem" objection has been tested
+  directly and failed. Re-run the replay as runs accumulate.
+
+- **The two original Colombia chambers were deleted from the maintainer's database
+  on 2026-08-26**, after this measurement and before this spec was updated. Their
+  ids (`1d419178`, `5e94e519`) no longer resolve, and a replay run today will not
+  show them — which is why the rerun above, not the originals, carries the argument.
+  Their record survives in the backlog's 2026-08-25 bug note and in PR #35. A
+  corpus that lives only in a mutable local database is not a durable benchmark;
+  committing the decisive chambers as fixtures, the way F10 did, is the fix if this
+  evidence is going to be relied on again.

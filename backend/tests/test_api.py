@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from cicero.api.app import create_app
 from cicero.api.debate_manager import DebateManager
@@ -45,10 +46,23 @@ def client() -> Iterator[TestClient]:
     app.dependency_overrides.clear()
 
 
-def _create_chamber(client: TestClient, topic: str = "Should we colonise Mars?") -> str:
-    resp = client.post("/chambers", json={"topic": topic})
+def _create_chamber(
+    client: TestClient,
+    topic: str = "Should we colonise Mars?",
+    settings: dict[str, object] | None = None,
+) -> str:
+    payload: dict[str, object] = {"topic": topic}
+    if settings is not None:
+        payload["settings"] = settings
+    resp = client.post("/chambers", json=payload)
     assert resp.status_code == 201
     return resp.json()["id"]
+
+
+#: A chamber that may conclude after a single round. Stepping and resuming are
+#: about turn *mechanics*, so those tests pin the round floor rather than
+#: inheriting the default and paying for two more rounds of scripted argument.
+_STOPS_AFTER_ONE_ROUND: dict[str, object] = {"min_rounds": 1}
 
 
 def _add_participant(client: TestClient, cid: str, name: str, stance: str) -> None:
@@ -461,7 +475,7 @@ def test_stop_without_running_debate_409(client: TestClient) -> None:
 
 
 def test_step_advances_one_turn_at_a_time(client: TestClient) -> None:
-    cid = _create_chamber(client)
+    cid = _create_chamber(client, settings=_STOPS_AFTER_ONE_ROUND)
     _add_participant(client, cid, "Pro-A", "pro")
     _add_participant(client, cid, "Pro-B", "pro")
 
@@ -486,7 +500,7 @@ def test_step_advances_one_turn_at_a_time(client: TestClient) -> None:
 
 
 def test_step_then_resume_runs_to_conclusion(client: TestClient) -> None:
-    cid = _create_chamber(client)
+    cid = _create_chamber(client, settings=_STOPS_AFTER_ONE_ROUND)
     _add_participant(client, cid, "Pro-A", "pro")
     _add_participant(client, cid, "Pro-B", "pro")
 
@@ -729,7 +743,7 @@ def test_resume_continues_an_interrupted_debate() -> None:
     app.dependency_overrides[get_provider_factory] = lambda: factory
     app.dependency_overrides[get_debate_manager] = lambda: manager
     with TestClient(app) as client:
-        cid = _create_chamber(client)
+        cid = _create_chamber(client, settings=_STOPS_AFTER_ONE_ROUND)
         _add_participant(client, cid, "A", "pro")
         _add_participant(client, cid, "B", "pro")
 
@@ -1229,3 +1243,13 @@ def test_rejudge_refuses_a_chamber_that_is_not_concluded() -> None:
     with _rejudge_client(repo, MockProvider()) as client:
         resp = client.post(f"/chambers/{chamber.id}/compliance/rejudge")
     assert resp.status_code == 409
+
+
+def test_settings_schema_mirrors_the_round_floor() -> None:
+    # DebateSettingsIn is a hand-maintained mirror (see the model_fields test),
+    # so the floor and its give-way rule have to be mirrored too — otherwise a
+    # chamber created through the API keeps the old one-round behaviour.
+    assert DebateSettingsIn().min_rounds == 3
+    assert DebateSettingsIn(max_rounds=2).min_rounds == 2
+    with pytest.raises(ValidationError, match="min_rounds cannot exceed max_rounds"):
+        DebateSettingsIn(max_rounds=2, min_rounds=3)

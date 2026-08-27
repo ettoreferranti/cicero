@@ -84,7 +84,16 @@ _SCANNED_STANCE_WORDS: dict[str, Stance] = {
 
 #: A one-word answer needs very few tokens, but reasoning models spend some on
 #: a <think> block first; too tight a cap truncates the answer itself.
-_POLL_MAX_TOKENS = 512
+#: Measured against a real transcript: deepseek-r1:8b spends all of 512 on
+#: narration and Ollama returns *no content at all*, so the debater reads as
+#: unmeasured and ``deciding_stances`` drops it from the tally — which is how a
+#: split chamber was recorded as unanimous. It answers cleanly at 1024. Every
+#: extra token here is only ever spent by a model that narrates; one that obeys
+#: the instruction still stops after a word. That asymmetry is why a mutation run
+#: reports *raising* this number as surviving: the test pins the floor a narrating
+#: model needs, and any larger cap clears it too. Lowering it is what breaks, and
+#: that mutant dies. Equivalent, not uncovered — as for ``_JUDGE_ATTEMPTS`` below.
+_POLL_MAX_TOKENS = 1024
 
 #: A judge that names no winner is re-asked this many times before giving up.
 #: The failure is stochastic rather than a deterministic inability — measured at

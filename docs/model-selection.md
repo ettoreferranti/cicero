@@ -107,9 +107,16 @@ assigned to. Nothing in the judged turns contests it — read the transcript
 before treating this as a tested result.*
 ```
 
-If you want an adversarial debate on a motion whose defensible case is thin,
-raise `min_rounds` above 1 — a unanimous first poll otherwise ends the run before
-any exchange happens — and do not cast one model as both sides.
+If you want an adversarial debate on a motion whose defensible case is thin, do
+not cast one model as both sides.
+
+**Updated 2026-08-25.** This paragraph used to advise raising `min_rounds` above
+1, because "a unanimous first poll otherwise ends the run before any exchange
+happens". Leaving that as advice was a mistake: the same failure then happened
+twice more, on the Colombia motion, to someone who had not read this page. The
+default is now `3`. The advice about the roster still stands, and is still the
+part this page exists to make — no round floor rescues a chamber where nobody
+argues the motion, which is exactly what the right-hand column above is.
 
 ## 2. Build your own table
 

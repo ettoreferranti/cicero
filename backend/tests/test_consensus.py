@@ -17,7 +17,7 @@ from cicero.core.consensus import (
 from cicero.core.prompts import DIRECTIVE_HEADLINE
 from cicero.domain.enums import ConsensusOutcome, DecisionRule, Stance
 from cicero.domain.models import MAX_HEADLINE_LENGTH, StancePoll
-from cicero.providers.base import GenerateOptions, GenerateResult
+from cicero.providers.base import GenerateOptions, GenerateResult, ProviderError
 from tests.conftest import (
     ConstantFactory,
     ScriptedProvider,
@@ -772,3 +772,31 @@ async def test_a_non_verdict_outcome_is_never_retried() -> None:
 
     assert result.outcome is ConsensusOutcome.CONSENSUS
     assert provider.moderator_calls == 1
+
+
+async def test_poll_budget_survives_a_model_that_narrates_before_answering() -> None:
+    # Measured on deepseek-r1:8b against a real transcript: at 512 tokens the
+    # model spends the whole budget reasoning and Ollama returns no content at
+    # all, so its position reads as unmeasured and is dropped from the tally.
+    # At 1024 it answers cleanly. A poll that cannot be read is not a neutral
+    # loss: an unread debater is excluded from the deciding set, which is how a
+    # split chamber was recorded as unanimous.
+    narration_cost = 1024
+
+    class NarratesFirst(ScriptedProvider):
+        async def generate(self, messages, options):  # type: ignore[no-untyped-def]
+            if options.max_tokens < narration_cost:
+                raise ProviderError("truncated before any content was produced")
+            return await super().generate(messages, options)
+
+    p = make_participant("P", Stance.PRO)
+    chamber = make_chamber(p, make_participant("Q", Stance.CON))
+    factory = StubFactory(
+        {pt.id: NarratesFirst(stance_word="pro") for pt in chamber.participants}
+    )
+    engine = ConsensusEngine(factory, ScriptedProvider(), MOD_OPTS)
+
+    report = await engine.poll_stances(chamber)
+
+    assert report.unparsed == ()
+    assert set(report.stances.values()) == {Stance.PRO}
